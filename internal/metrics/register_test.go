@@ -53,7 +53,7 @@ func withSeriesOfBothPlanes(t *testing.T) {
 	t.Cleanup(func() { DropFleet("register.test") })
 	Checks.WithLabelValues("register.test", VerdictOK).Add(0)
 	ConfigWriteErrors.WithLabelValues("other").Add(0)
-	PublishFleet("register.test", FleetSample{Applied: 1, Total: 1, Reason: "Progressing"})
+	PublishFleet("register.test", FleetSample{Applied: 1, Total: 1, Reason: "Progressing", Observed: true})
 }
 
 // A second call is what a test that builds a process twice does; it is not

@@ -515,3 +515,37 @@ func TestReconcile_recordsAPolicyListItCannotReadAsAFailedWrite(t *testing.T) {
 	assert.InDelta(t, 1, testutil.ToFloat64(metrics.ConfigWriteFailing.WithLabelValues(metrics.ConfigErrorRead)), 0,
 		`ratelimit_config_write_failing{reason="read"}`)
 }
+
+// A write that succeeds after a failed reconcile clears
+// ratelimit_config_write_failing under every reason, so
+// RatelimitConfigWriteErrors stops once the writes recover.
+func TestReconcile_clearsTheFailedWriteOnceAWriteSucceeds(t *testing.T) {
+	object := &v1.RateLimitPolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: unitNamespace, Name: "gateway.public", UID: "u", Generation: 1},
+		Spec:       goodSpec("gateway.public"),
+	}
+	unreachable := errors.New("api server unreachable")
+	listFails := true
+	c := fake.NewClientBuilder().WithScheme(unitScheme(t)).WithObjects(object).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(ctx context.Context, inner client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if listFails {
+				return unreachable
+			}
+			return inner.List(ctx, list, opts...)
+		}}).Build()
+	r := &Reconciler{Client: c, Namespace: unitNamespace, Store: New(c, unitNamespace, nil, "v", logr.Discard())}
+	_, err := r.Reconcile(t.Context(), reconcileRequest())
+	require.ErrorIs(t, err, unreachable, "the reconcile that cannot list the policies")
+	listFails = false
+
+	_, err = r.Reconcile(t.Context(), reconcileRequest())
+
+	require.NoError(t, err)
+	failing := map[string]float64{}
+	reasons := []string{metrics.ConfigErrorSize, metrics.ConfigErrorAPI, metrics.ConfigErrorRead, metrics.ConfigErrorOther}
+	for _, reason := range reasons {
+		failing[reason] = testutil.ToFloat64(metrics.ConfigWriteFailing.WithLabelValues(reason))
+	}
+	assert.Equal(t, map[string]float64{"size": 0, "api": 0, "read": 0, "other": 0}, failing,
+		"ratelimit_config_write_failing after the successful write")
+}

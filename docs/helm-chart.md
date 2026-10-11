@@ -243,9 +243,10 @@ policyAlerts:                        # PrometheusRule.yaml: the rules over the p
   noReplicasFor: 5m                  # RatelimitNoReplicas: past a rollout's surge pod, far below notReadyFor
   checksStoppedWindow: 10m           # RatelimitChecksStopped: the window that has to see no check of the domain;
   checksStoppedFor: 15m              #   raise it for a domain idle for long stretches
-  configWriteFailingFor: 5m          # RatelimitConfigWriteErrors: the last write has failed this long
+  configWriteFailingFor: 5m          # RatelimitConfigWriteErrors: writes have failed this long, none succeeding
   reconcileErrorsWindow: 30m         # RatelimitOperatorReconcileFailing: a controller that completed no reconcile;
                                      #   longer than the retry backoff, 1000 s
+  reconcileFailingFor: 5m            #   and held this long, past a failure its retry recovers from
   noLeaderFor: 5m                    # RatelimitNoOperatorLeader: past the Lease's own handover
 
 BASELINE_ORIGIN: ""                  # _helpers.tpl (mode): the platform's composite variable, see "Platform
@@ -743,12 +744,12 @@ exclude.
 | `ratelimit_policy_ready` | `domain`, `reason` | 0/1 of the strict `Ready`; status gauges are const metrics from the operator's scrape, there are never stale series |
 | `ratelimit_policy_enforced` | `domain` | 1 while any generation of the policy is enforced, 0 while nothing is (`NotCompiled` on a first generation, `NoReplicas` aside); from the operator's judgement, like the series below |
 | `ratelimit_policy_stalled` | `domain`, `reason: Progressing\|ReplicaStale\|NotCompiled\|ConfigMapTooLarge\|ReplicaFormatUnsupported` | 0/1 of the `Stalled` condition; `Progressing` is the reason while it reads 0, so a domain keeps one label set; while `Stalled` is `Unknown` the series keeps its last value and reason |
-| `ratelimit_policy_replicas` | `domain`, `state: total\|applied` | the denominator and the numerator of `Ready` |
+| `ratelimit_policy_replicas` | `domain`, `state: total\|applied` | the denominator and the numerator of `Ready`; absent for a domain until a probe of its fleet first succeeds, since the zeros before it are not a count |
 | `ratelimit_policy_generation_lag` | `domain` | how far activeGeneration lags behind the latest |
 | `ratelimit_policy_rule_problems` | `domain`, `severity: blocking\|info` | every problem of the latest generation by weight, past the 64 that `ruleProblems` lists too; alert on `blocking` |
 | `ratelimit_domain_blocks` / `ratelimit_domain_rules` / `ratelimit_domain_decision_buckets` | `domain` | domain facts: `decision_buckets` against 128, the headroom before `DomainBudgetExceeded`; `blocks` and `rules` are observed, with no bounds |
 | `ratelimit_config_write_errors_total` | `reason: size\|api\|read\|other` | failed writes of `ratelimit-config`: `size` a state too large even after the fit, `api` an API server answer, `read` a reconcile that could not read and wrote nothing, `other` the rest; the replicas keep their mounted configuration, the last-good fallback is not saved, and the status reports `ReplicaStale` 90 s later |
-| `ratelimit_config_write_failing` | `reason: size\|api\|read\|other` | 1 under the reason of the last write of `ratelimit-config` while it fails, 0 once a write succeeds; `RatelimitConfigWriteErrors` reads it |
+| `ratelimit_config_write_failing` | `reason: size\|api\|read\|other` | 1 under each reason a write of `ratelimit-config` failed with since the last successful write, 0 once a write succeeds; `RatelimitConfigWriteErrors` reads it |
 | `ratelimit_leader` | none | 1 on the operator pod that holds the Lease, 0 on the other one while two overlap during a rollout; the fleet series exist only on the pod reporting 1 |
 
 ## Argo CD: how to read the status
@@ -837,11 +838,11 @@ The operator chart, group `ratelimit-operator`:
 | `RatelimitStalled` | critical | `ratelimit_policy_stalled == 1` for `stalledFor`, with the reason in the label: `ReplicaStale`, `ReplicaFormatUnsupported`, or `ConfigMapTooLarge`. `NotCompiled` is left to `RatelimitRuleProblems`, since the last-good generation stays enforced |
 | `RatelimitNotEnforced` | critical | `ratelimit_policy_enforced == 0` for `notEnforcedFor`: the policy enforces no generation at all, so its domain passes unlimited |
 | `RatelimitNotReadyLong` | warning | `ratelimit_policy_ready == 0` for `notReadyFor`: the latest generation is not the one enforced |
-| `RatelimitNoReplicas` | critical | `ratelimit_policy_ready{reason="NoReplicas"} == 0`, or a domain whose edit is `NotCompiled` with no service replica at all, for `noReplicasFor`: the operator observed no ready service replica, so the gateway's failure mode decides every check of the domain; a fleet it could not observe is `ProbeFailed` and does not fire |
+| `RatelimitNoReplicas` | critical | `ratelimit_policy_ready{reason="NoReplicas"} == 0`, or a domain whose edit is `NotCompiled` and whose fleet had no ready replica on its last successful probe, for `noReplicasFor`: the operator observed no ready service replica, so the gateway's failure mode decides every check of the domain; a fleet it could not observe is `ProbeFailed` and does not fire, and a fleet no probe has succeeded on has no count to fire on |
 | `RatelimitChecksStopped` | warning | `ratelimit_policy_replicas{state="applied"} > 0` while the domain's `ratelimit_checks_total` has no rate over `checksStoppedWindow`, for `checksStoppedFor`: the filter is off, removed, or on another domain, and traffic passes unlimited with every status Ready; an idle gateway fires too (the composite case is below the table) |
 | `RatelimitRuleProblems` | warning | `ratelimit_policy_rule_problems{severity="blocking"} > 0` for `ruleProblemsFor`: the latest generation is not enforced and last-good runs instead |
-| `RatelimitConfigWriteErrors` | critical | `ratelimit_config_write_failing == 1` by `reason` for `configWriteFailingFor`: the last write failed and none has succeeded since, so policy changes stop reaching the service; a write that succeeds on its retry clears it |
-| `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader records reconcile errors and no completed reconcile (`success` or `requeue_after`) over `reconcileErrorsWindow`: the leader holds the Lease and does nothing, so no other alert names it |
+| `RatelimitConfigWriteErrors` | critical | `ratelimit_config_write_failing == 1` by `reason` for `configWriteFailingFor`: a write failed with that reason and none has succeeded since, so policy changes stop reaching the service; a write that succeeds on its retry clears it |
+| `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader records reconcile errors and no completed reconcile (`success` or `requeue_after`) over `reconcileErrorsWindow`, for `reconcileFailingFor`: the leader holds the Lease and does nothing, so no other alert names it |
 | `RatelimitNoOperatorLeader` | critical | `absent(ratelimit_leader == 1)` for `noLeaderFor`: no operator pod holds the Lease, so nothing compiles policies or writes `ratelimit-config` |
 
 `RatelimitChecksStopped` sums the domain's checks over every gateway, so in a composite one gateway's disabled

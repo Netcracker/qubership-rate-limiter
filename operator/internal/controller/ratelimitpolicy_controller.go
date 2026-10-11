@@ -211,6 +211,10 @@ func (r *RateLimitPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		Total:   object.Status.Replicas.Total,
 		Stalled: judged.stalled == metav1.ConditionTrue,
 		Reason:  judged.stalledReason,
+		// Only a probe that succeeded sets the time of the last check, and the
+		// status keeps it across a restart, so it tells a fleet with no ready
+		// replica from one no probe has succeeded on.
+		Observed: object.Status.Replicas.LastCheckTime != nil,
 	}
 	if judged.stalled == metav1.ConditionUnknown {
 		sample.Stalled, sample.Reason = false, v1.ReasonProgressing

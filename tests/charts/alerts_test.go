@@ -334,6 +334,7 @@ func TestCharts_refuseAlertValuesThatBreakTheRules(t *testing.T) {
 		{serviceChart, "alerts.configAbsentFor=5", "configAbsentFor"},
 		{operatorChart, "policyAlerts.stalledFor=0s", "stalledFor"},
 		{operatorChart, "policyAlerts.configWriteFailingFor=0m", "configWriteFailingFor"},
+		{operatorChart, "policyAlerts.reconcileFailingFor=0m", "reconcileFailingFor"},
 		{operatorChart, "policyAlerts.checksStoppedWindow=10", "checksStoppedWindow"},
 	} {
 		t.Run(c.set, func(t *testing.T) {
@@ -377,6 +378,8 @@ func TestCharts_acceptAlertValuesJustInsideTheirBounds(t *testing.T) {
 			"RatelimitStalled", "for", "1s"},
 		{"configWriteFailingFor=1m", operatorChart, []string{"--set", "policyAlerts.configWriteFailingFor=1m"},
 			"RatelimitConfigWriteErrors", "for", "1m"},
+		{"reconcileFailingFor=1m", operatorChart, []string{"--set", "policyAlerts.reconcileFailingFor=1m"},
+			"RatelimitOperatorReconcileFailing", "for", "1m"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			objects := render(t, c.chart, "biz", append([]string{"--set", "MONITORING_ENABLED=true"}, c.args...)...)

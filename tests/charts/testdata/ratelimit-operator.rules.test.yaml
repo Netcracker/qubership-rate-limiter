@@ -139,12 +139,12 @@ tests:
             exp_annotations:
               summary: The operator cannot save the namespace's configuration
               description: >-
-                The operator in biz has failed to write the ratelimit-config ConfigMap for 5m, the last
-                attempt with reason read. The replicas keep the previous configuration and the last-good
-                fallback a restart would need is not being saved, and a replica behind follows as
-                ReplicaStale. size is a state the object cannot hold, api an answer of the API server, read
-                a reconcile that could not read the policies or the ConfigMap and wrote nothing, other the
-                rest; the operator log has the error.
+                The operator in biz has failed to write the ratelimit-config ConfigMap for 5m, with reason
+                read among the attempts since the last successful write. The replicas keep the previous
+                configuration and the last-good fallback a restart would need is not being saved, and a
+                replica behind follows as ReplicaStale. size is a state the object cannot hold, api an answer
+                of the API server, read a reconcile that could not read the policies or the ConfigMap and
+                wrote nothing, other the rest; the operator log has the error.
 
   # A domain whose latest edit does not compile keeps its last-good
   # generation, and RatelimitRuleProblems reports it; it is not a stall that
@@ -215,10 +215,43 @@ tests:
             exp_annotations:
               summary: An operator controller fails every reconcile
               description: >-
-                Controller ratelimit-config of the ratelimit operator in biz failed every reconcile for 30m
-                and completed none. The leader holds the Lease, so no other alert names it: policy edits do
-                not reach the replicas, and the policy status stays as it was. The operator log names the
-                error, often a permission the operator's Role lacks.
+                Controller ratelimit-config of the ratelimit operator in biz has failed its reconciles for 5m
+                and completed none in 30m. The leader holds the Lease, so no other alert names it: policy
+                edits do not reach the replicas, and the policy status stays as it was. The operator log
+                names the error, often a permission the operator's Role lacks.
+
+  # The writer reconciles only on events, so after an idle hour its window
+  # holds no success. A failure its retry recovers from within one scrape is
+  # quiet under the hold, while the policy controller beside it, failing
+  # every pass, fires.
+  - interval: 30s
+    name: a writer failure its retry recovers from beside a policy controller that keeps failing
+    input_series:
+      - series: 'ratelimit_leader{namespace="biz", pod="ratelimit-operator-0"}'
+        values: "1x130"
+      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimit-config"}'
+        values: "0x119 3x10"
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimit-config", result="success"}'
+        values: "1x120 2x9"
+      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy"}'
+        values: "0+1x130"
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy", result="requeue_after"}'
+        values: "0x130"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: RatelimitOperatorReconcileFailing
+        exp_alerts:
+          - exp_labels:
+              namespace: biz
+              controller: ratelimitpolicy
+              severity: critical
+            exp_annotations:
+              summary: An operator controller fails every reconcile
+              description: >-
+                Controller ratelimitpolicy of the ratelimit operator in biz has failed its reconciles for 5m
+                and completed none in 30m. The leader holds the Lease, so no other alert names it: policy
+                edits do not reach the replicas, and the policy status stays as it was. The operator log
+                names the error, often a permission the operator's Role lacks.
 
   # The Lease changing hands is a rollout, not an outage: the replacement
   # takes it inside the hold and nothing pages.
@@ -259,9 +292,9 @@ tests:
 
   # A fleet that is gone fires within minutes; one that is only replaced by a
   # rollout comes back inside the hold and does not, and neither does a fleet
-  # the operator never observed, which also counts 0 replicas.
+  # whose probe fails, which keeps the count of its last successful probe.
   - interval: 1m
-    name: a domain without a ready replica beside one whose rollout recovers and one never observed
+    name: a domain without a ready replica beside one whose rollout recovers and one whose probe fails
     input_series:
       - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.private", reason="NoReplicas"}'
         values: "0x10"

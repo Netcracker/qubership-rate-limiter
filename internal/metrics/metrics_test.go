@@ -284,9 +284,9 @@ func TestFleetCollector_reportsWhatTheOperatorSaw(t *testing.T) {
 	})
 
 	SetLeader(true)
-	PublishFleet("gateway.public", FleetSample{Applied: 3, Total: 3, Reason: "Progressing"})
+	PublishFleet("gateway.public", FleetSample{Applied: 3, Total: 3, Reason: "Progressing", Observed: true})
 	PublishFleet("gateway.private", FleetSample{
-		Applied: 1, Total: 3, Stalled: true, Reason: "ReplicaStale"})
+		Applied: 1, Total: 3, Stalled: true, Reason: "ReplicaStale", Observed: true})
 
 	expected := `
 # HELP ratelimit_leader Whether this operator pod holds the Lease. The status series are only written by the pod reporting 1.
@@ -306,12 +306,75 @@ ratelimit_policy_stalled{domain="gateway.public",reason="Progressing"} 0
 	assert.NoError(t, testutil.CollectAndCompare(fleetCollector{}, strings.NewReader(expected)))
 }
 
+// A domain whose fleet no probe has succeeded on has no replica series: its
+// zeros are those of a new status, not a count. A domain whose probe found no
+// ready replica reports its zeros. Both carry the stalled series.
+func TestFleetCollector_omitsTheReplicaSeriesOfAFleetNoProbeHasSucceededOn(t *testing.T) {
+	t.Cleanup(func() {
+		DropFleet("gateway.public")
+		DropFleet("gateway.private")
+		SetLeader(false)
+	})
+
+	SetLeader(true)
+	PublishFleet("gateway.public", FleetSample{Stalled: true, Reason: "NotCompiled", Observed: true})
+	PublishFleet("gateway.private", FleetSample{Stalled: true, Reason: "NotCompiled"})
+
+	expected := `
+# HELP ratelimit_leader Whether this operator pod holds the Lease. The status series are only written by the pod reporting 1.
+# TYPE ratelimit_leader gauge
+ratelimit_leader 1
+# HELP ratelimit_policy_replicas Replicas of the domain by state: total is the ready fleet, applied is how many of it enforce the active generation.
+# TYPE ratelimit_policy_replicas gauge
+ratelimit_policy_replicas{domain="gateway.public",state="applied"} 0
+ratelimit_policy_replicas{domain="gateway.public",state="total"} 0
+# HELP ratelimit_policy_stalled Whether the domain is stuck rather than progressing; reason names which way.
+# TYPE ratelimit_policy_stalled gauge
+ratelimit_policy_stalled{domain="gateway.private",reason="NotCompiled"} 1
+ratelimit_policy_stalled{domain="gateway.public",reason="NotCompiled"} 1
+`
+	assert.NoError(t, testutil.CollectAndCompare(fleetCollector{}, strings.NewReader(expected)))
+}
+
+// failingByReason reads ratelimit_config_write_failing under every reason.
+func failingByReason() map[string]float64 {
+	out := map[string]float64{}
+	for _, reason := range []string{ConfigErrorSize, ConfigErrorAPI, ConfigErrorRead, ConfigErrorOther} {
+		out[reason] = testutil.ToFloat64(ConfigWriteFailing.WithLabelValues(reason))
+	}
+	return out
+}
+
+// A write that keeps failing holds 1 under every reason its attempts failed
+// with, so a hold on one reason survives an attempt that fails with another.
+// The gauge used to keep only the reason of the last attempt.
+func TestRecordConfigWrite_keepsEveryReasonAWriteFailedWith(t *testing.T) {
+	t.Cleanup(func() { RecordConfigWrite("") })
+
+	RecordConfigWrite(ConfigErrorRead)
+	RecordConfigWrite(ConfigErrorAPI)
+
+	assert.Equal(t, map[string]float64{"size": 0, "api": 1, "read": 1, "other": 0}, failingByReason(),
+		"ratelimit_config_write_failing after a failed read and a failed update")
+}
+
+// A write that succeeds clears every reason the writes before it failed with.
+func TestRecordConfigWrite_clearsEveryReasonWhenAWriteSucceeds(t *testing.T) {
+	RecordConfigWrite(ConfigErrorRead)
+	RecordConfigWrite(ConfigErrorAPI)
+
+	RecordConfigWrite("")
+
+	assert.Equal(t, map[string]float64{"size": 0, "api": 0, "read": 0, "other": 0}, failingByReason(),
+		"ratelimit_config_write_failing after a successful write")
+}
+
 // A deleted policy has to take its series with it: an alert on a stalled
 // domain would otherwise fire forever on an object nobody can fix. The leader
 // series stays, at 0 on a pod that does not hold the Lease.
 func TestFleetCollector_forgetsADeletedDomain(t *testing.T) {
 	SetLeader(false)
-	PublishFleet("gateway.retired", FleetSample{Applied: 1, Total: 1, Reason: "Progressing"})
+	PublishFleet("gateway.retired", FleetSample{Applied: 1, Total: 1, Reason: "Progressing", Observed: true})
 
 	DropFleet("gateway.retired")
 

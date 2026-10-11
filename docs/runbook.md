@@ -111,11 +111,11 @@ the chart value named, with its default:
 | `RatelimitStalled` | critical | `ratelimit_policy_stalled == 1` with any reason but `NotCompiled` | `policyAlerts.stalledFor`, 5m | 4; `ConfigMapTooLarge` as in the status table |
 | `RatelimitNotEnforced` | critical | `ratelimit_policy_enforced == 0`: the policy enforces no generation | `policyAlerts.notEnforcedFor`, 5m | 3 |
 | `RatelimitNotReadyLong` | warning | `ratelimit_policy_ready == 0`, whatever the reason | `policyAlerts.notReadyFor`, 30m | the status table, by the `Ready` reason |
-| `RatelimitNoReplicas` | critical | `Ready: False` with reason `NoReplicas`, or a `NotCompiled` domain with no service replica | `policyAlerts.noReplicasFor`, 5m | 4 |
+| `RatelimitNoReplicas` | critical | `Ready: False` with reason `NoReplicas`, or a `NotCompiled` domain whose fleet had no ready replica on its last successful probe | `policyAlerts.noReplicasFor`, 5m | 4 |
 | `RatelimitChecksStopped` | warning | ready replicas enforce the domain and no check of it arrived in `policyAlerts.checksStoppedWindow`, 10m | `policyAlerts.checksStoppedFor`, 15m | 10 |
 | `RatelimitRuleProblems` | warning | a blocking problem on the latest generation | `policyAlerts.ruleProblemsFor`, 5m | 3, or 5 for an unknown field |
-| `RatelimitConfigWriteErrors` | critical | the last write of `ratelimit-config` failed and none has succeeded since | `policyAlerts.configWriteFailingFor`, 5m | 9 |
-| `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader failed every reconcile within `policyAlerts.reconcileErrorsWindow`, 30m | none | 9 |
+| `RatelimitConfigWriteErrors` | critical | a write of `ratelimit-config` failed and none has succeeded since | `policyAlerts.configWriteFailingFor`, 5m | 9 |
+| `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader failed every reconcile within `policyAlerts.reconcileErrorsWindow`, 30m | `policyAlerts.reconcileFailingFor`, 5m | 9 |
 | `RatelimitNoOperatorLeader` | critical | no scrape of the namespace reports `ratelimit_leader 1` | `policyAlerts.noLeaderFor`, 5m | 10 |
 | `RatelimitUnknownDomain` | warning | a check for a domain no policy claims within 5m | `alerts.unknownDomainFor`, 5m | 2 |
 | `RatelimitStoreErrors` | critical | a failed store decision within 5m | `alerts.storeErrorsFor`, 5m | 1 |
@@ -1197,11 +1197,11 @@ of section 7.
 | `ratelimit_token_cache_hits_total`, `ratelimit_token_cache_misses_total` | service pods | the extraction half of a slow check (section 10) |
 | `ratelimit_policy_ready{domain, reason}`, `ratelimit_policy_generation_lag{domain}` | operator pod | the status as gauges |
 | `ratelimit_policy_stalled{domain, reason}` | operator pod | `1` is a breakage: `ReplicaStale` or `ReplicaFormatUnsupported` (section 4), `NotCompiled` (sections 3 and 5), or `ConfigMapTooLarge`; `Progressing` at `0` |
-| `ratelimit_policy_replicas{domain, state}` | operator pod | `applied` against `total`: the numbers behind `REPLICAS` (section 4) |
+| `ratelimit_policy_replicas{domain, state}` | operator pod | `applied` against `total`: the numbers behind `REPLICAS` (section 4); absent until a probe of the fleet first succeeds |
 | `ratelimit_leader` | operator pod | which operator pod holds the Lease during a rollout overlap; the policy gauges exist only on the pod reporting `1` |
 | `ratelimit_policy_rule_problems{domain, severity}` | operator pod | `blocking` above zero is a rejected edit (sections 3 and 5) |
 | `ratelimit_policy_applied_generation{domain}` | service pods | per pod: the generation each replica enforces (section 4) |
 | `ratelimit_domain_decision_buckets{domain}` | service pods | headroom before `DomainBudgetExceeded`, against 128 |
 | `ratelimit_config_absent` | service pods | `1` while the pod's mounted directory holds no manifest: a pod that has not received one yet, or one that lost it (section 9) |
 | `ratelimit_config_write_errors_total{reason}` | operator pod | the write of `ratelimit-config` failed (`size`, `api`, `read`, `other`; section 9); the replicas keep the configuration they mounted and `ReplicaStale` follows in 90 s |
-| `ratelimit_config_write_failing{reason}` | operator pod | `1` under the reason of the last failed write until a write succeeds; `RatelimitConfigWriteErrors` fires on it (section 9) |
+| `ratelimit_config_write_failing{reason}` | operator pod | `1` under each reason a write failed with since the last successful write; `RatelimitConfigWriteErrors` fires on it (section 9) |

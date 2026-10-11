@@ -38,6 +38,13 @@ type FleetSample struct {
 	// reason included, so a failed probe neither raises nor clears the alert.
 	Stalled bool
 	Reason  string
+
+	// Observed reports whether a probe of the fleet has succeeded for this
+	// domain at least once, a probe that found no ready replica included.
+	// Until one has, Applied and Total are the zero of a new status rather
+	// than a count, and ratelimit_policy_replicas is not emitted for the
+	// domain; ratelimit_policy_stalled is.
+	Observed bool
 }
 
 var (
@@ -115,6 +122,9 @@ func (fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	for domain, sample := range fleetSample {
 		ch <- prometheus.MustNewConstMetric(descPolicyStalled,
 			prometheus.GaugeValue, boolValue(sample.Stalled), domain, sample.Reason)
+		if !sample.Observed {
+			continue
+		}
 		ch <- prometheus.MustNewConstMetric(descPolicyReplicas,
 			prometheus.GaugeValue, float64(sample.Applied), domain, ReplicasApplied)
 		ch <- prometheus.MustNewConstMetric(descPolicyReplicas,

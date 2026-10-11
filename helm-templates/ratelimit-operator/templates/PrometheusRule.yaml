@@ -77,10 +77,11 @@ spec:
               policy's Ready condition and on the ratelimit_policy_ready series.
 
         - alert: RatelimitNoReplicas
-          # The verdict, not the count: a fleet the operator never observed
-          # also counts 0 replicas, and its reason is ProbeFailed. A
-          # generation that does not compile is judged before the fleet, so
-          # for that verdict the fleet the last probe saw decides.
+          # The verdict, not the count: a fleet whose probe fails keeps the
+          # count of its last successful probe, 0 included, and its reason is
+          # ProbeFailed. A generation that does not compile is judged before
+          # the fleet, so for that verdict the count of the last successful
+          # probe decides; a fleet no probe has succeeded on publishes no count.
           expr: >-
             max by (namespace, domain) (ratelimit_policy_ready{ {{- $sel -}} , reason="NoReplicas"}) == 0
             or
@@ -127,9 +128,11 @@ spec:
               problems and is not enforced; the previous generation keeps running. The problems are listed
               in the policy's status.
 
-        # The gauge holds the last attempt, so a write that fails once and
-        # succeeds on its retry never reaches the hold, and one that keeps
-        # failing stays at 1 between the retries of the controller's backoff.
+        # The gauge holds 1 under every reason a write failed with since the
+        # last success, so a write that fails once and succeeds on its retry
+        # never reaches the hold, and one that keeps failing stays at 1 between
+        # the retries of the controller's backoff, whichever reasons its
+        # attempts fail with.
         - alert: RatelimitConfigWriteErrors
           expr: max by (namespace, reason) (ratelimit_config_write_failing{ {{- $sel -}} }) == 1
           for: {{ .Values.policyAlerts.configWriteFailingFor }}
@@ -139,12 +142,12 @@ spec:
             summary: The operator cannot save the namespace's configuration
             description: >-
               The operator in {{ "{{" }} $labels.namespace {{ "}}" }} has failed to write the
-              ratelimit-config ConfigMap for {{ .Values.policyAlerts.configWriteFailingFor }}, the last attempt
-              with reason {{ "{{" }} $labels.reason {{ "}}" }}. The replicas keep the previous configuration and
-              the last-good fallback a restart would need is not being saved, and a replica behind follows as
-              ReplicaStale. size is a state the object cannot hold, api an answer of the API server, read a
-              reconcile that could not read the policies or the ConfigMap and wrote nothing, other the rest;
-              the operator log has the error.
+              ratelimit-config ConfigMap for {{ .Values.policyAlerts.configWriteFailingFor }}, with reason
+              {{ "{{" }} $labels.reason {{ "}}" }} among the attempts since the last successful write. The
+              replicas keep the previous configuration and the last-good fallback a restart would need is not
+              being saved, and a replica behind follows as ReplicaStale. size is a state the object cannot
+              hold, api an answer of the API server, read a reconcile that could not read the policies or the
+              ConfigMap and wrote nothing, other the rest; the operator log has the error.
 
         # A reconcile that returns a requeue delay completed, and the policy
         # controller returns one on every pass. Only the series of the
@@ -152,6 +155,9 @@ spec:
         # every controller-runtime operator publishes controller_runtime_*.
         # The window is longer than the controller's longest backoff, so a
         # controller that keeps failing has a failure inside it at all times.
+        # The writer reconciles only on events and can go hours without one, so
+        # the window can hold a failure before the scrape that records its
+        # retry's success; the hold keeps such a failure quiet.
         - alert: RatelimitOperatorReconcileFailing
           expr: >-
             sum by (namespace, controller) (increase(controller_runtime_reconcile_errors_total{ {{- $sel -}} }[{{ .Values.policyAlerts.reconcileErrorsWindow }}])
@@ -159,14 +165,16 @@ spec:
             unless on (namespace, controller)
             sum by (namespace, controller) (increase(controller_runtime_reconcile_total{ {{- $sel -}} , result=~"success|requeue_after"}[{{ .Values.policyAlerts.reconcileErrorsWindow }}])
             and on (namespace, pod) ratelimit_leader{ {{- $sel -}} }) > 0
+          for: {{ .Values.policyAlerts.reconcileFailingFor }}
           labels:
             severity: critical
           annotations:
             summary: An operator controller fails every reconcile
             description: >-
               Controller {{ "{{" }} $labels.controller {{ "}}" }} of the ratelimit operator in
-              {{ "{{" }} $labels.namespace {{ "}}" }} failed every reconcile for
-              {{ .Values.policyAlerts.reconcileErrorsWindow }} and completed none. The leader holds the Lease, so
+              {{ "{{" }} $labels.namespace {{ "}}" }} has failed its reconciles for
+              {{ .Values.policyAlerts.reconcileFailingFor }} and completed none in
+              {{ .Values.policyAlerts.reconcileErrorsWindow }}. The leader holds the Lease, so
               no other alert names it: policy edits do not reach the replicas, and the policy status stays as
               it was. The operator log names the error, often a permission the operator's Role lacks.
 
