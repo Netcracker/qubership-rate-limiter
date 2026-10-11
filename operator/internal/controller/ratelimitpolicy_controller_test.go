@@ -315,6 +315,8 @@ type fakeState struct {
 	bundle policy.Bundle
 }
 
+func (fakeState) OperatorVersion() string { return "test" }
+
 func (f fakeState) Load(_ context.Context, domains []string) (map[string]policy.Bundle, error) {
 	out := make(map[string]policy.Bundle, len(domains))
 	for _, domain := range domains {
@@ -392,6 +394,41 @@ func TestReconcile_anUnobservableFleetKeepsTheLastStalledSample(t *testing.T) {
 	require.True(t, ok, "PublishedFleet(%q)", testDomain)
 	assert.True(t, sample.Stalled, "the stalled sample after two failed probes")
 	assert.Equal(t, ratelimitv1.ReasonReplicaStale, sample.Reason, "the reason of the sample after two failed probes")
+}
+
+// The fleet sample is observed from the first probe that succeeds, one that
+// finds no ready replica included, and across later probes that fail, since
+// the status keeps the time of the last check. A fleet no probe has succeeded
+// on publishes the zeros of a new status as unobserved, so no alert reads
+// them as a fleet without a ready replica.
+func TestReconcile_publishesTheFleetAsObservedFromItsFirstSuccessfulProbe(t *testing.T) {
+	probedBefore := testPolicy(1)
+	probedBefore.Status.Replicas = ratelimitv1.ReplicaStatus{
+		Total: 3, Applied: 3, Summary: "3/3", LastCheckTime: &metav1.Time{Time: time.Now().Add(-time.Minute)},
+	}
+	unreachable := errors.New("the EndpointSlice is unavailable")
+	for _, tc := range []struct {
+		name   string
+		probe  *stubProbe
+		object *ratelimitv1.RateLimitPolicy
+		want   bool
+	}{
+		{"a fleet no probe has succeeded on", &stubProbe{err: unreachable}, testPolicy(1), false},
+		{"a fleet whose probe succeeds", &stubProbe{view: FleetView{Total: 3, Applied: 3}}, testPolicy(1), true},
+		{"a fleet whose probe succeeds with no ready replica", &stubProbe{view: FleetView{}}, testPolicy(1), true},
+		{"a fleet probed before whose probe fails now", &stubProbe{err: unreachable}, probedBefore, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reconciler, _ := newReconciler(t, tc.probe, tc.object)
+
+			_, err := reconciler.Reconcile(context.Background(), testRequest())
+
+			require.NoError(t, err)
+			sample, ok := metrics.PublishedFleet(testDomain)
+			require.True(t, ok, "PublishedFleet(%q)", testDomain)
+			assert.Equal(t, tc.want, sample.Observed, "FleetSample.Observed")
+		})
+	}
 }
 
 // A domain whose first probe fails has no sample to keep, and publishes
@@ -1109,4 +1146,30 @@ func TestJudge_honorsTheConfiguredDeadline(t *testing.T) {
 				tc.since, tc.deadline)
 		})
 	}
+}
+
+// versionedState is a StateReader with no saved state and the given version.
+type versionedState string
+
+func (versionedState) Load(context.Context, []string) (map[string]policy.Bundle, error) {
+	return map[string]policy.Bundle{}, nil
+}
+
+func (s versionedState) OperatorVersion() string { return string(s) }
+
+// compile measures the manifest with the version the writer stamps into it,
+// so at a limit only the unversioned manifest fits the generation is too
+// large, as the writer of the ConfigMap finds it.
+func TestCompile_fitsTheManifestWithTheWritersVersion(t *testing.T) {
+	c, _ := fakeClientWith(t, testPolicy(1))
+	input, err := policy.Load(t.Context(), c, testNamespace)
+	require.NoError(t, err)
+	unversioned, err := policy.Render(policy.Compile(input).State, "")
+	require.NoError(t, err)
+
+	result, err := compile(t.Context(), c, versionedState(strings.Repeat("v", 64)), testNamespace, unversioned.Size)
+
+	require.NoError(t, err)
+	assert.True(t, result.Policies[testRequest().NamespacedName].TooLarge,
+		"Outcome.TooLarge at a limit only the unversioned manifest fits")
 }
