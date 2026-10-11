@@ -12,7 +12,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.15
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.7.2
+	github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.8.0
 	github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.2
 	github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.1
 	github.com/netcracker/qubership-core-lib-go/v3 v3.15.0
