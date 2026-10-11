@@ -187,8 +187,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/netcracker/qubership-core-lib-go-actuator-common/v2 v2.12.1 h1:rR4TPsstr+mscDCm6x2yRXjXCbhES+qVkkl0q20voXQ=
 github.com/netcracker/qubership-core-lib-go-actuator-common/v2 v2.12.1/go.mod h1:TLynMivR/bcg+zM+zqA2m16PAUbMVc5MAUw6EwPtMlw=
-github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.7.2 h1:M9MYgEFZceCUxdwRCkr14WSJfOtYMCEgCP7gyF/pboA=
-github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.7.2/go.mod h1:qKets+yrLbL5mybl0sMCK/6mdCGjgOC/hUmDXHXbn+A=
+github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.8.0 h1:LYEHdRcyY8gX4M2vU5RNdO7Ue3KJzVCkQX4+Zl8upIQ=
+github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.8.0/go.mod h1:/7kut0zYws/YTUHUqs5aq7YJMduh2VrpZdJUvPSanNQ=
 github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.2 h1:Xe5AJX2sxaV838wosv6s7cgOpqjJZ4+aYPj7P6iqr2c=
 github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.2/go.mod h1:ZmKo44dyn5MYBv0mZgTVr6CxjZUltFraXMNudweMuYI=
 github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.1 h1:nXC8PS80ZmPk+4F6utKHME6uhH9BuJoycC/rqROhq0w=
