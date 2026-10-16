@@ -48,94 +48,137 @@ func tokensCommand(args []string, stdout io.Writer) error {
 	issuer := fs.String("issuer", "ratelimit-loadtest", "self-signed: iss claim")
 	audience := fs.String("audience", "ratelimit-loadtest", "self-signed: aud claim")
 	ttl := fs.Duration("ttl", 72*time.Hour, "self-signed: lifetime of each token, counted from now")
-	var kc keycloakConfig
-	fs.StringVar(&kc.baseURL, "keycloak-url", "", "keycloak: server root, the part of the URL before /realms")
-	fs.StringVar(&kc.realm, "realm", "", "keycloak: realm of the test users")
-	fs.StringVar(&kc.caFile, "ca-file", "",
-		"keycloak: PEM file with the CA certificates to trust instead of the system ones")
-	fs.BoolVar(&kc.insecure, "insecure", false, "keycloak: skip the server certificate check")
-	clientID := fs.String("client-id", "", "keycloak: client with Direct access grants enabled")
-	clientSecretFile := fs.String("client-secret-file", "",
-		"keycloak: file with the client secret; empty for a public client")
-	passwordFile := fs.String("password-file", "", "keycloak: file with the password every test user has")
-	concurrency := fs.Int("concurrency", 16, "keycloak: token requests in flight")
-	watch := fs.Bool("watch", false, "keycloak: keep running and renew the tokens before they expire")
+	var kf keycloakFlags
+	kf.register(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	switch {
-	case fs.NArg() > 0:
+	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
-	case *users < 1:
-		return fmt.Errorf("-users is %d; want at least 1", *users)
-	case *hot < 0 || *hot > *users:
-		return fmt.Errorf("-hot is %d; want 0 to %d", *hot, *users)
-	case *generators < 1 || *generator < 0 || *generator >= *generators:
-		return fmt.Errorf("-generator %d of -generators %d is out of range", *generator, *generators)
+	}
+	if err := checkSlice(*users, *hot, *generator, *generators); err != nil {
+		return err
 	}
 
 	var rows []tokenRow
 	for _, u := range userSlice(*users, *generator, *generators) {
 		rows = append(rows, tokenRow{user: userName(*prefix, u, *users), hot: u <= *hot})
 	}
-
 	switch *source {
 	case "self-signed":
-		if *watch {
+		if kf.watch {
 			return errors.New("-watch applies to -source keycloak only")
 		}
-		if *ttl <= 0 {
-			return fmt.Errorf("-ttl is %v; want a positive duration", *ttl)
-		}
-		if err := signRows(rows, *issuer, *audience, *ttl); err != nil {
-			return err
-		}
-		return writeTokens(*out, rows, stdout)
+		return selfSignedTokens(rows, *issuer, *audience, *ttl, *out, stdout)
 	case "keycloak":
-		if kc.baseURL == "" || kc.realm == "" || *clientID == "" || *passwordFile == "" {
-			return errors.New("-source keycloak needs -keycloak-url, -realm, -client-id, and -password-file")
-		}
-		password, err := readSecretFile(*passwordFile)
-		if err != nil {
-			return err
-		}
-		var secret string
-		if *clientSecretFile != "" {
-			if secret, err = readSecretFile(*clientSecretFile); err != nil {
-				return err
-			}
-		}
-		client, err := kc.httpClient()
-		if err != nil {
-			return err
-		}
-		kl := keycloakLogin{endpoint: kc.tokenURL(kc.realm), client: client, clientID: *clientID,
-			clientSecret: secret, password: password}
-		indexes := make([]int, len(rows))
-		for i := range rows {
-			indexes[i] = i
-		}
-		failures, first := forEach(indexes, *concurrency, func(i int) error { return kl.login(&rows[i]) })
-		if failures > 0 {
-			return fmt.Errorf("%d of %d users could not log in; first error: %w", failures, len(rows), first)
-		}
-		if err := writeTokens(*out, rows, stdout); err != nil {
-			return err
-		}
-		if !*watch {
-			return nil
-		}
-		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-		issued := make([]time.Time, len(rows))
-		for i := range rows {
-			issued[i] = rows[i].grant.expires.Add(-time.Duration(rows[i].grant.ExpiresIn) * time.Second)
-		}
-		r := &renewal{login: kl, rows: rows, issued: issued, out: *out, concurrency: *concurrency, stdout: stdout}
-		return r.loop(ctx)
+		return kf.tokens(rows, *out, stdout)
 	default:
 		return fmt.Errorf("-source is %q; want keycloak or self-signed", *source)
 	}
+}
+
+// checkSlice returns an error naming the first flag that leaves generator i
+// of n without a valid slice of users, of whom the first hot ones are hot.
+func checkSlice(users, hot, i, n int) error {
+	switch {
+	case users < 1:
+		return fmt.Errorf("-users is %d; want at least 1", users)
+	case hot < 0 || hot > users:
+		return fmt.Errorf("-hot is %d; want 0 to %d", hot, users)
+	case n < 1 || i < 0 || i >= n:
+		return fmt.Errorf("-generator %d of -generators %d is out of range", i, n)
+	}
+	return nil
+}
+
+// selfSignedTokens signs the rows' tokens and writes the file.
+func selfSignedTokens(rows []tokenRow, issuer, audience string, ttl time.Duration, out string, stdout io.Writer) error {
+	if ttl <= 0 {
+		return fmt.Errorf("-ttl is %v; want a positive duration", ttl)
+	}
+	if err := signRows(rows, issuer, audience, ttl); err != nil {
+		return err
+	}
+	return writeTokens(out, rows, stdout)
+}
+
+// keycloakFlags are the flags of tokensCommand that -source keycloak reads.
+type keycloakFlags struct {
+	kc               keycloakConfig
+	clientID         string
+	clientSecretFile string
+	passwordFile     string
+	concurrency      int
+	watch            bool
+}
+
+func (f *keycloakFlags) register(fs *flag.FlagSet) {
+	fs.StringVar(&f.kc.baseURL, "keycloak-url", "", "keycloak: server root, the part of the URL before /realms")
+	fs.StringVar(&f.kc.realm, "realm", "", "keycloak: realm of the test users")
+	fs.StringVar(&f.kc.caFile, "ca-file", "",
+		"keycloak: PEM file with the CA certificates to trust instead of the system ones")
+	fs.BoolVar(&f.kc.insecure, "insecure", false, "keycloak: skip the server certificate check")
+	fs.StringVar(&f.clientID, "client-id", "", "keycloak: client with Direct access grants enabled")
+	fs.StringVar(&f.clientSecretFile, "client-secret-file", "",
+		"keycloak: file with the client secret; empty for a public client")
+	fs.StringVar(&f.passwordFile, "password-file", "", "keycloak: file with the password every test user has")
+	fs.IntVar(&f.concurrency, "concurrency", 16, "keycloak: token requests in flight")
+	fs.BoolVar(&f.watch, "watch", false, "keycloak: keep running and renew the tokens before they expire")
+}
+
+// login returns the client that logs the test users in, built from the
+// flags and the secrets their files hold.
+func (f keycloakFlags) login() (keycloakLogin, error) {
+	if f.kc.baseURL == "" || f.kc.realm == "" || f.clientID == "" || f.passwordFile == "" {
+		return keycloakLogin{}, errors.New("-source keycloak needs -keycloak-url, -realm, -client-id, and -password-file")
+	}
+	password, err := readSecretFile(f.passwordFile)
+	if err != nil {
+		return keycloakLogin{}, err
+	}
+	var secret string
+	if f.clientSecretFile != "" {
+		if secret, err = readSecretFile(f.clientSecretFile); err != nil {
+			return keycloakLogin{}, err
+		}
+	}
+	client, err := f.kc.httpClient()
+	if err != nil {
+		return keycloakLogin{}, err
+	}
+	return keycloakLogin{endpoint: f.kc.tokenURL(f.kc.realm), client: client, clientID: f.clientID,
+		clientSecret: secret, password: password}, nil
+}
+
+// tokens logs every row's user in, writes the file, and with -watch keeps
+// renewing the tokens until the process receives SIGINT or SIGTERM.
+func (f keycloakFlags) tokens(rows []tokenRow, out string, stdout io.Writer) error {
+	kl, err := f.login()
+	if err != nil {
+		return err
+	}
+	indexes := make([]int, len(rows))
+	for i := range rows {
+		indexes[i] = i
+	}
+	failures, first := forEach(indexes, f.concurrency, func(i int) error { return kl.login(&rows[i]) })
+	if failures > 0 {
+		return fmt.Errorf("%d of %d users could not log in; first error: %w", failures, len(rows), first)
+	}
+	if err := writeTokens(out, rows, stdout); err != nil {
+		return err
+	}
+	if !f.watch {
+		return nil
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	issued := make([]time.Time, len(rows))
+	for i := range rows {
+		issued[i] = rows[i].grant.expires.Add(-time.Duration(rows[i].grant.ExpiresIn) * time.Second)
+	}
+	r := &renewal{login: kl, rows: rows, issued: issued, out: out, concurrency: f.concurrency, stdout: stdout}
+	return r.loop(ctx)
 }
 
 // tokenRow is one user of the slice and the token it sends.

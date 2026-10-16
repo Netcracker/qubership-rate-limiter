@@ -374,30 +374,10 @@ func (a *accumulator) report() report {
 	}
 	rep.Start = time.UnixMilli(cfg.start).UTC()
 	rep.Total = a.total
-	for i, s := range cfg.steps {
-		acc := a.steps[i]
-		seconds := float64(a.bounds[i][1]-a.bounds[i][0]) / 1000
-		sr := stepReport{
-			Step: i + 1, TargetRPS: s.rate, Seconds: seconds,
-			AchievedRPS: float64(acc.Samples) / seconds, counts: acc.counts,
-			P50Millis: acc.elapsed.quantile(0.50), P90Millis: acc.elapsed.quantile(0.90),
-			P95Millis: acc.elapsed.quantile(0.95), P99Millis: acc.elapsed.quantile(0.99),
-			MaxMillis:    acc.elapsed.quantile(1),
-			LagP99Millis: acc.lag.quantile(0.99), LagMaxMillis: acc.lag.quantile(1),
-		}
+	for i := range cfg.steps {
+		sr := a.stepReport(i)
 		rep.Steps = append(rep.Steps, sr)
-		if cfg.minRateRatio > 0 && sr.AchievedRPS < cfg.minRateRatio*sr.TargetRPS {
-			rep.Failures = append(rep.Failures, fmt.Sprintf("step %d achieved %.1f requests per second of the %.1f targeted",
-				sr.Step, sr.AchievedRPS, sr.TargetRPS))
-		}
-		if cfg.maxLag > 0 && sr.Samples > 0 && time.Duration(sr.LagP99Millis)*time.Millisecond > cfg.maxLag {
-			rep.Failures = append(rep.Failures, fmt.Sprintf("step %d fell %d ms behind its schedule at p99, above %v: "+
-				"give the generator more threads or add generators", sr.Step, sr.LagP99Millis, cfg.maxLag))
-		}
-		if cfg.maxP99 > 0 && sr.Samples > 0 && time.Duration(sr.P99Millis)*time.Millisecond > cfg.maxP99 {
-			rep.Failures = append(rep.Failures, fmt.Sprintf("step %d has a p99 of %d ms, above %v",
-				sr.Step, sr.P99Millis, cfg.maxP99))
-		}
+		rep.Failures = append(rep.Failures, stepFailures(sr, cfg)...)
 	}
 	if ratio(rep.Total.Errors, rep.Total.Samples) > cfg.maxErrorRatio {
 		rep.Failures = append(rep.Failures, fmt.Sprintf("%d of %d samples were answered with neither 200 nor 429",
@@ -407,7 +387,6 @@ func (a *accumulator) report() report {
 		rep.Failures = append(rep.Failures, fmt.Sprintf("%d of %d samples passed the gateway without a rate limit decision",
 			rep.Total.Undecided, rep.Total.Samples))
 	}
-
 	if a.limits != nil {
 		rep.Windows, rep.Violations, rep.ViolationCount = checkLimits(a.limits, cfg.windows, cfg.skew)
 		if rep.ViolationCount > 0 {
@@ -416,6 +395,41 @@ func (a *accumulator) report() report {
 	}
 	rep.Passed = len(rep.Failures) == 0
 	return rep
+}
+
+// stepReport returns the statistics of step i.
+func (a *accumulator) stepReport(i int) stepReport {
+	acc := a.steps[i]
+	seconds := float64(a.bounds[i][1]-a.bounds[i][0]) / 1000
+	return stepReport{
+		Step: i + 1, TargetRPS: a.cfg.steps[i].rate, Seconds: seconds,
+		AchievedRPS: float64(acc.Samples) / seconds, counts: acc.counts,
+		P50Millis: acc.elapsed.quantile(0.50), P90Millis: acc.elapsed.quantile(0.90),
+		P95Millis: acc.elapsed.quantile(0.95), P99Millis: acc.elapsed.quantile(0.99),
+		MaxMillis:    acc.elapsed.quantile(1),
+		LagP99Millis: acc.lag.quantile(0.99), LagMaxMillis: acc.lag.quantile(1),
+	}
+}
+
+// stepFailures returns a failure for every threshold of cfg that sr breaks.
+func stepFailures(sr stepReport, cfg verifyConfig) []string {
+	var failures []string
+	if cfg.minRateRatio > 0 && sr.AchievedRPS < cfg.minRateRatio*sr.TargetRPS {
+		failures = append(failures, fmt.Sprintf("step %d achieved %.1f requests per second of the %.1f targeted",
+			sr.Step, sr.AchievedRPS, sr.TargetRPS))
+	}
+	if sr.Samples == 0 {
+		return failures
+	}
+	if cfg.maxLag > 0 && time.Duration(sr.LagP99Millis)*time.Millisecond > cfg.maxLag {
+		failures = append(failures, fmt.Sprintf("step %d fell %d ms behind its schedule at p99, above %v: "+
+			"give the generator more threads or add generators", sr.Step, sr.LagP99Millis, cfg.maxLag))
+	}
+	if cfg.maxP99 > 0 && time.Duration(sr.P99Millis)*time.Millisecond > cfg.maxP99 {
+		failures = append(failures, fmt.Sprintf("step %d has a p99 of %d ms, above %v",
+			sr.Step, sr.P99Millis, cfg.maxP99))
+	}
+	return failures
 }
 
 func ratio(n, of int64) float64 {
@@ -507,102 +521,121 @@ func checkLimits(in limitInput, windows []window, skew time.Duration) ([]windowR
 	slices.SortFunc(keys, func(a, b limitKey) int {
 		return cmp.Or(strings.Compare(a.user, b.user), strings.Compare(a.group, b.group))
 	})
-
 	skewMs := skew.Milliseconds()
 	reports := make([]windowReport, len(windows))
 	for i, w := range windows {
 		reports[i].Window = w.String()
 	}
-	var listed []violation
-	count := 0
-	report := func(v violation) {
-		count++
-		if len(listed) < maxListedViolations {
-			listed = append(listed, v)
-		}
-	}
-
+	var found violationLog
 	for _, k := range keys {
-		var starts, ends []int64 // admissions and samples without a response
-		var refusals []event
-		for _, e := range in[k] {
-			switch e.outcome {
-			case admitted, failed:
-				starts = append(starts, e.start)
-				ends = append(ends, e.end)
-			case refused:
-				refusals = append(refusals, e)
-			}
+		for i, w := range windows {
+			countAdmissions(k, in[k], w, skewMs, &reports[i], &found)
 		}
-		slices.Sort(starts)
-		slices.Sort(ends)
+		checkRefusals(k, in[k], windows, skewMs, &found)
+	}
+	return reports, found.listed, found.count
+}
 
-		for wi, w := range windows {
-			p := w.period.Milliseconds()
-			certain := map[int64]int64{}
-			for _, e := range in[k] {
-				if e.outcome != admitted {
-					continue
-				}
-				lo, hi := floorDiv(e.start-skewMs, p), floorDiv(e.end+skewMs, p)
-				if lo == hi {
-					certain[lo]++
-				}
-			}
-			instances := make([]int64, 0, len(certain))
-			for inst := range certain {
-				instances = append(instances, inst)
-			}
-			slices.Sort(instances)
-			for _, inst := range instances {
-				n := certain[inst]
-				reports[wi].Instances++
-				reports[wi].MaxAdmitted = max(reports[wi].MaxAdmitted, n)
-				if n >= w.requests {
-					reports[wi].Full++
-				}
-				if n > w.requests {
-					report(violation{
-						Kind: "over-admission", User: k.user, Group: k.group, Window: w.String(),
-						At:     time.UnixMilli(inst * p).UTC(),
-						Detail: fmt.Sprintf("%d admissions in a window of %d requests", n, w.requests),
-					})
-				}
-			}
+// violationLog counts every violation and keeps the first
+// maxListedViolations of them.
+type violationLog struct {
+	listed []violation
+	count  int
+}
+
+func (v *violationLog) add(x violation) {
+	v.count++
+	if len(v.listed) < maxListedViolations {
+		v.listed = append(v.listed, x)
+	}
+}
+
+// countAdmissions adds to rep the instances of w that the admissions of k
+// fill, counting only the admissions that cannot fall in a neighboring
+// instance, and adds an over-admission to found for every instance that
+// holds more than w's requests.
+func countAdmissions(k limitKey, events []event, w window, skewMs int64, rep *windowReport, found *violationLog) {
+	p := w.period.Milliseconds()
+	certain := map[int64]int64{}
+	for _, e := range events {
+		lo, hi := floorDiv(e.start-skewMs, p), floorDiv(e.end+skewMs, p)
+		if e.outcome == admitted && lo == hi {
+			certain[lo]++
 		}
+	}
+	instances := make([]int64, 0, len(certain))
+	for inst := range certain {
+		instances = append(instances, inst)
+	}
+	slices.Sort(instances)
+	for _, inst := range instances {
+		n := certain[inst]
+		rep.Instances++
+		rep.MaxAdmitted = max(rep.MaxAdmitted, n)
+		if n >= w.requests {
+			rep.Full++
+		}
+		if n > w.requests {
+			found.add(violation{
+				Kind: "over-admission", User: k.user, Group: k.group, Window: w.String(),
+				At:     time.UnixMilli(inst * p).UTC(),
+				Detail: fmt.Sprintf("%d admissions in a window of %d requests", n, w.requests),
+			})
+		}
+	}
+}
 
-		for _, r := range refusals {
-			lo, hi := r.start-skewMs, r.end+skewMs
-			justified := false
-			for _, w := range windows {
-				p := w.period.Milliseconds()
-				for inst := floorDiv(lo, p); inst <= floorDiv(hi, p) && !justified; inst++ {
-					ws, we := inst*p, (inst+1)*p
-					// An admission can precede the refusal inside this
-					// instance if it can start before min(we, hi), the
-					// refusal's latest decision here, and can end inside
-					// the instance. A sample that ends before ws-skew also
-					// starts before min(we, hi)+skew, because hi >= ws, so
-					// the difference of the two counts below is the number
-					// of such admissions.
-					before, _ := slices.BinarySearch(starts, min(we, hi)+skewMs)
-					gone, _ := slices.BinarySearch(ends, ws-skewMs)
-					justified = int64(before-gone) >= w.requests
-				}
-				if justified {
-					break
-				}
-			}
-			if !justified {
-				report(violation{
-					Kind: "false refusal", User: k.user, Group: k.group,
-					At:     time.UnixMilli(r.start).UTC(),
-					Detail: "a 429 while every window held fewer admissions than its requests",
-				})
+// checkRefusals adds a false refusal to found for every 429 of k that no
+// full window explains.
+func checkRefusals(k limitKey, events []event, windows []window, skewMs int64, found *violationLog) {
+	var starts, ends []int64 // admissions and samples without a response
+	var refusals []event
+	for _, e := range events {
+		switch e.outcome {
+		case admitted, failed:
+			starts = append(starts, e.start)
+			ends = append(ends, e.end)
+		case refused:
+			refusals = append(refusals, e)
+		}
+	}
+	slices.Sort(starts)
+	slices.Sort(ends)
+	for _, r := range refusals {
+		if !refusalJustified(r, starts, ends, windows, skewMs) {
+			found.add(violation{
+				Kind: "false refusal", User: k.user, Group: k.group,
+				At:     time.UnixMilli(r.start).UTC(),
+				Detail: "a 429 while every window held fewer admissions than its requests",
+			})
+		}
+	}
+}
+
+// refusalJustified reports whether some instance of some window that the
+// refusal r can have been decided in can have held the window's requests
+// before r. starts and ends hold, sorted, the starts and the ends of the
+// admissions and of the samples without a response.
+func refusalJustified(r event, starts, ends []int64, windows []window, skewMs int64) bool {
+	lo, hi := r.start-skewMs, r.end+skewMs
+	for _, w := range windows {
+		p := w.period.Milliseconds()
+		for inst := floorDiv(lo, p); inst <= floorDiv(hi, p); inst++ {
+			ws, we := inst*p, (inst+1)*p
+			// An admission can precede the refusal inside this instance if
+			// it can start before min(we, hi), the refusal's latest decision
+			// here, and can end inside the instance. A sample that ends
+			// before ws-skew also starts before min(we, hi)+skew, because
+			// hi >= ws, so the difference of the two counts below is the
+			// number of such admissions.
+			before, _ := slices.BinarySearch(starts, min(we, hi)+skewMs)
+			gone, _ := slices.BinarySearch(ends, ws-skewMs)
+			if int64(before-gone) >= w.requests {
+				return true
 			}
 		}
 	}
-	return reports, listed, count
+	return false
 }
 
 // floorDiv returns a divided by b rounded toward negative infinity, for b > 0.

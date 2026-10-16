@@ -88,7 +88,7 @@ func createUser(admin *adminSession, name, password string) error {
 		"enabled":       true,
 		"firstName":     "Load",
 		"lastName":      "Test",
-		"email":         name + "@loadtest.invalid",
+		"email":         name + "@example.com",
 		"emailVerified": true,
 		"credentials":   []map[string]any{{"type": "password", "value": password, "temporary": false}},
 	})

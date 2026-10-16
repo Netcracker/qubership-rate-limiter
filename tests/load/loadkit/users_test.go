@@ -41,37 +41,49 @@ func (f *fakeAdminAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/admin/realms/loadtest")
 	switch {
 	case r.Method == http.MethodPost && path == "/users":
-		var body map[string]any
-		if json.NewDecoder(r.Body).Decode(&body) != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if body["username"] == f.existing {
-			w.WriteHeader(http.StatusConflict)
-			return
-		}
-		f.created[body["username"].(string)] = body
-		w.WriteHeader(http.StatusCreated)
+		f.create(w, r)
 	case r.Method == http.MethodGet && path == "/users":
-		found := []map[string]string{}
-		if name := r.URL.Query().Get("username"); name == f.existing && r.URL.Query().Get("exact") == "true" {
-			found = append(found, map[string]string{"id": "id-" + name, "username": name})
-		}
-		_ = json.NewEncoder(w).Encode(found)
+		f.search(w, r)
 	case r.Method == http.MethodPut && strings.HasSuffix(path, "/reset-password"):
-		var body map[string]any
-		if json.NewDecoder(r.Body).Decode(&body) != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		f.reset[strings.TrimSuffix(strings.TrimPrefix(path, "/users/"), "/reset-password")] = fmt.Sprint(body["value"])
-		w.WriteHeader(http.StatusNoContent)
+		f.resetPassword(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/users/"), "/reset-password"))
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/users/"):
 		f.deleted = append(f.deleted, strings.TrimPrefix(path, "/users/"))
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (f *fakeAdminAPI) create(w http.ResponseWriter, r *http.Request) {
+	var body map[string]any
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if body["username"] == f.existing {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	f.created[body["username"].(string)] = body
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (f *fakeAdminAPI) search(w http.ResponseWriter, r *http.Request) {
+	found := []map[string]string{}
+	if name := r.URL.Query().Get("username"); name == f.existing && r.URL.Query().Get("exact") == "true" {
+		found = append(found, map[string]string{"id": "id-" + name, "username": name})
+	}
+	_ = json.NewEncoder(w).Encode(found)
+}
+
+func (f *fakeAdminAPI) resetPassword(w http.ResponseWriter, r *http.Request, id string) {
+	var body map[string]any
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	f.reset[id] = fmt.Sprint(body["value"])
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func usersArgs(t *testing.T, url string, extra ...string) []string {
@@ -91,7 +103,7 @@ func TestKeycloakUsersCommand_createsNewUsersAndResetsExistingOnes(t *testing.T)
 	require.Contains(t, fake.created, "u1")
 	assert.Equal(t, map[string]any{
 		"username": "u1", "enabled": true, "firstName": "Load", "lastName": "Test",
-		"email": "u1@loadtest.invalid", "emailVerified": true,
+		"email": "u1@example.com", "emailVerified": true,
 		"credentials": []any{map[string]any{"type": "password", "value": "secret", "temporary": false}},
 	}, fake.created["u1"])
 	assert.Equal(t, map[string]string{"id-u2": "secret"}, fake.reset)
