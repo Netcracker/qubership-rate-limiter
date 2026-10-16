@@ -190,9 +190,6 @@ func writeTokens(path string, rows []tokenRow, stdout io.Writer) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return err
-	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
@@ -201,14 +198,14 @@ func writeTokens(path string, rows []tokenRow, stdout io.Writer) error {
 }
 
 // signRows gives every row a JWT whose sub is the user name, signed with
-// RS256 by a key made for this call.
+// PS256 (RSASSA-PSS with SHA-256) by a key made for this call.
 func signRows(rows []tokenRow, issuer, audience string, ttl time.Duration) error {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"PS256","typ":"JWT"}`))
 	for i := range rows {
 		payload, err := json.Marshal(map[string]any{
 			"iss": issuer, "sub": rows[i].user, "aud": audience,
@@ -222,7 +219,8 @@ func signRows(rows []tokenRow, issuer, audience string, ttl time.Duration) error
 		}
 		input := header + "." + base64.RawURLEncoding.EncodeToString(payload)
 		digest := sha256.Sum256([]byte(input))
-		sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+		sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:],
+			&rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
 		if err != nil {
 			return err
 		}

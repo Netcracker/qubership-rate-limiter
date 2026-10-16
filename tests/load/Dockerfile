@@ -25,20 +25,30 @@ ARG JMETER_VERSION=5.6.3
 ARG JMETER_SHA512=5978a1a35edb5a7d428e270564ff49d2b1b257a65e17a759d259a9283fc17093e522fe46f474a043864aea6910683486340706d745fcdf3db1505fd71e689083
 WORKDIR /opt
 # The CDN carries the current release only, the archive every release; the
-# checksum holds the download to the same file either way.
-RUN { wget -q "https://dlcdn.apache.org/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz" \
-      || wget -q "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"; } \
+# checksum holds the download to the same file either way, and curl follows
+# no redirect away from HTTPS.
+RUN apk add --no-cache curl \
+    && { curl -fsSL --proto '=https' --proto-redir '=https' -O \
+           "https://dlcdn.apache.org/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz" \
+      || curl -fsSL --proto '=https' --proto-redir '=https' -O \
+           "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"; } \
     && echo "${JMETER_SHA512}  apache-jmeter-${JMETER_VERSION}.tgz" | sha512sum -c - \
     && tar xzf "apache-jmeter-${JMETER_VERSION}.tgz" \
     && mv "apache-jmeter-${JMETER_VERSION}" jmeter \
     && rm -rf "apache-jmeter-${JMETER_VERSION}.tgz" jmeter/docs jmeter/printable_docs jmeter/bin/examples
+# The plan and the driver get their modes here: COPY --chmod would give the
+# directory it creates the files' mode too, and a directory without the
+# execute bit stops the non-root user from reaching run.sh.
+COPY tests/load/jmeter/ratelimit-load.jmx tests/load/jmeter/loadtest.properties tests/load/jmeter/pick.groovy \
+    tests/load/run.sh /opt/loadtest/
+RUN chmod 755 /opt/loadtest \
+    && chmod 444 /opt/loadtest/ratelimit-load.jmx /opt/loadtest/loadtest.properties /opt/loadtest/pick.groovy \
+    && chmod 555 /opt/loadtest/run.sh
 
 FROM eclipse-temurin:21-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
 COPY --from=jmeter /opt/jmeter /opt/jmeter
 COPY --chmod=555 --from=builder /loadkit /usr/local/bin/loadkit
-COPY --chmod=444 tests/load/jmeter/ratelimit-load.jmx tests/load/jmeter/loadtest.properties \
-    tests/load/jmeter/pick.groovy /opt/loadtest/
-COPY --chmod=555 tests/load/run.sh /opt/loadtest/run.sh
+COPY --from=jmeter /opt/loadtest /opt/loadtest
 ENV PATH=/opt/jmeter/bin:$PATH
 USER 10001:10001
 WORKDIR /tmp

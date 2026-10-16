@@ -23,9 +23,11 @@ backend:
     requests:
       cpu: 50m
       memory: 16Mi
+      ephemeral-storage: 16Mi
     limits:
       cpu: 500m
       memory: 64Mi
+      ephemeral-storage: 64Mi
 
 tokens:
   source: keycloak

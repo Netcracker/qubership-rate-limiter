@@ -57,9 +57,11 @@ backend:
     requests:
       cpu: 100m
       memory: 32Mi
+      ephemeral-storage: 16Mi
     limits:
       cpu: "1"
       memory: 64Mi
+      ephemeral-storage: 64Mi
 
 tokens:
   # keycloak: every test user logs in to the realm with the password grant,

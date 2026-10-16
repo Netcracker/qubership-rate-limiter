@@ -399,11 +399,11 @@ func (a *accumulator) report() report {
 				sr.Step, sr.P99Millis, cfg.maxP99))
 		}
 	}
-	if r := ratio(rep.Total.Errors, rep.Total.Samples); r > cfg.maxErrorRatio {
+	if ratio(rep.Total.Errors, rep.Total.Samples) > cfg.maxErrorRatio {
 		rep.Failures = append(rep.Failures, fmt.Sprintf("%d of %d samples were answered with neither 200 nor 429",
 			rep.Total.Errors, rep.Total.Samples))
 	}
-	if r := ratio(rep.Total.Undecided, rep.Total.Samples); r > cfg.maxUndecidedRatio {
+	if ratio(rep.Total.Undecided, rep.Total.Samples) > cfg.maxUndecidedRatio {
 		rep.Failures = append(rep.Failures, fmt.Sprintf("%d of %d samples passed the gateway without a rate limit decision",
 			rep.Total.Undecided, rep.Total.Samples))
 	}
