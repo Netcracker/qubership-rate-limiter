@@ -6,7 +6,7 @@ metadata:
     {{- include "loadtest.labels" . | nindent 4 }}
 data:
   nginx.conf: |
-    worker_processes auto;
+    worker_processes {{ .Values.backend.workerProcesses }};
     pid /tmp/nginx.pid;
     events {
       worker_connections 8192;
@@ -57,10 +57,16 @@ spec:
           image: {{ .Values.backend.image }}
           ports:
             - containerPort: 8080
+          # Lenient on purpose: a probe that times out under load takes the
+          # backend out of rotation, and the run then measures 503s of the
+          # gateway rather than the rate limit.
           readinessProbe:
             httpGet:
               path: /ready
               port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

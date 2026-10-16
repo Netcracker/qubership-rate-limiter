@@ -53,6 +53,10 @@ spec:
                 secretKeyRef:
                   name: keycloak-admin
                   key: password
+            # Half the limit for the heap: at the default 70 percent, sixteen
+            # concurrent password grants pushed the JVM past a limit of 1Gi.
+            - name: JAVA_OPTS_KC_HEAP
+              value: -XX:MaxRAMPercentage=50
           ports:
             - name: http
               containerPort: 8080
@@ -64,10 +68,10 @@ spec:
           resources:
             requests:
               cpu: 250m
-              memory: 512Mi
+              memory: 1Gi
               ephemeral-storage: 256Mi
             limits:
-              memory: 1Gi
+              memory: 2Gi
               ephemeral-storage: 1Gi
           volumeMounts:
             - name: realm

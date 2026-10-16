@@ -194,6 +194,10 @@ There, `invalid_grant Account is not fully set up` names a user created without 
   needs about 750 MB. Raise `load.resultsSizeLimit` with the rate and the length of the steps. The check keeps no
   sample in memory unless it checks the limits, and about 70 bytes per sample when it does: a run of 10 million
   samples with `load.checkLimits` needs about 700 MB of the generator's memory.
+- **Backend.** The backend answers every request and must not be the ceiling of the run. A backend pod short of
+  CPU fails its readiness probe, and the gateway then answers `503` with the `UH` response flag. The baseline
+  scenario shows where the backend's ceiling is; add replicas, or raise `backend.resources` together with
+  `backend.workerProcesses`, until the baseline steps run without errors.
 - **Placement.** The generators run outside the mesh (`load.podLabels`), the way clients outside the cluster do. Keep
   them off the nodes of the gateway and the rate limit service, or they compete for the CPU they measure.
 
@@ -212,6 +216,7 @@ The [values file](../tests/load/chart/values.yaml) describes every value; the on
 | `policy.groups` | five groups | The API groups: one block of the policy and one path segment each |
 | `policy.windows`, `policy.algorithm` | 50 a minute, 1000 an hour, 5000 a day; `FixedWindow` | The windows of the per-user rule |
 | `policy.multiplier` | `1` | A factor on the requests of every window |
+| `backend.replicas`, `backend.workerProcesses` | `2`, `2` | The backend's pods and the nginx workers of each; keep the workers at the CPU limit |
 | `tokens.source` | `keycloak` | `keycloak` or `self-signed` |
 | `tokens.keycloak.*` | none | The server, the realm, the client, and the Secrets of the password and the client secret |
 | `load.users`, `load.hotUsers`, `load.hotRatePerMinute` | `2000`, `0`, `60` | The test users and the hot ones |
