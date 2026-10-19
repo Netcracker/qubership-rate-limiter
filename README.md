@@ -184,9 +184,10 @@ Prerequisites, which the charts do not install:
 - the Prometheus Operator CRDs behind `PodMonitor` and `PrometheusRule`, when `MONITORING_ENABLED` is set.
 
 The images are `ghcr.io/netcracker/qubership-ratelimit-operator` and `ghcr.io/netcracker/qubership-ratelimit-service`.
-Every push to `main` publishes them tagged `main-<sha>`, the first seven characters of the commit; no release exists,
-so that is the `TAG` to pass below. The pages under [`docs/`](docs/README.md) carry the detail behind this section: the
-chart reference, the resource specification, the runbook, and the management API.
+A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. Every push
+to `main` also publishes them tagged `main-<sha>`, the first seven characters of the commit, for an unreleased build.
+The pages under [`docs/`](docs/README.md) carry the detail behind this section: the chart reference, the resource
+specification, the runbook, and the management API.
 
 The delivery is three charts under `helm-templates/`. `ratelimit-crds` holds the `RateLimitPolicy` CRD and is installed
 once per cluster, before any namespace; the other two are installed into each namespace, the operator chart before the
