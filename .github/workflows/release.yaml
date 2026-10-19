@@ -42,10 +42,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The version reaches shell scripts inside the tag action unquoted, so it is
-  # held to MAJOR.MINOR.PATCH here before anything uses it. No pre-release
-  # suffix either: the image tag is rendered as v{{major}}.{{minor}}.{{patch}},
-  # so v1.0.0-rc.1 would publish over the images of v1.0.0.
+  # The tag action substitutes the version into its shell scripts through
+  # ${{ }} before the shell parses them, so the quotes there do not contain a
+  # crafted value. The version is held to MAJOR.MINOR.PATCH here before
+  # anything uses it. No pre-release suffix either: the image tag is rendered
+  # as v{{major}}.{{minor}}.{{patch}}, so v1.0.0-rc.1 would publish over the
+  # images of v1.0.0.
   validate:
     name: Validate version
     runs-on: ubuntu-latest
@@ -115,13 +117,13 @@ jobs:
           tag-name: v${{ inputs.version }}
           delete-tag: true
 
-  # A failed build or a failed release page leaves no release behind, so the
-  # tag goes too; otherwise the next attempt at the same version stops at the
-  # tag check.
+  # A failed or cancelled build or release page leaves no release behind, so
+  # the tag goes too; otherwise the next attempt at the same version stops at
+  # the tag check. This covers a dry run that does not pass as well.
   cleanup-on-failure:
     name: Delete tag after failure
     needs: [create-tag, build, github-release]
-    if: ${{ failure() && needs.create-tag.result == 'success' }}
+    if: ${{ (failure() || cancelled()) && needs.create-tag.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

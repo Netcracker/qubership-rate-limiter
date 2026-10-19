@@ -466,3 +466,12 @@ writes. It is read through `configloader`, so any property source the platform c
 loader reads each binary's `application.yaml` from the directory in `PROPERTY_FILE_PATH`, trailing slash included; the
 `run*` targets set it to `operator/` and `service/`, and a process started without it logs
 `open application.yaml: no such file or directory` and retries instead of starting.
+
+### Release
+
+The Release workflow in GitHub Actions is started by hand with a `MAJOR.MINOR.PATCH` version. It tags the head of the
+branch it runs on, builds and tests the root module at that tag, publishes both images as `v<version>`, and creates the
+GitHub release. It does not run the engine tests, the linters, the chart checks, or e2e: those run on pushes and pull
+requests. Dispatch it from a `main` whose checks have all passed, and start with a dry run, which builds the images
+without pushing them and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same
+version can be released again.
