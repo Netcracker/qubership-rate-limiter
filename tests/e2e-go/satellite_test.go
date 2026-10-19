@@ -136,7 +136,7 @@ var _ = Describe("a composite: a baseline and a satellite", Ordered, Label("sate
 		waitGatewayServes("public-gateway", probePath)
 		waitGatewayServesIn(satellite, "public-gateway", probePath)
 
-		Expect(apply(newPolicy(domain, hourlyGCRALimits(probePrefix, "per-path", limit)))).To(Succeed())
+		Expect(apply(newPolicy(domain, hourlyGCRALimits(probePrefix, "per-path", []string{"path"}, limit)))).To(Succeed())
 		applied = true
 		waitApplied(domain)
 
@@ -169,7 +169,7 @@ var _ = Describe("a composite: a baseline and a satellite", Ordered, Label("sate
 		// The path lies outside probePrefix: a path under it would be counted
 		// by the positive spec's rule and refused for the wrong reason.
 		const strayPath = "/e2e-stray"
-		stray := newPolicy(domain, hourlyGCRALimits(strayPath, "stray", 1))
+		stray := newPolicy(domain, hourlyGCRALimits(strayPath, "stray", []string{"path"}, 1))
 		stray.Namespace = satellite
 		Expect(apply(stray)).To(Succeed())
 		DeferCleanup(func() {
