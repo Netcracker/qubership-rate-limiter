@@ -155,7 +155,7 @@ any of these holds:
 | Generator lag | `step <n> fell <ms> ms behind its schedule at p99, above 1s: give the generator more threads or add generators` | Every thread of the generator was busy; the step measured the generator, not the rate limit |
 | Rate, with `-min-rate-ratio` | `step <n> achieved <rate> requests per second of the <rate> targeted` | The generator could not send the target rate |
 | Latency, with `-max-p99` | `step <n> has a p99 of <ms> ms, above <limit>` | The step's response time passed the bound you set |
-| Calls to the rate limit service, with `metrics.required` | `step <n> has no statistics of the gateway's calls to the rate limit service: <reason>`, or `step <n> has no statistics of the rate limit service's checks: <reason>` | The reason says which: an address with its error when the first generator could not read a pod, `the <source>'s statistics did not grow in the step` when no call reached it, or `fewer than two samples of the metrics fall inside the step` when the step is shorter than two sampling intervals |
+| Calls to the rate limit service, with `metrics.required` | `step <n> has no statistics of the gateway's calls to the rate limit service: <reason>`, or the same of `the rate limit service's checks` | No sample of the step holds a call of that end; [timing the call](#timing-the-call-to-the-rate-limit-service) lists the reasons |
 
 The limit check needs fixed windows, which start at a multiple of their period since the epoch: a daily window starts
 at 00:00 UTC. It allows the generator's clock and the counter store's clock to differ by up to 100 ms (`-skew`). It
@@ -210,7 +210,15 @@ Services the chart creates: the gateway's in `gateway.namespace`, the service's 
 the samples in `/results/metrics.jsonl` and the reason a source or a pod gave nothing in `/results/metrics.log`. A
 step without statistics shows `-` in the table and the reason under it, and so does a step that may miss calls of a
 pod; `metrics.required: true` fails a step without statistics. `metrics.enabled: false` creates no Service and
-samples nothing.
+samples nothing. The reasons:
+
+- an address and its error: the first generator could not read that pod, or the pod holds no statistics of the
+  cluster or the domain;
+- `the <source>'s statistics did not grow in the step`: the pods answered, and no call reached them;
+- `the <source> was not sampled`: the chart gave the generator no address of that end;
+- `fewer than two samples of the metrics fall inside the step`: the step is shorter than two sampling intervals;
+- `a pod whose histogram has other buckets is left out`, or `a pod gave nothing in some samples`: the step counts
+  the other pods only.
 
 The gateway keeps these statistics only when its proxy configuration asks for them. Patch the Gateway the test runs
 through before the run:
