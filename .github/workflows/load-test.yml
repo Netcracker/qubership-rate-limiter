@@ -137,6 +137,14 @@ jobs:
             --for=condition=Programmed --timeout=300s
           kubectl rollout status deployment/public-gateway-istio -n "${LOAD_NAMESPACE}" --timeout=300s
 
+      # The summary's table of the calls to the rate limit service reads
+      # statistics the gateway keeps only when its proxy configuration asks.
+      - name: Enable the gateway's statistics of the rate limit service
+        run: |
+          kubectl patch gateways.gateway.networking.k8s.io/public-gateway -n "${LOAD_NAMESPACE}" \
+            --type merge --patch-file tests/load/gateway-stats.yaml
+          kubectl rollout status deployment/public-gateway-istio -n "${LOAD_NAMESPACE}" --timeout=300s
+
       # The kind cluster has no DBaaS, so the workflow stands in for its Redis
       # adapter the way the E2E workflow does: a Redis with a password in a
       # namespace of its own, and the Secret dbaas-operator would write.
@@ -275,6 +283,11 @@ jobs:
           status="$(cat load-results/done)"
           if [ "${status}" != 0 ]; then
             echo "::error::the generator's run failed with status ${status}; see the job summary and the load-results artifact"
+            exit 1
+          fi
+          if ! jq -e '.rlsCalls | length > 0 and all(.gatewayCalls > 0 and .serviceChecks > 0)' \
+            load-results/summary.json >/dev/null; then
+            echo "::error::summary.json lacks the calls to the rate limit service of some step; see metrics.log"
             exit 1
           fi
           writes="$(grep -c ' wrote ' load-results/tokens.log || true)"

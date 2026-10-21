@@ -27,7 +27,8 @@ Each generator pod goes through these steps:
    generator; a generator ready later starts 15 seconds after it is ready, says so in its log, and its steps lag the
    others'. Requests arrive as a Poisson process at the rate of each step, from a fixed pool of threads with keep-alive
    connections. Each request carries a randomly picked user, group, and operation. The hot users, if any, send to one
-   group each at their own rate on top of the steps.
+   group each at their own rate on top of the steps. Meanwhile the first generator samples the statistics of the calls
+   to the rate limit service, which [timing the call](#timing-the-call-to-the-rate-limit-service) describes.
 4. It builds the HTML report and runs `loadkit verify`, which writes `summary.md` and `summary.json`.
 5. It writes the status of the run to `/results/done`: 0 when the check passed, 1 when a check failed, 2 when the check
    could not run, and 3 when JMeter failed and nothing was checked. It then waits for `/results/release`, or for
@@ -49,6 +50,9 @@ A test user is `<tokens.userPrefix><n>`, numbered from 1 to `load.users` and zer
   succeeds.
 - **The test users exist.** With `tokens.source: keycloak`, the realm needs the test users and a client with Direct
   access grants enabled. [Creating the test users](#creating-the-test-users) shows how.
+- **The gateway keeps the statistics of its calls to the rate limit service.** Istio drops them by default; patch the
+  Gateway once as [timing the call](#timing-the-call-to-the-rate-limit-service) shows. Without them the gateway's
+  columns of the summary's table of those calls show `-`, and every other check works.
 - **Token introspection is part of the measurement.** A gateway that introspects tokens in Keycloak calls it for every
   request it does not answer from a cache, so Keycloak can saturate before the rate limit does. Measure the same steps
   once with the rate limit off, as the baseline scenario does, and compare.
@@ -151,6 +155,7 @@ any of these holds:
 | Generator lag | `step <n> fell <ms> ms behind its schedule at p99, above 1s: give the generator more threads or add generators` | Every thread of the generator was busy; the step measured the generator, not the rate limit |
 | Rate, with `-min-rate-ratio` | `step <n> achieved <rate> requests per second of the <rate> targeted` | The generator could not send the target rate |
 | Latency, with `-max-p99` | `step <n> has a p99 of <ms> ms, above <limit>` | The step's response time passed the bound you set |
+| Calls to the rate limit service, with `metrics.required` | `step <n> has no statistics of the gateway's calls to the rate limit service: <reason>`, or `step <n> has no statistics of the rate limit service's checks: <reason>` | The reason says which: an address with its error when the first generator could not read a pod, `the <source>'s statistics did not grow in the step` when no call reached it, or `fewer than two samples of the metrics fall inside the step` when the step is shorter than two sampling intervals |
 
 The limit check needs fixed windows, which start at a multiple of their period since the epoch: a daily window starts
 at 00:00 UTC. It allows the generator's clock and the counter store's clock to differ by up to 100 ms (`-skew`). It
@@ -184,53 +189,75 @@ There, `invalid_grant Account is not fully set up` names a user created without 
 
 ## Timing the call to the rate limit service
 
-The response times of the summary cover the whole request. The gateway's Envoy also times its own call to the rate
-limit service: the gRPC round trip from the gateway, the decision, and the counter store. The difference from the
-service's `ratelimit_check_duration_seconds` is the path between the gateway and the service, including the mTLS hop
-through ztunnel in ambient mode. Istio creates these statistics only when the gateway's proxy configuration asks for
-them.
+The response times of the summary cover the whole request. A second table times the call to the rate limit service in
+each step, as the two ends of the call see it: the gateway's Envoy times its gRPC call, the round trip included, and
+the service times its own check, the counter store included. The difference is the path between the gateway and the
+service, with the mTLS hop through ztunnel in ambient mode. Both count every call through that gateway and service in
+the step, not only the test's.
 
-1. Add the stats matcher to the Gateway the test runs through. Istio copies the annotation to the gateway's pod, and
-   the pod restarts with it. Where a chart such as mesh-config owns the Gateway, its next upgrade can drop the change;
-   `meshConfig.defaultConfig.proxyStatsMatcher` of istiod sets the same for every proxy instead.
+| Column | What it shows |
+| --- | --- |
+| Gateway calls | The calls the gateway's statistics grew by between the first and the last sample inside the measured part of the step, which can fall up to one sampling interval short of its start and of its end |
+| Gateway p50, p90, p99 ms | The bound each quantile lies under. Envoy records whole milliseconds, so `<1` means under a millisecond and `<3` under 3 ms |
+| Timeouts | The calls the gateway stopped waiting for at `filter.timeout` of the ratelimit-service chart; the summary counts their requests as undecided |
+| Service checks | The checks of `gateway.domain` the service's statistics grew by |
+| Check p50, p99, mean ms | The service's check time; the quantiles interpolate inside a bucket the way PromQL's `histogram_quantile` does, and the mean is exact |
+| Store p99 ms | The counter store's share of the check |
 
-   ```yaml
-   spec:
-     infrastructure:
-       annotations:
-         proxy.istio.io/config: |
-           proxyStatsMatcher:
-             inclusionRegexps:
-             - ".*outbound\\|9000\\|\\|ratelimit\\..*"
-             - ".*\\.ratelimit\\..*"
-   ```
+The first generator samples both ends every `metrics.intervalSeconds` through the run. It reaches every gateway pod
+on Envoy's statistics port 15090, and every rate limit service pod on its metrics port 8080, through two headless
+Services the chart creates: the gateway's in `gateway.namespace`, the service's in the release namespace. It keeps
+the samples in `/results/metrics.jsonl` and the reason a source or a pod gave nothing in `/results/metrics.log`. A
+step without statistics shows `-` in the table and the reason under it, and so does a step that may miss calls of a
+pod; `metrics.required: true` fails a step without statistics. `metrics.enabled: false` creates no Service and
+samples nothing.
 
-2. Run the test, and read the statistics before `helm uninstall`. The filter's counters belong to the cluster of the
-   test route, and Envoy drops them when the uninstall removes that cluster.
+The gateway keeps these statistics only when its proxy configuration asks for them. Patch the Gateway the test runs
+through before the run:
 
-   ```bash
-   kubectl exec -n <namespace> <gateway pod> -- pilot-agent request GET stats | grep ratelimit
-   ```
+```bash
+kubectl patch gateway public-gateway -n <namespace> --type merge --patch-file tests/load/gateway-stats.yaml
+kubectl rollout status deployment/public-gateway-istio -n <namespace>
+```
 
-The dump names the clusters with a trailing `;`, and Prometheus reads the same values from the gateway's
-`:15020/stats/prometheus`:
+[`gateway-stats.yaml`](../tests/load/gateway-stats.yaml) sets two annotations, and Istio copies them to the gateway's
+pods, which restart with them. `proxyStatsMatcher` keeps the statistics of the rate limit service's cluster and of the
+rate limit filter. `sidecar.istio.io/statsHistogramBuckets` counts the calls in steps of 1 ms up to 10 ms; Envoy's
+default buckets start at 0.5, 1, 5, and 10 ms, and a quantile between 1 and 5 ms is all they tell. The patch replaces
+a `proxy.istio.io/config` annotation the Gateway already has, so merge the two by hand there. Where a chart such as
+mesh-config owns the Gateway, its next upgrade can drop the annotations; `meshConfig.defaultConfig.proxyStatsMatcher`
+of istiod keeps the statistics for every proxy instead. The patch keeps the statistics of the cluster
+`outbound|9000||ratelimit.*`; a `metrics.rlsCluster` of another name needs its own. Without the statistics the
+gateway's columns show `-` and the reason:
+
+```text
+http://<address>:15090/stats/prometheus: no envoy_cluster_upstream_rq_time of cluster outbound|9000||ratelimit.<namespace>.svc.cluster.local: enable the gateway's statistics of the rate limit service
+```
+
+The generators run outside the mesh, so they read both ports in plain HTTP. A `PeerAuthentication` in `STRICT` mode or
+a NetworkPolicy can refuse that; the reason under the table then names the connection error. Allow the generators'
+pods, or read the same statistics from Prometheus.
+
+Prometheus reads the gateway's statistics from `:15020/stats/prometheus`, and the dump of a gateway pod shows them
+too, with a trailing `;` after a cluster's name:
+
+```bash
+kubectl exec -n <namespace> <gateway pod> -- pilot-agent request GET stats | grep ratelimit
+```
 
 - `cluster.outbound|9000||ratelimit.<namespace>.svc.cluster.local;.upstream_rq_time`, in Prometheus
   `envoy_cluster_upstream_rq_time` with that `cluster_name`: the time of the gateway's call to the service, in
   milliseconds.
-- `upstream_rq_timeout` of the same cluster: the calls cut at `filter.timeout`, which the summary counts as undecided.
+- `upstream_rq_timeout` of the same cluster: the calls cut at `filter.timeout`.
 - `cluster.<route cluster>;.ratelimit.<prefix>.ok`, `over_limit`, `error`, and `failure_mode_allowed`, in Prometheus
   `envoy_cluster_ratelimit_<prefix>_ok` and its siblings: the outcomes of the filter. The prefix is the gateway's name
-  with `_` for `-`, such as `public_gateway`. Envoy creates each counter at its first increment.
+  with `_` for `-`, such as `public_gateway`. Envoy creates each counter at its first increment, and drops the
+  counters of the test route when `helm uninstall` removes the route's cluster.
 
 ```promql
 histogram_quantile(0.99, sum by (le) (rate(
   envoy_cluster_upstream_rq_time_bucket{cluster_name=~"outbound\\|9000\\|\\|ratelimit\\..*"}[1m])))
 ```
-
-Envoy records the time in whole milliseconds, and the buckets of its histogram start at 0.5, 1, 5, 10, and 25 ms, so a
-call under a millisecond counts as 0 and a quantile between two bounds is interpolated. The service's own histogram
-resolves the decision below a millisecond.
 
 ## Sizing the generators
 
@@ -280,6 +307,10 @@ The [values file](../tests/load/chart/values.yaml) describes every value; the on
 | `load.checkLimits`, `load.requireDecisions` | `true`, `true` | Whether the check covers the limits and expects every request decided |
 | `load.verifyArgs` | none | More flags of `loadkit verify`, such as `-min-rate-ratio 0.95 -max-p99 50ms` |
 | `load.holdSeconds` | `3600` | How long a generator keeps its results for `kubectl cp` |
+| `metrics.enabled`, `metrics.intervalSeconds` | `true`, `5` | Whether the first generator samples the calls to the rate limit service, and how often |
+| `metrics.required` | `false` | Whether a step without the statistics of either end fails the run |
+| `metrics.servicePodLabels`, `metrics.servicePort` | `name: ratelimit-service`, `8080` | The rate limit service's pods and the port of their metrics |
+| `metrics.gatewayPort`, `metrics.rlsCluster` | `15090`, `outbound\|9000\|\|ratelimit.<namespace>.svc.cluster.local` | Envoy's statistics port on the gateway's pods, and the gateway's cluster of the rate limit service |
 
 ## Running the plan in your own JMeter
 

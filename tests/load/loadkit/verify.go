@@ -43,6 +43,9 @@ type verifyConfig struct {
 	minRateRatio      float64
 	maxP99            time.Duration
 	maxLag            time.Duration
+	// requireMetrics fails a step whose metrics hold no call of the gateway
+	// or no check of the service.
+	requireMetrics bool
 }
 
 // verifyCommand reads one or more JMeter CSV results files of one run,
@@ -50,7 +53,8 @@ type verifyConfig struct {
 // and returns errChecksFailed when a check fails. It reads the files twice,
 // once for the start of the run unless -start gives it, and keeps statistics
 // rather than samples, so its memory grows with the users and groups whose
-// limits it checks, not with the length of the run.
+// limits it checks, not with the length of the run. The samples of -metrics,
+// one every few seconds, are the exception: it keeps them all.
 func verifyCommand(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	var jtls stringList
@@ -73,6 +77,10 @@ func verifyCommand(args []string, stdout io.Writer) error {
 	maxP99 := fs.Duration("max-p99", 0, "largest 99th percentile of a step's response time; 0 skips the check")
 	maxLag := fs.Duration("max-lag", time.Second, "largest 99th percentile of a step's lag behind the schedule; "+
 		"a larger lag means the generator ran out of threads or CPU, and the step measured the generator")
+	metrics := fs.String("metrics", "", "file loadkit metrics wrote during the run; "+
+		"empty leaves the calls to the rate limit service out of the summary")
+	requireMetrics := fs.Bool("require-metrics", false,
+		"fail a step whose metrics hold no call of the gateway or no check of the service")
 	out := fs.String("out", ".", "directory to write summary.json and summary.md into")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -86,6 +94,8 @@ func verifyCommand(args []string, stdout io.Writer) error {
 		return fmt.Errorf("-skew is %v; want 0 or more", *skew)
 	case *start < 0:
 		return fmt.Errorf("-start is %d; want milliseconds since the epoch", *start)
+	case *requireMetrics && *metrics == "":
+		return errors.New("-require-metrics needs -metrics")
 	}
 	steps, err := parseSteps(*stepsFlag)
 	if err != nil {
@@ -103,7 +113,7 @@ func verifyCommand(args []string, stdout io.Writer) error {
 	cfg := verifyConfig{
 		steps: steps, start: *start, warmup: *warmup, windows: windows, skew: *skew,
 		maxErrorRatio: *maxErrorRatio, maxUndecidedRatio: *maxUndecidedRatio,
-		minRateRatio: *minRateRatio, maxP99: *maxP99, maxLag: *maxLag,
+		minRateRatio: *minRateRatio, maxP99: *maxP99, maxLag: *maxLag, requireMetrics: *requireMetrics,
 	}
 
 	readAll := func(fn func(sample)) error {
@@ -132,6 +142,10 @@ func verifyCommand(args []string, stdout io.Writer) error {
 	acc := newAccumulator(cfg)
 	if err := readAll(acc.add); err != nil {
 		return err
+	}
+	if *metrics != "" {
+		in := readMetrics(*metrics)
+		acc.rls = &in
 	}
 	rep := acc.report()
 
@@ -220,11 +234,12 @@ func parseDuration(v string) (time.Duration, error) {
 
 // report is the outcome of a run, the content of summary.json.
 type report struct {
-	Start      time.Time      `json:"start"`
-	Steps      []stepReport   `json:"steps"`
-	Total      counts         `json:"total"`
-	Windows    []windowReport `json:"windows,omitempty"`
-	Violations []violation    `json:"violations,omitempty"`
+	Start      time.Time       `json:"start"`
+	Steps      []stepReport    `json:"steps"`
+	Total      counts          `json:"total"`
+	RLSCalls   []rlsCallReport `json:"rlsCalls,omitempty"`
+	Windows    []windowReport  `json:"windows,omitempty"`
+	Violations []violation     `json:"violations,omitempty"`
 	// ViolationCount counts every violation; Violations lists the first
 	// maxListedViolations of them.
 	ViolationCount int      `json:"violationCount"`
@@ -313,6 +328,7 @@ type accumulator struct {
 	bounds [][2]int64 // the measured part of each step, in milliseconds since the epoch
 	total  counts
 	limits limitInput
+	rls    *rlsInput // nil without -metrics
 }
 
 type stepAcc struct {
@@ -386,6 +402,12 @@ func (a *accumulator) report() report {
 	if ratio(rep.Total.Undecided, rep.Total.Samples) > cfg.maxUndecidedRatio {
 		rep.Failures = append(rep.Failures, fmt.Sprintf("%d of %d samples passed the gateway without a rate limit decision",
 			rep.Total.Undecided, rep.Total.Samples))
+	}
+	if a.rls != nil {
+		rep.RLSCalls = rlsCalls(a.rls, a.bounds)
+		if cfg.requireMetrics {
+			rep.Failures = append(rep.Failures, metricsFailures(rep.RLSCalls)...)
+		}
 	}
 	if a.limits != nil {
 		rep.Windows, rep.Violations, rep.ViolationCount = checkLimits(a.limits, cfg.windows, cfg.skew)
@@ -664,6 +686,9 @@ func (r report) markdown() string {
 	}
 	fmt.Fprintf(&b, "\nWhole run: %d samples, %d admitted, %d refused, %d undecided, %d without a response, %d errors.\n",
 		r.Total.Samples, r.Total.Admitted, r.Total.Refused, r.Total.Undecided, r.Total.Failed, r.Total.Errors)
+	if len(r.RLSCalls) > 0 {
+		rlsCallsMarkdown(&b, r.RLSCalls)
+	}
 	if len(r.Windows) > 0 {
 		b.WriteString("\n| Window | Instances | Reached the limit | Most admissions in one instance |\n")
 		b.WriteString("| --- | ---: | ---: | ---: |\n")

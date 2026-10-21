@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -428,4 +429,46 @@ func TestRun_verifyExitsWithOneWhenACheckFails(t *testing.T) {
 	var out, errOut strings.Builder
 	assert.Equal(t, 1, run(args("1/1m"), &out, &errOut), "verify against 1/1m")
 	assert.Equal(t, 0, run(args("2/1m"), &out, &errOut), "verify against 2/1m")
+}
+
+// -metrics adds the table of the calls to the rate limit service to
+// summary.md, and -require-metrics fails a run whose metrics hold no call;
+// -require-metrics without -metrics is a usage error.
+func TestRun_verifyReportsTheCallsToTheRateLimitService(t *testing.T) {
+	dir := t.TempDir()
+	jtl := filepath.Join(dir, "results.jtl")
+	require.NoError(t, os.WriteFile(jtl, []byte(strings.Join([]string{
+		"timeStamp,elapsed,label,responseCode,user,group,kind,remaining,lag",
+		"1800057601000,10,READ,200,a,orders,background,1,0",
+		"1800057602000,10,READ,200,a,orders,background,0,0",
+	}, "\n")+"\n"), 0o644))
+	lines := make([]string, 0, 2)
+	for i, n := range []float64{0, 2} {
+		check := histogramStats{Bounds: []float64{0.001}, Counts: []float64{n}, Count: n}
+		line, err := json.Marshal(metricsSample{T: 1800057601500 + int64(i)*5000,
+			Gateway: map[string]gatewayStats{"a": gw(envoyHist(n, n, n), 0)},
+			Service: map[string]serviceStats{"s": {Check: check}}})
+		require.NoError(t, err)
+		lines = append(lines, string(line))
+	}
+	called, empty := filepath.Join(dir, "called.jsonl"), filepath.Join(dir, "empty.jsonl")
+	require.NoError(t, os.WriteFile(called, []byte(strings.Join(lines, "\n")+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(empty, nil, 0o644))
+	args := func(extra ...string) []string {
+		return append([]string{"verify", "-jtl", jtl, "-steps", "1:10s", "-out", dir}, extra...)
+	}
+	var out, errOut strings.Builder
+
+	t.Run("a file with calls passes and fills the table", func(t *testing.T) {
+		assert.Equal(t, 0, run(args("-metrics", called, "-require-metrics"), &out, &errOut))
+		md, err := os.ReadFile(filepath.Join(dir, "summary.md"))
+		require.NoError(t, err)
+		assert.Contains(t, string(md), "\n| 1 | 2 | <1 | <1 | <1 | 0 | 2 | ")
+	})
+	t.Run("a file without calls fails", func(t *testing.T) {
+		assert.Equal(t, 1, run(args("-metrics", empty, "-require-metrics"), &out, &errOut))
+	})
+	t.Run("-require-metrics alone is a usage error", func(t *testing.T) {
+		assert.Equal(t, 2, run(args("-require-metrics"), &out, &errOut))
+	})
 }

@@ -163,3 +163,29 @@ load:
   podLabels:
     istio.io/dataplane-mode: none
     sidecar.istio.io/inject: "false"
+
+metrics:
+  # Sample, every intervalSeconds of the run, the gateway's statistics of its
+  # calls to the rate limit service and the service's statistics of its
+  # checks, for the table of those calls in summary.md. The first generator
+  # samples, and its summary carries the table. The gateway keeps these
+  # statistics only when its proxy configuration asks for them; see
+  # docs/load-testing.md. The chart creates a headless Service for the
+  # sampler in the gateway's namespace and one in the release namespace;
+  # false creates neither.
+  enabled: true
+  intervalSeconds: 5
+  # Fail a step whose samples hold no call of the gateway or no check of the
+  # service, the way a run that has to prove the statistics does.
+  required: false
+  # The port of Envoy's own statistics on the gateway pods.
+  gatewayPort: 15090
+  # The gateway's Envoy cluster of the rate limit service; empty is
+  # outbound|9000||ratelimit.<release namespace>.svc.cluster.local, the
+  # Service of the ratelimit-service chart. tests/load/gateway-stats.yaml
+  # keeps the statistics of that cluster; another one needs its own patch.
+  rlsCluster: ""
+  # The labels of the rate limit service pods and the port of their metrics.
+  servicePodLabels:
+    name: ratelimit-service
+  servicePort: 8080

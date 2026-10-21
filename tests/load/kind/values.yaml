@@ -66,3 +66,9 @@ load:
       cpu: "1"
       memory: 640Mi
   resultsSizeLimit: 256Mi
+
+metrics:
+  # The workflow patches the gateway with tests/load/gateway-stats.yaml, so
+  # every step has to carry the statistics of the calls to the rate limit
+  # service.
+  required: true

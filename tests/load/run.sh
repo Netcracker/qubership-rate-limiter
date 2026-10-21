@@ -33,6 +33,12 @@ LT_WINDOWS="${LT_WINDOWS:-}"
 LT_REQUIRE_DECISIONS="${LT_REQUIRE_DECISIONS:-true}"
 LT_VERIFY_ARGS="${LT_VERIFY_ARGS:-}"
 LT_HOLD_SECONDS="${LT_HOLD_SECONDS:-3600}"
+LT_METRICS_GATEWAY="${LT_METRICS_GATEWAY:-}"
+LT_METRICS_CLUSTER="${LT_METRICS_CLUSTER:-}"
+LT_METRICS_SERVICE="${LT_METRICS_SERVICE:-}"
+LT_METRICS_DOMAIN="${LT_METRICS_DOMAIN:-}"
+LT_METRICS_INTERVAL="${LT_METRICS_INTERVAL:-5s}"
+LT_METRICS_REQUIRED="${LT_METRICS_REQUIRED:-false}"
 RESULTS_DIR="${RESULTS_DIR:-/results}"
 WORK_DIR="${WORK_DIR:-/tmp/loadtest}"
 PLAN_DIR="${PLAN_DIR:-/opt/loadtest}"
@@ -41,9 +47,13 @@ mkdir -p "$RESULTS_DIR" "$WORK_DIR"
 rm -f "$RESULTS_DIR/done" "$RESULTS_DIR/release"
 tokens="$WORK_DIR/tokens.csv"
 watcher=""
+sampler=""
 cleanup() {
 	if [ -n "$watcher" ]; then
 		kill "$watcher" 2>/dev/null || true
+	fi
+	if [ -n "$sampler" ]; then
+		kill "$sampler" 2>/dev/null || true
 	fi
 }
 trap cleanup EXIT
@@ -156,6 +166,20 @@ for pair in $(echo "$steps" | tr ',' ' '); do
 	verify_steps="${verify_steps:+$verify_steps,}$(awk -v r="${pair%%:*}" -v h="$hot_rate" 'BEGIN { printf "%.4f", r + h }'):${pair#*:}"
 done
 
+# The first generator samples the statistics of the calls to the rate limit
+# service through the whole run; its summary carries their table.
+metrics_args=""
+if [ "$LT_GENERATOR" = 0 ] && { [ -n "$LT_METRICS_GATEWAY" ] || [ -n "$LT_METRICS_SERVICE" ]; }; then
+	loadkit metrics -gateway "$LT_METRICS_GATEWAY" -cluster "$LT_METRICS_CLUSTER" \
+		-service "$LT_METRICS_SERVICE" -domain "$LT_METRICS_DOMAIN" -interval "$LT_METRICS_INTERVAL" \
+		-out "$RESULTS_DIR/metrics.jsonl" >"$RESULTS_DIR/metrics.log" 2>&1 &
+	sampler=$!
+	metrics_args="-metrics $RESULTS_DIR/metrics.jsonl"
+	if [ "$LT_METRICS_REQUIRED" = true ]; then
+		metrics_args="$metrics_args -require-metrics"
+	fi
+fi
+
 status=0
 jmeter -n -t "$PLAN_DIR/ratelimit-load.jmx" -q "$PLAN_DIR/loadtest.properties" \
 	-Jhost="$LT_HOST" -Jport="$LT_PORT" -Jscheme="$LT_SCHEME" -Jprefix="$LT_PREFIX" \
@@ -164,6 +188,11 @@ jmeter -n -t "$PLAN_DIR/ratelimit-load.jmx" -q "$PLAN_DIR/loadtest.properties" \
 	-Jthreads="$LT_THREADS" -JhotThreads="$LT_HOT_THREADS" -Jduration="$((start - $(date +%s) + seconds + 60))" \
 	-Jjmeter.reportgenerator.temp_dir="$WORK_DIR/report-temp" \
 	-l "$RESULTS_DIR/results.jtl" -j "$RESULTS_DIR/jmeter.log" || status=$?
+if [ -n "$sampler" ]; then
+	kill "$sampler" 2>/dev/null || true
+	wait "$sampler" || true
+	sampler=""
+fi
 if [ "$status" -ne 0 ]; then
 	echo "JMeter exited with status $status; see jmeter.log" >&2
 	status=3
@@ -171,11 +200,12 @@ else
 	jmeter -g "$RESULTS_DIR/results.jtl" -o "$RESULTS_DIR/report" \
 		-Jjmeter.reportgenerator.temp_dir="$WORK_DIR/report-temp" -j "$RESULTS_DIR/report.log" ||
 		echo "the HTML report failed; see report.log" >&2
-	# LT_VERIFY_ARGS holds extra flags of loadkit verify, split on spaces.
+	# LT_VERIFY_ARGS holds extra flags of loadkit verify, split on spaces,
+	# and so does metrics_args.
 	# shellcheck disable=SC2086
 	loadkit verify -jtl "$RESULTS_DIR/results.jtl" -steps "$verify_steps" -start "$start_ms" \
 		-warmup "${LT_WARMUP_SECONDS}s" \
-		-windows "$LT_WINDOWS" -out "$RESULTS_DIR" $LT_VERIFY_ARGS || status=$?
+		-windows "$LT_WINDOWS" -out "$RESULTS_DIR" $metrics_args $LT_VERIFY_ARGS || status=$?
 fi
 cleanup
 watcher=""

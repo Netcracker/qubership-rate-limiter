@@ -100,3 +100,55 @@ func TestLoadtestChart_refusesARenderWithoutARequiredValue(t *testing.T) {
 		})
 	}
 }
+
+// metricsServices returns the Services the chart renders for the sampler,
+// by name.
+func metricsServices(objects []object) map[string]object {
+	services := map[string]object{}
+	for _, o := range ofKind(objects, "Service") {
+		if o.at("metadata", "labels", "app.kubernetes.io/component").str2() == "metrics" {
+			services[o.name()] = o
+		}
+	}
+	return services
+}
+
+// The sampler reaches every gateway pod and every rate limit service pod
+// through headless Services, the gateway's in the gateway's namespace, and
+// reads the rate limit service's cluster of the release namespace.
+func TestLoadtestChart_pointsTheSamplerAtEveryGatewayAndServicePod(t *testing.T) {
+	objects := renderLoadtest(t, "--set", "gateway.namespace=edge")
+
+	services := metricsServices(objects)
+	require.Contains(t, services, "t-loadtest-gateway-stats")
+	require.Contains(t, services, "t-loadtest-service-metrics")
+	gateway, service := services["t-loadtest-gateway-stats"], services["t-loadtest-service-metrics"]
+	assert.Equal(t, "edge", gateway.at("metadata", "namespace").str2(), "namespace of the gateway's Service")
+	assert.Equal(t, "None", gateway.at("spec", "clusterIP").str2(), "clusterIP of the gateway's Service")
+	assert.Equal(t, "public-gateway", gateway.at("spec", "selector", "gateway.networking.k8s.io/gateway-name").str2(),
+		"pod selector of the gateway's Service")
+	assert.Equal(t, "None", service.at("spec", "clusterIP").str2(), "clusterIP of the service's Service")
+	assert.Equal(t, "ratelimit-service", service.at("spec", "selector", "name").str2(),
+		"pod selector of the service's Service")
+
+	env := generatorEnv(t, objects)
+	assert.Equal(t, "t-loadtest-gateway-stats.edge.svc.cluster.local:15090", env["LT_METRICS_GATEWAY"])
+	assert.Equal(t, "outbound|9000||ratelimit.load.svc.cluster.local", env["LT_METRICS_CLUSTER"])
+	assert.Equal(t, "t-loadtest-service-metrics.load.svc.cluster.local:8080", env["LT_METRICS_SERVICE"])
+	assert.Equal(t, "gateway.public", env["LT_METRICS_DOMAIN"])
+	assert.Equal(t, "5s", env["LT_METRICS_INTERVAL"])
+	assert.Equal(t, "false", env["LT_METRICS_REQUIRED"])
+}
+
+// With metrics.enabled off the chart renders neither the Services nor the
+// sampler's environment, and run.sh then starts no sampler.
+func TestLoadtestChart_rendersNoSamplerWithMetricsOff(t *testing.T) {
+	objects := renderLoadtest(t, "--set", "metrics.enabled=false")
+
+	assert.Empty(t, metricsServices(objects))
+	env := generatorEnv(t, objects)
+	for _, name := range []string{"LT_METRICS_GATEWAY", "LT_METRICS_CLUSTER", "LT_METRICS_SERVICE",
+		"LT_METRICS_DOMAIN", "LT_METRICS_INTERVAL", "LT_METRICS_REQUIRED"} {
+		assert.NotContains(t, env, name)
+	}
+}
