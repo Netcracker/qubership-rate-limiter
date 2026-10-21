@@ -12,6 +12,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -213,13 +214,17 @@ func forEachPod(ctx context.Context, cfg metricsConfig, target, path string, err
 		return
 	}
 	for _, addr := range addrs {
-		url := "http://" + net.JoinHostPort(addr, port) + path
-		fams, err := scrape(ctx, cfg.client, url, names)
+		// Envoy's statistics port and the service's metrics port speak plain
+		// HTTP, the way Prometheus scrapes them; the generator runs outside
+		// the mesh, so no mesh encrypts the hop either.
+		location := url.URL{Scheme: "http", Host: net.JoinHostPort(addr, port), Path: path}
+		endpoint := location.String()
+		fams, err := scrape(ctx, cfg.client, endpoint, names)
 		if err == nil {
 			err = fn(addr, fams)
 		}
 		if err != nil {
-			*errs = append(*errs, fmt.Sprintf("%s: %v", url, err))
+			*errs = append(*errs, fmt.Sprintf("%s: %v", endpoint, err))
 		}
 	}
 }
@@ -227,11 +232,11 @@ func forEachPod(ctx context.Context, cfg metricsConfig, target, path string, err
 // families holds the metric families of one scrape by name.
 type families map[string]*dto.MetricFamily
 
-// scrape reads the Prometheus text exposition at url and parses the families
-// named in names. It parses only their lines, so a line of another family
-// that the text parser would refuse does not cost the sample.
-func scrape(ctx context.Context, client *http.Client, url string, names []string) (families, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// scrape reads the Prometheus text exposition at endpoint and parses the
+// families named in names. It parses only their lines, so a line of another
+// family that the text parser would refuse does not cost the sample.
+func scrape(ctx context.Context, client *http.Client, endpoint string, names []string) (families, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
