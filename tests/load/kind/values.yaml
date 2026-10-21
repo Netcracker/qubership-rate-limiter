@@ -52,9 +52,10 @@ load:
   startDelaySeconds: 60
   threads: 20
   hotThreads: 4
-  # A shared runner may stall a moment; the default checks stay strict about
-  # errors, refusals, and admissions.
-  verifyArgs: -min-rate-ratio 0.8 -max-undecided-ratio 0.001
+  # A shared runner may stall a moment, and a stall past the rate limit
+  # filter's timeout leaves a response undecided; the default checks stay
+  # strict about errors, refusals, and admissions.
+  verifyArgs: -min-rate-ratio 0.8 -max-undecided-ratio 0.01
   holdSeconds: 1800
   heap: -Xms384m -Xmx384m -XX:MaxMetaspaceSize=128m
   resources:

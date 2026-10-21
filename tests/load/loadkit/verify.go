@@ -487,12 +487,7 @@ type event struct {
 // checkLimits.
 type limitInput map[limitKey][]event
 
-// add keeps s unless it is undecided: a response the service did not decide
-// charged no counter.
 func (in limitInput) add(s sample) {
-	if s.outcome == undecided {
-		return
-	}
 	k := limitKey{s.user, s.group}
 	in[k] = append(in[k], event{start: s.start, end: s.end(), outcome: s.outcome})
 }
@@ -504,15 +499,19 @@ func (in limitInput) add(s sample) {
 //
 // The service decides a request at some moment between the start and the end
 // of its sample, read on the counter store's clock, which may differ from the
-// generator's by up to skew. Each check therefore holds for every moment the
-// decision can have taken, and reports only what no such moment explains:
+// generator's by up to skew. The service can charge an undecided response a
+// few milliseconds after its sample ends, and skew covers that too. Each
+// check therefore holds for every moment the decision can have taken, and
+// reports only what no such moment explains:
 //
 //   - over-admission: an instance holds more admissions than the window's
 //     requests, counting only the admissions that cannot have been decided
 //     in a neighboring instance;
 //   - false refusal: a 429 arrives while no window can have been full, even
-//     counting every admission, and every sample without a response, that
-//     can have been decided in the same instance before it.
+//     counting every sample the service may have admitted that can have been
+//     decided in the same instance before it. Besides the admissions, these
+//     are the samples without a response and the undecided responses, since
+//     the service may have charged the counters for either.
 func checkLimits(in limitInput, windows []window, skew time.Duration) ([]windowReport, []violation, int) {
 	keys := make([]limitKey, 0, len(in))
 	for k := range in {
@@ -588,11 +587,11 @@ func countAdmissions(k limitKey, events []event, w window, skewMs int64, rep *wi
 // checkRefusals adds a false refusal to found for every 429 of k that no
 // full window explains.
 func checkRefusals(k limitKey, events []event, windows []window, skewMs int64, found *violationLog) {
-	var starts, ends []int64 // admissions and samples without a response
+	var starts, ends []int64 // samples the service may have admitted
 	var refusals []event
 	for _, e := range events {
 		switch e.outcome {
-		case admitted, failed:
+		case admitted, failed, undecided:
 			starts = append(starts, e.start)
 			ends = append(ends, e.end)
 		case refused:
@@ -615,19 +614,19 @@ func checkRefusals(k limitKey, events []event, windows []window, skewMs int64, f
 // refusalJustified reports whether some instance of some window that the
 // refusal r can have been decided in can have held the window's requests
 // before r. starts and ends hold, sorted, the starts and the ends of the
-// admissions and of the samples without a response.
+// samples the service may have admitted.
 func refusalJustified(r event, starts, ends []int64, windows []window, skewMs int64) bool {
 	lo, hi := r.start-skewMs, r.end+skewMs
 	for _, w := range windows {
 		p := w.period.Milliseconds()
 		for inst := floorDiv(lo, p); inst <= floorDiv(hi, p); inst++ {
 			ws, we := inst*p, (inst+1)*p
-			// An admission can precede the refusal inside this instance if
-			// it can start before min(we, hi), the refusal's latest decision
-			// here, and can end inside the instance. A sample that ends
-			// before ws-skew also starts before min(we, hi)+skew, because
-			// hi >= ws, so the difference of the two counts below is the
-			// number of such admissions.
+			// A possible admission can precede the refusal inside this
+			// instance if it can start before min(we, hi), the refusal's
+			// latest decision here, and can end inside the instance. A
+			// sample that ends before ws-skew also starts before
+			// min(we, hi)+skew, because hi >= ws, so the difference of the
+			// two counts below is the number of such samples.
 			before, _ := slices.BinarySearch(starts, min(we, hi)+skewMs)
 			gone, _ := slices.BinarySearch(ends, ws-skewMs)
 			if int64(before-gone) >= w.requests {

@@ -17,9 +17,10 @@ const (
 	admitted outcome = iota
 	// refused is a 429, which only the rate limit filter returns here.
 	refused
-	// undecided is an HTTP response without x-ratelimit-remaining: the
-	// gateway let the request through without a decision of the service,
-	// which is the filter's failure mode, so no counter was charged.
+	// undecided is an HTTP response without x-ratelimit-remaining, such as
+	// when the filter's call to the service timed out or failed and the
+	// filter let the request through. The service may still have charged
+	// the counters for it.
 	undecided
 	// failed is a sample without an HTTP response, such as a connection
 	// reset or a client timeout. The request may or may not have been

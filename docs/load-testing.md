@@ -154,8 +154,10 @@ any of these holds:
 
 The limit check needs fixed windows, which start at a multiple of their period since the epoch: a daily window starts
 at 00:00 UTC. It allows the generator's clock and the counter store's clock to differ by up to 100 ms (`-skew`). It
-reports only what no decision moment within that tolerance explains. `load.checkLimits` passes the windows to the
-check only with `policy.algorithm: FixedWindow`. The summary also lists, per window, how many instances reached their
+reports only what no decision moment within that tolerance explains. The service may have charged the counters for
+a request that got no response or an undecided one, so the check counts such a request as a possible admission before
+a 429, and never as an admission past a window's requests. `load.checkLimits` passes the windows to the check only
+with `policy.algorithm: FixedWindow`. The summary also lists, per window, how many instances reached their
 requests, counting only the admissions that cannot fall in a neighboring instance. A hot user that sends more than a
 window allows reaches its requests in most instances; the instances cut by the start or the end of the run, and those
 a longer window keeps closed, do not. A count of zero means no window was ever seen full, and a run meant to show the

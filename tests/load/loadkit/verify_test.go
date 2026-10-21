@@ -133,12 +133,15 @@ func TestCheckLimits_reportsHowTheInstancesFilled(t *testing.T) {
 	assert.Equal(t, []windowReport{{Window: "5/1m0s", Instances: 2, Full: 1, MaxAdmitted: 5}}, reports)
 }
 
-// A response the service did not decide charges no counter: kate's minute
-// holds five admissions and one undecided response, leo's six admissions.
-func TestCheckLimits_ignoresResponsesTheServiceDidNotDecide(t *testing.T) {
+// Over-admission counts only the admissions a response confirms: kate's
+// minute holds five admissions and one undecided response, kurt's five
+// admissions and one sample without a response, leo's six admissions.
+func TestCheckLimits_overAdmissionCountsOnlyConfirmedAdmissions(t *testing.T) {
 	samples := join(
 		admissions("kate", 1*time.Second, 2*time.Second, 3*time.Second, 4*time.Second, 5*time.Second),
 		[]sample{at("kate", undecided, 6*time.Second, 10*time.Millisecond)},
+		admissions("kurt", 1*time.Second, 2*time.Second, 3*time.Second, 4*time.Second, 5*time.Second),
+		[]sample{at("kurt", failed, 6*time.Second, 10*time.Second)},
 		admissions("leo", 1*time.Second, 2*time.Second, 3*time.Second, 4*time.Second, 5*time.Second, 6*time.Second),
 	)
 	assert.Equal(t, []found{{"over-admission", "leo", "5/1m0s"}}, violations(t, samples, "5/1m"))
@@ -239,6 +242,23 @@ func TestCheckLimits_countsASampleWithoutResponseAsAPossibleAdmission(t *testing
 		[]sample{at("judy", refused, 20*time.Second, 10*time.Millisecond)},
 	)
 	assert.Equal(t, []found{{"false refusal", "judy", ""}}, violations(t, samples, "5/1m"))
+}
+
+// An undecided response may have been admitted, because the service can
+// charge the counters after the filter stopped waiting: olga's refusal
+// follows four admissions and an undecided response, pete's four admissions
+// only.
+func TestCheckLimits_countsAnUndecidedResponseAsAPossibleAdmission(t *testing.T) {
+	samples := join(
+		admissions("olga", 1*time.Second, 2*time.Second, 3*time.Second, 4*time.Second),
+		[]sample{
+			at("olga", undecided, 5*time.Second, 52*time.Millisecond),
+			at("olga", refused, 20*time.Second, 10*time.Millisecond),
+		},
+		admissions("pete", 1*time.Second, 2*time.Second, 3*time.Second, 4*time.Second),
+		[]sample{at("pete", refused, 20*time.Second, 10*time.Millisecond)},
+	)
+	assert.Equal(t, []found{{"false refusal", "pete", ""}}, violations(t, samples, "5/1m"))
 }
 
 // The statistics of a step cover the step without its first -warmup, and
