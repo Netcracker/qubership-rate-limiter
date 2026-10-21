@@ -180,6 +180,56 @@ loadkit tokens: <n> of <m> users could not log in; first error: user <name>: tok
 There, `invalid_grant Account is not fully set up` names a user created without a full profile, and
 `unauthorized_client` a client without Direct access grants.
 
+## Timing the call to the rate limit service
+
+The response times of the summary cover the whole request. The gateway's Envoy also times its own call to the rate
+limit service: the gRPC round trip from the gateway, the decision, and the counter store. The difference from the
+service's `ratelimit_check_duration_seconds` is the path between the gateway and the service, including the mTLS hop
+through ztunnel in ambient mode. Istio creates these statistics only when the gateway's proxy configuration asks for
+them.
+
+1. Add the stats matcher to the Gateway the test runs through. Istio copies the annotation to the gateway's pod, and
+   the pod restarts with it. Where a chart such as mesh-config owns the Gateway, its next upgrade can drop the change;
+   `meshConfig.defaultConfig.proxyStatsMatcher` of istiod sets the same for every proxy instead.
+
+   ```yaml
+   spec:
+     infrastructure:
+       annotations:
+         proxy.istio.io/config: |
+           proxyStatsMatcher:
+             inclusionRegexps:
+             - ".*outbound\\|9000\\|\\|ratelimit\\..*"
+             - ".*\\.ratelimit\\..*"
+   ```
+
+2. Run the test, and read the statistics before `helm uninstall`. The filter's counters belong to the cluster of the
+   test route, and Envoy drops them when the uninstall removes that cluster.
+
+   ```bash
+   kubectl exec -n <namespace> <gateway pod> -- pilot-agent request GET stats | grep ratelimit
+   ```
+
+The dump names the clusters with a trailing `;`, and Prometheus reads the same values from the gateway's
+`:15020/stats/prometheus`:
+
+- `cluster.outbound|9000||ratelimit.<namespace>.svc.cluster.local;.upstream_rq_time`, in Prometheus
+  `envoy_cluster_upstream_rq_time` with that `cluster_name`: the time of the gateway's call to the service, in
+  milliseconds.
+- `upstream_rq_timeout` of the same cluster: the calls cut at `filter.timeout`, which the summary counts as undecided.
+- `cluster.<route cluster>;.ratelimit.<prefix>.ok`, `over_limit`, `error`, and `failure_mode_allowed`, in Prometheus
+  `envoy_cluster_ratelimit_<prefix>_ok` and its siblings: the outcomes of the filter. The prefix is the gateway's name
+  with `_` for `-`, such as `public_gateway`. Envoy creates each counter at its first increment.
+
+```promql
+histogram_quantile(0.99, sum by (le) (rate(
+  envoy_cluster_upstream_rq_time_bucket{cluster_name=~"outbound\\|9000\\|\\|ratelimit\\..*"}[1m])))
+```
+
+Envoy records the time in whole milliseconds, and the buckets of its histogram start at 0.5, 1, 5, 10, and 25 ms, so a
+call under a millisecond counts as 0 and a quantile between two bounds is interpolated. The service's own histogram
+resolves the decision below a millisecond.
+
 ## Sizing the generators
 
 - **Threads.** A generator thread holds one request at a time, so a generator needs more than its rate times the
