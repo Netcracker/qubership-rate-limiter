@@ -124,6 +124,8 @@ func TestExtract_skipsEveryPlannedKeyOfAnUndecodableToken(t *testing.T) {
 			token(t, map[string]any{"sub": "alice", "pad": strings.Repeat("x", MaxTokenBytes)})},
 		{"a well-formed token one byte past MaxTokenBytes",
 			tokenOfLength(t, map[string]any{"sub": "alice"}, MaxTokenBytes+1)},
+		{"a payload followed by a second value", rawPayloadToken(`{"sub":"alice"}{"sub":"bob"}`)},
+		{"a payload followed by garbage", rawPayloadToken(`{"sub":"alice"} x`)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			keys, skips := Extract(plan(t), c.token)
@@ -139,6 +141,37 @@ func TestExtract_skipsEveryPlannedKeyOfAnUndecodableToken(t *testing.T) {
 				t.Errorf("Extract(plan, %.32q) skips = %v, want %v", c.token, got, want)
 			}
 		})
+	}
+}
+
+// rawPayloadToken is a token whose payload segment encodes payload as given,
+// for a payload json.Marshal would not produce.
+func rawPayloadToken(payload string) string {
+	return "h." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
+}
+
+// A payload followed by white space alone decodes, as json.Unmarshal reads it.
+func TestExtract_readsAPayloadFollowedByWhiteSpace(t *testing.T) {
+	keys, skips := Extract(plan(t), rawPayloadToken("{\"sub\":\"alice\"} \n"))
+	if !slices.Equal(keys["sub"], []string{"alice"}) || len(skips) != 0 {
+		t.Errorf("Extract(plan, payload and white space) = %v, %v; want sub alice and no skips", keys, skips)
+	}
+}
+
+// The payload keeps its numbers as json.Number. Extraction reads strings
+// only, and converting a number to float64 costs what its literal makes it
+// cost: a literal on a rounding halfway point takes the slow path of the
+// conversion, and the shape bounds do not count digits.
+func TestPayload_keepsNumbersAsJSONNumbers(t *testing.T) {
+	claims, ok := payload(rawPayloadToken(`{"sub":"alice","n":[1.5,2],"exp":4102444800}`))
+	if !ok {
+		t.Fatal("payload of a token with numeric claims is undecodable")
+	}
+	if got, want := claims["n"], []any{json.Number("1.5"), json.Number("2")}; !reflect.DeepEqual(got, want) {
+		t.Errorf(`claim "n" = %#v, want %#v`, got, want)
+	}
+	if got, want := claims["exp"], json.Number("4102444800"); got != want {
+		t.Errorf(`claim "exp" = %#v, want %#v`, got, want)
 	}
 }
 

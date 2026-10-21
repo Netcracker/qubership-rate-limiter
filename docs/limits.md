@@ -163,8 +163,9 @@ the rule; last-good holds the traffic.
   the token ≤ 16 KiB (`MaxTokenBytes`), and the payload's shape: nesting ≤ 8 levels (`MaxPayloadDepth`) and ≤ 512
   commas and colons (`MaxPayloadSeparators`), past which the token is undecodable (`decode_failed`). The token is
   untrusted input; the size and value limits protect key length and store memory, and the shape limits the work of
-  decoding it to under 10 times a realistic token's, where the size alone left it at about 100 times. A heavy token,
-  150 realm roles, ten clients of eight roles, and thirty flat claims, has 312 separators.
+  decoding it to under 15 times a realistic token's, where the size alone left it at about 100 times. A number in the
+  payload is kept as text and never converted, so no literal, however many digits it has, costs more than its bytes.
+  A heavy token, 150 realm roles, ten clients of eight roles, and thirty flat claims, has 312 separators.
 - **Token cache**: per domain, 10 000 extractions and 8 MiB of live heap, by an estimate of what an entry retains,
   its keys, values, skips, and map, which runs 3 to 22 % over the measured heap; an extraction over 4 KiB by that
   estimate is not cached. A realistic extraction, a subject, a plan, and 20 roles, retains about 1.3 KiB, so the

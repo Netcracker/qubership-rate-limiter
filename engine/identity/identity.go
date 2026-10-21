@@ -1,8 +1,11 @@
 package identity
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
 	"slices"
 	"strings"
 
@@ -195,8 +198,18 @@ func payload(token string) (map[string]any, bool) {
 	if !withinShape(raw) {
 		return nil, false
 	}
+	// Numbers stay json.Number strings. Extraction reads strings only, and a
+	// float64 conversion of a literal the token chose can cost seventy
+	// realistic tokens, which the shape bound does not see.
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	var claims map[string]any
-	if json.Unmarshal(raw, &claims) != nil {
+	if decoder.Decode(&claims) != nil {
+		return nil, false
+	}
+	// Decode stops after the first value; anything but trailing space after
+	// it is a malformed payload, as json.Unmarshal reports it.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return nil, false
 	}
 	return claims, true

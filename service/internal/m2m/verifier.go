@@ -121,7 +121,12 @@ func NewVerifier(ctx context.Context, cfg Config) (tokenverifier.Verifier, error
 	if err != nil {
 		return nil, fmt.Errorf("fetch the key set at %s: %w", jwksURI, err)
 	}
+	// Claims decode their numbers as json.Number: the claims are decoded before
+	// the signature is checked, and a float64 conversion of a literal the
+	// caller chose can cost seventy ordinary tokens. The time claims are
+	// still converted, one literal each.
 	parser := jwt.NewParser(
+		jwt.WithJSONNumber(),
 		jwt.WithValidMethods(signingMethods),
 		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(leeway),
