@@ -309,20 +309,23 @@ func nested(depth int) any {
 	return v
 }
 
-// wide builds a payload that holds exactly separators separators, at least
-// four. Each claim holds a colon, a comma stands between each two claims, and
-// the pair array adds a comma for each item past its first: one for an even
-// count and two for an odd one.
+// wide builds a payload that holds exactly separators of what
+// MaxPayloadSeparators counts, at least six. The payload object and the pair
+// array open two brackets, each claim holds a colon, a comma stands between
+// each two claims, and the pair array adds a comma for each item past its
+// first: one for an even count and two for an odd one.
 func wide(separators int) map[string]any {
-	claims := map[string]any{"sub": "alice", "pair": slices.Repeat([]int{1}, 2+separators%2)}
-	for i := range separators/2 - 2 {
+	punctuation := separators - 2
+	claims := map[string]any{"sub": "alice", "pair": slices.Repeat([]int{1}, 2+punctuation%2)}
+	for i := range punctuation/2 - 2 {
 		claims[fmt.Sprintf("c%04d", i)] = 1
 	}
 	return claims
 }
 
 // A payload within the shape bounds decodes. The payload object itself is the
-// first level of nesting, and structure inside a string counts for nothing.
+// first level of nesting, and structure inside a string counts for nothing
+// when nothing in it is escaped.
 func TestExtract_decodesAPayloadWithinTheShapeBounds(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -330,7 +333,7 @@ func TestExtract_decodesAPayloadWithinTheShapeBounds(t *testing.T) {
 	}{
 		{"nesting at MaxPayloadDepth", map[string]any{"sub": "alice", "deep": nested(MaxPayloadDepth - 1)}},
 		{"separators at MaxPayloadSeparators", wide(MaxPayloadSeparators)},
-		{"key syntax inside a string", map[string]any{"sub": "alice", "note": strings.Repeat(`{[,:]}"\`, 400)}},
+		{"key syntax inside a string", map[string]any{"sub": "alice", "note": strings.Repeat(`{[,:]}`, 400)}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			keys, skips := Extract(plan(t), token(t, c.claims))
@@ -354,6 +357,12 @@ func TestExtract_refusesAPayloadPastAShapeBound(t *testing.T) {
 		{"nesting one level past MaxPayloadDepth", map[string]any{"sub": "alice", "deep": nested(MaxPayloadDepth)}},
 		{"separators one past MaxPayloadSeparators", wide(MaxPayloadSeparators + 1)},
 		{"separators past MaxPayloadSeparators", wide(MaxPayloadSeparators + 2)},
+		// 502 commas and colons, within the bound counting them alone, and
+		// six brackets in each element.
+		{"empty objects and arrays past MaxPayloadSeparators",
+			map[string]any{"sub": "alice", "a": slices.Repeat([]any{nestedEmpty(MaxPayloadDepth - 2)}, 500)}},
+		// Three colons and two commas, and an escape for each quote.
+		{"string escapes past MaxPayloadSeparators", map[string]any{"sub": "alice", "s": strings.Repeat(`"`, 600)}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			keys, skips := Extract(plan(t), token(t, c.claims))
