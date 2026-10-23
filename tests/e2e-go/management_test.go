@@ -296,7 +296,7 @@ var _ = Describe("the management port through the private gateway", Ordered, Lab
 // another call already spent would prove nothing.
 func spendBudget(domain, prefix, rule string, limit int32, applied *bool) string {
 	if !*applied {
-		blocks := hourlyGCRALimits(prefix, "per-path", limit)
+		blocks := hourlyGCRALimits(prefix, "per-path", []string{"path"}, limit)
 		Expect(apply(newPolicy(domain, blocks))).To(Succeed())
 		*applied = true
 		waitApplied(domain)
