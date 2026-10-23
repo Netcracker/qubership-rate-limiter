@@ -1,0 +1,28 @@
+# 100 rps for an hour with the SVT windows, for the diagnostic workflow
+# load-test-deep.yml: where the time of a rate limit decision goes.
+policy:
+  windows:
+    - {requests: 50, periodSeconds: 60}
+    - {requests: 1000, periodSeconds: 3600}
+    - {requests: 5000, periodSeconds: 86400}
+  multiplier: 1
+tokens:
+  source: self-signed
+load:
+  users: 2000
+  hotUsers: 0
+  steps:
+    - {rate: 100, seconds: 3600}
+  warmupSeconds: 30
+  startDelaySeconds: 60
+  checkLimits: true
+  threads: 200
+  verifyArgs: -max-undecided-ratio 1 -max-error-ratio 1
+  heap: -Xms1g -Xmx1g -XX:MaxMetaspaceSize=256m
+  resources:
+    requests: {cpu: "1", memory: 1536Mi}
+    limits: {cpu: "2", memory: 1536Mi}
+  resultsSizeLimit: 1Gi
+  holdSeconds: 3600
+metrics:
+  required: false

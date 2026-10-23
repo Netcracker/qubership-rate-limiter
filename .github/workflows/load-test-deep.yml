@@ -1,0 +1,280 @@
+# Load test diagnostics
+#
+# Runs 100 requests per second for an hour on kind, the way the stand under
+# stand/load-kind does, and samples every hop of a rate limit decision every
+# 5 s: the gateway's Envoy, every rate limit service pod, Redis, and the CPU
+# throttling of every container. It uploads the samples, the JMeter results,
+# and the logs of the gateway and the service, and writes the breakdown of
+# tests/load/kind/diag/deep-analyze.py to the job summary. A push to a
+# diag/load-* branch runs it.
+
+name: Load test diagnostics
+
+on:
+  push:
+    branches:
+      - 'diag/load-*'
+
+concurrency:
+  group: load-test-deep-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GATEWAY_API_VERSION: v1.4.0
+  ISTIO_REPO: https://github.com/Netcracker/qubership-istio.git
+  ISTIO_REF: main
+  MESH_CONFIG_REPO: https://github.com/Netcracker/qubership-core-mesh-config.git
+  MESH_CONFIG_REF: main
+  LOAD_NAMESPACE: ratelimit-load
+  REDIS_NAMESPACE: ratelimit-load-redis
+  OPERATOR_IMAGE: ratelimit-operator:kind
+  SERVICE_IMAGE: ratelimit-service:kind
+  LOADTEST_IMAGE: ratelimit-loadtest:kind
+  SCENARIO: deep100
+
+jobs:
+  load-test-deep:
+    name: load test diagnostics (kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the operator image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: operator/Dockerfile
+          load: true
+          tags: ${{ env.OPERATOR_IMAGE }}
+          cache-from: type=gha,scope=e2e-operator-image
+
+      - name: Build the service image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: service/Dockerfile
+          load: true
+          tags: ${{ env.SERVICE_IMAGE }}
+          cache-from: type=gha,scope=e2e-service-image
+
+      - name: Build the load test image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: tests/load/Dockerfile
+          load: true
+          tags: ${{ env.LOADTEST_IMAGE }}
+          cache-from: type=gha,scope=load-loadtest-image
+
+      - name: Create kind cluster
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          cluster_name: ratelimit-load
+          config: tests/e2e/kind-config.yaml
+
+      - name: Load the images into kind
+        run: |
+          for image in "${OPERATOR_IMAGE}" "${SERVICE_IMAGE}" "${LOADTEST_IMAGE}"; do
+            kind load docker-image "${image}" --name ratelimit-load
+          done
+
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      - name: Install qubership-istio
+        run: |
+          git clone --depth 1 --branch "${ISTIO_REF}" "${ISTIO_REPO}" /tmp/qubership-istio
+          helm dependency update /tmp/qubership-istio/helm-templates/qubership-istio
+          kubectl create namespace istio-system
+          helm upgrade --install qubership-istio /tmp/qubership-istio/helm-templates/qubership-istio \
+            --namespace istio-system \
+            --set global.istioNamespace=istio-system \
+            --set MONITORING_ENABLED=false \
+            --wait --timeout 10m
+          kubectl rollout status deployment/istiod -n istio-system --timeout=300s
+          kubectl rollout status daemonset/ztunnel -n istio-system --timeout=300s
+          kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=300s
+
+      - name: Install qubership-core-mesh-config
+        run: |
+          git clone --depth 1 --branch "${MESH_CONFIG_REF}" "${MESH_CONFIG_REPO}" /tmp/mesh-config
+          kubectl create namespace "${LOAD_NAMESPACE}"
+          kubectl label namespace "${LOAD_NAMESPACE}" istio.io/dataplane-mode=ambient --overwrite
+          kubectl label namespace "${LOAD_NAMESPACE}" istio.io/use-waypoint=waypoint --overwrite
+          helm upgrade --install core-istio-mesh /tmp/mesh-config \
+            --namespace "${LOAD_NAMESPACE}" \
+            -f /tmp/mesh-config/resource-profiles/dev.yaml \
+            --set SERVICE_MESH_TYPE=Istio \
+            --set MONITORING_ENABLED=false \
+            --set CPU_REQUEST=10m \
+            --set WAYPOINT_CPU_REQUEST=100m \
+            --wait --timeout 10m
+          kubectl wait gateways.gateway.networking.k8s.io/public-gateway -n "${LOAD_NAMESPACE}" \
+            --for=condition=Programmed --timeout=300s
+          kubectl rollout status deployment/public-gateway-istio -n "${LOAD_NAMESPACE}" --timeout=300s
+
+      - name: Enable the gateway's statistics and its log of slow requests
+        run: |
+          kubectl patch gateways.gateway.networking.k8s.io/public-gateway -n "${LOAD_NAMESPACE}" \
+            --type merge --patch-file tests/load/kind/diag/gateway-deep-stats.yaml
+          kubectl apply -f tests/load/kind/diag/gateway-access-log.yaml
+          kubectl rollout status deployment/public-gateway-istio -n "${LOAD_NAMESPACE}" --timeout=300s
+
+      # Redis gets the 2 CPUs of the local stand, so the store is not the
+      # run's own ceiling, and a slowlog of every call over 2 ms.
+      - name: Deploy the counter store
+        run: |
+          kubectl create namespace "${REDIS_NAMESPACE}"
+          password="$(openssl rand -hex 8)"
+          echo "::add-mask::${password}"
+          kubectl create secret generic e2e-redis-auth -n "${REDIS_NAMESPACE}" \
+            --from-file=password=<(printf '%s' "${password}")
+          kubectl apply -n "${REDIS_NAMESPACE}" -f tests/e2e/manifests/redis.yaml
+          kubectl set resources deployment/e2e-redis -n "${REDIS_NAMESPACE}" \
+            --limits=cpu=2,memory=512Mi --requests=cpu=500m,memory=64Mi
+          kubectl rollout status deployment/e2e-redis -n "${REDIS_NAMESPACE}" --timeout=120s
+          for setting in "slowlog-log-slower-than 2000" "slowlog-max-len 1024" "latency-monitor-threshold 5"; do
+            # shellcheck disable=SC2086 # the setting is a name and a value
+            kubectl exec -n "${REDIS_NAMESPACE}" deploy/e2e-redis -- \
+              redis-cli --no-auth-warning -a "${password}" CONFIG SET ${setting}
+          done
+
+      # The service runs the prod profile with the HPA off, two replicas of
+      # one CPU each, as on the local stand.
+      - name: Install the rate limit charts
+        run: |
+          helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds \
+            --namespace "${LOAD_NAMESPACE}" --wait --timeout 2m
+          helm upgrade --install ratelimit-operator helm-templates/ratelimit-operator \
+            --namespace "${LOAD_NAMESPACE}" \
+            --set NAMESPACE="${LOAD_NAMESPACE}" \
+            --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
+            -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+            --set IMAGE_REPOSITORY=ratelimit-operator \
+            --set TAG=kind \
+            --wait --timeout 5m
+          helm upgrade --install ratelimit-service helm-templates/ratelimit-service \
+            --namespace "${LOAD_NAMESPACE}" \
+            --set NAMESPACE="${LOAD_NAMESPACE}" \
+            --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
+            -f helm-templates/ratelimit-service/resource-profiles/prod.yaml \
+            --set HPA_ENABLED=false \
+            --set REPLICAS=2 \
+            --set IMAGE_REPOSITORY=ratelimit-service \
+            --set TAG=kind \
+            --set redis.dbaas.enabled=false
+
+      - name: Write the counter store's Secret
+        run: |
+          password="$(kubectl get secret e2e-redis-auth -n "${REDIS_NAMESPACE}" \
+            -o jsonpath='{.data.password}' | base64 -d)"
+          echo "::add-mask::${password}"
+          connection="$(jq -cn --arg host "e2e-redis.${REDIS_NAMESPACE}" --arg password "${password}" \
+            '{host: $host, port: 6379, url: ("redis://" + $host + ":6379"), password: $password,
+              role: "admin", service: "e2e-redis"}')"
+          metadata="$(jq -cn --arg namespace "${LOAD_NAMESPACE}" \
+            '{classifier: {microserviceName: "ratelimit-service", namespace: $namespace, scope: "service"},
+              type: "redis", name: "e2e-redis", namespace: $namespace}')"
+          kubectl create secret generic ratelimit-service-redis -n "${LOAD_NAMESPACE}" \
+            --from-file=connectionProperties.json=<(printf '%s' "${connection}") \
+            --from-file=metadata.json=<(printf '%s' "${metadata}")
+          kubectl rollout status deployment/ratelimit-service -n "${LOAD_NAMESPACE}" --timeout=5m
+
+      # The samples, the logs, and later the results land in the layout
+      # deep-analyze.py reads: results/<scenario>, results/<scenario>-deep,
+      # and values/<scenario>.yaml under load-deep.
+      - name: Start the sampler and the logs
+        run: |
+          deep="load-deep/results/${SCENARIO}-deep"
+          mkdir -p "${deep}/logs" load-deep/values
+          cp "tests/load/kind/diag/${SCENARIO}.yaml" "load-deep/values/${SCENARIO}.yaml"
+          for pod in $(kubectl get pods -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=ratelimit-service -o name) \
+            $(kubectl get pods -n "${LOAD_NAMESPACE}" -l gateway.networking.k8s.io/gateway-name=public-gateway -o name); do
+            nohup kubectl logs -f -n "${LOAD_NAMESPACE}" "${pod}" --since=1s >"${deep}/logs/${pod#pod/}.log" 2>&1 &
+          done
+          nohup bash tests/load/kind/diag/deep-sampler.sh "${deep}" >"${deep}/sampler.log" 2>&1 &
+
+      - name: Install the load test chart
+        run: |
+          helm upgrade --install loadtest tests/load/chart \
+            --namespace "${LOAD_NAMESPACE}" \
+            -f tests/load/kind/values.yaml \
+            -f "tests/load/kind/diag/${SCENARIO}.yaml"
+          kubectl wait ratelimitpolicies.ratelimit.netcracker.com/gateway.public -n "${LOAD_NAMESPACE}" \
+            --for=condition=Ready --timeout=180s
+
+      - name: Wait for the run and collect the results
+        run: |
+          selector=app.kubernetes.io/instance=loadtest,app.kubernetes.io/component=generator
+          pod=""
+          for _ in $(seq 1 60); do
+            pod="$(kubectl get pods -n "${LOAD_NAMESPACE}" -l "${selector}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            [ -n "${pod}" ] && break
+            sleep 2
+          done
+          [ -n "${pod}" ] || { echo "::error::no generator pod appeared within 120 seconds"; exit 1; }
+          deadline=$((SECONDS + 4800))
+          until kubectl exec -n "${LOAD_NAMESPACE}" "${pod}" -- test -e /results/done 2>/dev/null; do
+            phase="$(kubectl get pod -n "${LOAD_NAMESPACE}" "${pod}" -o jsonpath='{.status.phase}')"
+            if [ "${phase}" = Failed ] || [ "${phase}" = Succeeded ]; then
+              kubectl logs -n "${LOAD_NAMESPACE}" "${pod}" --tail=200
+              echo "::error::the generator pod ended in phase ${phase} before it wrote its results"
+              exit 1
+            fi
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              kubectl logs -n "${LOAD_NAMESPACE}" "${pod}" --tail=200
+              echo "::error::the generator wrote no results within 80 minutes"
+              exit 1
+            fi
+            sleep 30
+          done
+          out="load-deep/results/${SCENARIO}"
+          mkdir -p "${out}"
+          kubectl cp -n "${LOAD_NAMESPACE}" "${pod}:/results" "${out}/results"
+          kubectl exec -n "${LOAD_NAMESPACE}" "${pod}" -- touch /results/release
+          kubectl logs -n "${LOAD_NAMESPACE}" "${pod}" >"${out}/generator.log"
+          if [ -f "${out}/results/summary.md" ]; then
+            cat "${out}/results/summary.md" >>"${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Stop the sampler and break the time down
+        if: always()
+        run: |
+          deep="load-deep/results/${SCENARIO}-deep"
+          touch "${deep}/stop"
+          sleep 10
+          pkill -f "kubectl logs -f" || true
+          if [ -f "load-deep/results/${SCENARIO}/results/results.jtl" ]; then
+            python3 tests/load/kind/diag/deep-analyze.py "${SCENARIO}" load-deep >load-deep/analysis.md 2>&1 || true
+            {
+              echo
+              echo '## Where the time goes'
+              echo
+              cat load-deep/analysis.md
+            } >>"${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload the samples and results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: load-deep
+          path: load-deep/
+          if-no-files-found: ignore
+
+      - name: Dump state on failure
+        if: failure()
+        run: |
+          kubectl get all,ratelimitpolicies,gateways.gateway.networking.k8s.io,httproutes \
+            -n "${LOAD_NAMESPACE}" -o wide || true
+          kubectl describe pods -n "${LOAD_NAMESPACE}" || true

@@ -1,0 +1,16 @@
+# The gateway logs a request that took over 20 ms or carries a
+# response flag, such as RLSE for a failed call to the rate limit service.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: public-gateway-slow-requests
+  namespace: ratelimit-load
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: public-gateway
+  accessLogging:
+    - providers:
+        - name: envoy
+      filter:
+        expression: 'request.duration > duration("20ms") || response.flags != 0'
