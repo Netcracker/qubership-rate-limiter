@@ -39,7 +39,7 @@ while [ ! -e "$OUT/stop" ]; do
   jobs_now=($!)
   for i in "${!ports[@]}"; do
     curl -sf -m 3 "http://127.0.0.1:${ports[$i]}/metrics" \
-      | grep -E '^(ratelimit_(check_duration|store_roundtrip|store_errors|checks_total)|go_gc_duration|go_goroutines|process_cpu_seconds)' \
+      | grep -E '^(ratelimit_(check_duration|store_roundtrip|store_errors|store_pool_|checks_total)|go_gc_duration|go_goroutines|process_cpu_seconds)' \
       | sed "s/^/${pods[$i]} /"
   done >"$OUT/svc/$t0" &
   jobs_now+=($!)
