@@ -53,6 +53,10 @@ type CounterBackend struct {
 	// CheckEviction reads whether the store may evict keys; nil when the
 	// store cannot.
 	CheckEviction func(ctx context.Context) error
+
+	// PoolStats reads the connection pool of the client behind Store; nil
+	// when the store has no pool.
+	PoolStats func() *goredis.PoolStats
 }
 
 // RequiredEvictionPolicy is the maxmemory-policy the counter store must run
@@ -117,6 +121,7 @@ func CounterStore(source *redisconn.Source) CounterBackend {
 		CheckEviction: func(ctx context.Context) error {
 			return CheckEviction(ctx, management)
 		},
+		PoolStats: decisions.PoolStats,
 	}
 }
 
