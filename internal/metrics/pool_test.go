@@ -33,7 +33,7 @@ ratelimit_store_pool_hits_total 101
 # HELP ratelimit_store_pool_idle_connections Idle connections in the decision client's pool.
 # TYPE ratelimit_store_pool_idle_connections gauge
 ratelimit_store_pool_idle_connections 108
-# HELP ratelimit_store_pool_misses_total Calls of the decision client that found no idle connection in its pool and waited for a dial.
+# HELP ratelimit_store_pool_misses_total Calls of the decision client that found no idle connection in its pool.
 # TYPE ratelimit_store_pool_misses_total counter
 ratelimit_store_pool_misses_total 102
 # HELP ratelimit_store_pool_removed_connections_total Connections the decision client closed and removed from its pool.

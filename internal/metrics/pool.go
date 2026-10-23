@@ -10,7 +10,7 @@ var (
 		"Calls of the decision client that took an idle connection from its pool.",
 		nil, nil)
 	descPoolMisses = prometheus.NewDesc("ratelimit_store_pool_misses_total",
-		"Calls of the decision client that found no idle connection in its pool and waited for a dial.",
+		"Calls of the decision client that found no idle connection in its pool.",
 		nil, nil)
 	descPoolTimeouts = prometheus.NewDesc("ratelimit_store_pool_timeouts_total",
 		"Calls of the decision client that waited for a free connection until the pool timeout.",
