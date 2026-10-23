@@ -263,8 +263,9 @@ kubectl logs -n "$NS" deploy/ratelimit-service --since=10m | grep -E 'store erro
 The `reason` label tells the class: `timeout` is no answer within the check's deadline, latency or a partition, and
 includes a check the gateway stopped waiting for (`context canceled` in the log above) and a wait for a free pooled
 connection; `server` is Redis answering an
-error; `other` is connectivity, a connection refused or dropped (`EOF`) or a name that does not resolve. A decision is
-never retried, so a store that refuses connections shows as `other` at once rather than as a `timeout`. The
+error; `other` is connectivity, a connection refused or dropped (`EOF`) or a name that does not resolve. Once the
+service's first lookup of the name has succeeded, a failed lookup keeps the last address and is not a store error. A
+decision is never retried, so a store that refuses connections shows as `other` at once rather than as a `timeout`. The
 `ratelimit_store_roundtrip_seconds` histogram shows whether the store was slow before it failed. The policy status does
 not move during the outage: it describes rules, not counters, and `Ready` stays `True`.
 

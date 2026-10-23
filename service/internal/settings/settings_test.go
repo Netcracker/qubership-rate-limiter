@@ -1,12 +1,17 @@
 package settings
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -383,6 +388,129 @@ func TestDecisionOptions_endADecisionAtTheChecksDeadline(t *testing.T) {
 	assert.Less(t, time.Since(start), 150*time.Millisecond)
 }
 
+// errDialRefused is what a dial returns once a test has refused dials.
+var errDialRefused = errors.New("the test refuses dials")
+
+// pipeOptions returns the decision client's options with a dialer that
+// connects each call to [answerCommands] over an in-memory pipe, until
+// refused is set; a refused dial returns errDialRefused. The address is an IP
+// literal, so the client looks nothing up. Call it inside a synctest bubble,
+// where the bubble's clock drives the client's timeouts and the pool's idle
+// limit.
+func pipeOptions(t *testing.T, refused *atomic.Bool) *goredis.UniversalOptions {
+	t.Helper()
+	options := DecisionOptions("10.0.0.1:6379", nil)
+	require.NotNil(t, options.Dialer, "the dialer DecisionOptions sets")
+	options.Dialer = func(context.Context, string, string) (net.Conn, error) {
+		if refused.Load() {
+			return nil, errDialRefused
+		}
+		client, server := net.Pipe()
+		go answerCommands(server)
+		return client, nil
+	}
+	return options
+}
+
+// timeOutACheck sends a check the store never answers and requires it to fail
+// with a timeout, which makes the client drop that check's connection.
+func timeOutACheck(t *testing.T, client goredis.UniversalClient) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	var timeout net.Error
+	require.ErrorAs(t, client.Do(ctx, "HANG").Err(), &timeout, "the check the store leaves unanswered")
+	require.True(t, timeout.Timeout(), "the check the store leaves unanswered fails with a timeout, got %v", timeout)
+}
+
+// The client opens its spare connections before any check asks for one.
+func TestDecisionOptions_openTheSparesBeforeAnyCheck(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var refused atomic.Bool
+		client := goredis.NewUniversalClient(pipeOptions(t, &refused))
+		t.Cleanup(func() { _ = client.Close() })
+
+		synctest.Wait()
+
+		assert.Equal(t, uint32(decisionSpareConns), client.PoolStats().TotalConns, "open connections")
+	})
+}
+
+// A check that follows a timed-out one takes a spare connection that is
+// already open, while every dial fails. The timeout makes the client drop
+// that check's connection. The client used to dial the replacement on the
+// next check's path, inside that check's deadline.
+func TestDecisionOptions_takeASpareConnectionAfterATimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var refused atomic.Bool
+		client := goredis.NewUniversalClient(pipeOptions(t, &refused))
+		t.Cleanup(func() { _ = client.Close() })
+		synctest.Wait()
+		refused.Store(true)
+		timeOutACheck(t, client)
+
+		err := client.Ping(context.Background()).Err()
+
+		assert.NoError(t, err, "the check after the timeout")
+	})
+}
+
+// The client replaces the connection a timed-out check took, in the
+// background, so the spares are back to their number before the next check.
+func TestDecisionOptions_refillTheSparesWithoutACheck(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var refused atomic.Bool
+		client := goredis.NewUniversalClient(pipeOptions(t, &refused))
+		t.Cleanup(func() { _ = client.Close() })
+		synctest.Wait()
+		timeOutACheck(t, client)
+
+		synctest.Wait()
+
+		stats := client.PoolStats()
+		assert.Equal(t, uint32(decisionSpareConns), stats.IdleConns, "idle connections")
+		assert.Equal(t, uint32(decisionSpareConns), stats.TotalConns, "open connections")
+	})
+}
+
+// A spare that no check took for longer than go-redis's default idle limit
+// of 30 minutes still serves a check, while every dial fails.
+func TestDecisionOptions_keepIdleSparesPastHalfAnHour(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var refused atomic.Bool
+		client := goredis.NewUniversalClient(pipeOptions(t, &refused))
+		t.Cleanup(func() { _ = client.Close() })
+		synctest.Wait()
+		time.Sleep(31 * time.Minute)
+		refused.Store(true)
+
+		err := client.Ping(context.Background()).Err()
+
+		assert.NoError(t, err, "the check after half an hour idle")
+	})
+}
+
+// A burst that holds every spare makes the next check dial on its own path:
+// with dials refused, that check fails with the dial's error.
+func TestDecisionOptions_dialWhenABurstHoldsEverySpare(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var refused atomic.Bool
+		client := goredis.NewClient(pipeOptions(t, &refused).Simple())
+		t.Cleanup(func() { _ = client.Close() })
+		synctest.Wait()
+		refused.Store(true)
+		for range decisionSpareConns {
+			held := client.Conn()
+			t.Cleanup(func() { _ = held.Close() })
+			require.NoError(t, held.Ping(context.Background()).Err(), "a check that holds a spare")
+		}
+
+		err := client.Ping(context.Background()).Err()
+
+		assert.ErrorIs(t, err, errDialRefused)
+	})
+}
+
 // A management call ends at its request's deadline, inside the client's 3 s
 // timeouts.
 func TestManagementOptions_endACallAtItsDeadline(t *testing.T) {
@@ -431,4 +559,71 @@ func silentServer(t *testing.T) string {
 		}
 	}()
 	return listener.Addr().String()
+}
+
+// answerCommands speaks enough of the Redis protocol on conn for a client,
+// until conn closes or a command is HANG. It refuses HELLO, so the client
+// falls back to RESP2, answers PING with PONG and every other command with
+// OK, and leaves HANG and everything after it unanswered.
+func answerCommands(conn net.Conn) {
+	reader := bufio.NewReader(conn)
+	for {
+		command, err := readCommand(reader)
+		if err != nil {
+			return
+		}
+		var reply string
+		switch strings.ToUpper(command[0]) {
+		case "HANG":
+			_, _ = io.Copy(io.Discard, reader)
+			return
+		case "HELLO":
+			reply = "-ERR unknown command 'HELLO'\r\n"
+		case "PING":
+			reply = "+PONG\r\n"
+		default:
+			reply = "+OK\r\n"
+		}
+		if _, err := io.WriteString(conn, reply); err != nil {
+			return
+		}
+	}
+}
+
+// readCommand reads one command, an array of bulk strings, the form a client
+// sends.
+func readCommand(reader *bufio.Reader) ([]string, error) {
+	count, err := readLength(reader, '*')
+	if err != nil {
+		return nil, err
+	}
+	command := make([]string, count)
+	for i := range command {
+		size, err := readLength(reader, '$')
+		if err != nil {
+			return nil, err
+		}
+		bulk := make([]byte, size+2)
+		if _, err := io.ReadFull(reader, bulk); err != nil {
+			return nil, err
+		}
+		command[i] = string(bulk[:size])
+	}
+	if count == 0 {
+		return nil, errors.New("an empty command")
+	}
+	return command, nil
+}
+
+// readLength reads a line that starts with kind and returns the number after
+// it.
+func readLength(reader *bufio.Reader, kind byte) (int, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return 0, err
+	}
+	if len(line) < 3 || line[0] != kind {
+		return 0, fmt.Errorf("want a line that starts with %q, got %q", kind, line)
+	}
+	return strconv.Atoi(strings.TrimRight(line[1:], "\r\n"))
 }
