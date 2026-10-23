@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netcracker/qubership-ratelimit/engine/algo"
+	enginestore "github.com/netcracker/qubership-ratelimit/engine/store"
 	"github.com/netcracker/qubership-ratelimit/service/internal/redisconn"
 	"github.com/netcracker/qubership-ratelimit/service/internal/rls"
 )
@@ -47,6 +49,32 @@ func TestCounterStore_countsInTheDatabaseTheSecretNames(t *testing.T) {
 	assert.NotNil(t, backend.Records)
 	assert.Contains(t, backend.Description, "ratelimit-redis.core:6379")
 	assert.NotNil(t, backend.CheckEviction)
+}
+
+// PoolStats reads the pool of the client behind Store, the one that decides
+// the checks: a decision whose dial the store refuses makes one call on that
+// pool. The management API's client is idle here, so a PoolStats that read
+// its pool would count nothing.
+func TestCounterStore_readsThePoolOfTheDecisionClient(t *testing.T) {
+	host, port, err := net.SplitHostPort(closedAddr(t))
+	require.NoError(t, err)
+	source, err := redisconn.Open(context.Background(), fixedResolver{"host": host, "port": port, "password": "p"},
+		redisconn.Classifier("ratelimit-service", "core"), logr.Discard())
+	require.NoError(t, err)
+	backend := CounterStore(source)
+	t.Cleanup(func() { _ = backend.Closer.Close() })
+	require.NotNil(t, backend.PoolStats, "the pool of a Redis store")
+
+	_, decideErr := backend.Store.Decide(t.Context(), []enginestore.Bucket{{
+		Key:       "probe",
+		Algorithm: algo.GCRAID,
+		Window:    algo.Window{Requests: 10, Period: time.Minute, Burst: 10},
+		Cost:      1,
+	}})
+
+	stats := backend.PoolStats()
+	assert.Equal(t, 1, int(stats.Hits+stats.Misses),
+		"Hits+Misses of PoolStats() after one decision, which returned %v", decideErr)
 }
 
 // policyReader returns its map for CONFIG GET, or errUnknownCommand when it is
