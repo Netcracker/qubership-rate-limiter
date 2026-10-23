@@ -21,11 +21,12 @@ type fakeAnswer struct {
 
 // fakeResolver answers each lookup with the next of its answers, in order,
 // and holds a lookup it has no answer for until the lookup's context ends or
-// the test does.
+// the test does. With a gate, it holds every lookup until the gate closes.
 type fakeResolver struct {
 	mu      sync.Mutex
 	answers []fakeAnswer
 	hosts   []string // the host of each lookup, in the order they started
+	gate    chan struct{}
 	done    chan struct{}
 }
 
@@ -38,6 +39,16 @@ func newFakeResolver(t *testing.T, answers ...fakeAnswer) *fakeResolver {
 func (r *fakeResolver) lookup(ctx context.Context, host string) ([]string, error) {
 	r.mu.Lock()
 	r.hosts = append(r.hosts, host)
+	gate := r.gate
+	r.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	r.mu.Lock()
 	if len(r.answers) == 0 {
 		r.mu.Unlock()
 		select {
@@ -220,18 +231,57 @@ func TestResolvingDialer_failsTheFirstDialWhenTheLookupHasNoAddress(t *testing.T
 	assert.Empty(t, network.addresses(), "addresses dialed")
 }
 
-// The first dial's lookup ends at the dial's deadline.
-func TestResolvingDialer_endsTheFirstLookupAtTheDialsDeadline(t *testing.T) {
+// Dials that find no answer yet share one lookup, as the client's spare
+// connections do when they all dial at start. Each dial used to run a lookup
+// of its own, so four spares made four lookups.
+func TestResolvingDialer_sharesTheFirstLookupAmongConcurrentDials(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
+		resolver := newFakeResolver(t, fakeAnswer{ips: []string{"10.0.0.1"}})
+		resolver.gate = make(chan struct{})
 		network := &fakeNetwork{}
-		d := storeDialer(newFakeResolver(t), network)
+		d := storeDialer(resolver, network)
+		errs := make([]error, decisionSpareConns)
+		var dials sync.WaitGroup
+		for i := range errs {
+			dials.Go(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				errs[i] = dialStore(ctx, d)
+			})
+		}
+		synctest.Wait()
+		lookups := resolver.lookups()
+		close(resolver.gate)
+		dials.Wait()
+
+		assert.Equal(t, 1, lookups, "lookups started by the concurrent dials")
+		assert.Equal(t, make([]error, decisionSpareConns), errs, "the errors of the concurrent dials")
+		assert.Len(t, network.addresses(), decisionSpareConns, "addresses dialed")
+	})
+}
+
+// A dial whose context ends while it waits for the shared lookup returns at
+// once with the context's error. The lookup goes on, and a dial with no
+// deadline still connects at its answer.
+func TestResolvingDialer_returnsAtTheDialsDeadlineWhileTheSharedLookupWaits(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		resolver := newFakeResolver(t, fakeAnswer{ips: []string{"10.0.0.1"}})
+		resolver.gate = make(chan struct{})
+		d := storeDialer(resolver, &fakeNetwork{})
+		var patient error
+		var dials sync.WaitGroup
+		dials.Go(func() { patient = dialStore(context.Background(), d) })
+		synctest.Wait()
 		ctx, cancel := context.WithTimeout(context.Background(), decisionTimeout)
 		defer cancel()
 
 		err := dialStore(ctx, d)
 
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.Empty(t, network.addresses(), "addresses dialed")
+		close(resolver.gate)
+		dials.Wait()
+		assert.NoError(t, patient, "the dial without a deadline")
+		assert.Equal(t, 1, resolver.lookups(), "lookups started")
 	})
 }
 
