@@ -27,6 +27,12 @@ for pod in $(kubectl get pods -n "$NS" -l app.kubernetes.io/name=ratelimit-servi
   ports+=("$port")
   port=$((port + 1))
 done
+# The gateway's stats come from Envoy's Prometheus port over a port-forward.
+# A kubectl exec of pilot-agent on every sample throttles the gateway
+# container's CPU, and the requests that arrive meanwhile wait in it.
+gw_port=19290
+kubectl port-forward -n "$NS" deploy/public-gateway-istio "$gw_port:15090" >/dev/null 2>&1 &
+pids+=($!)
 trap 'kill "${pids[@]}" 2>/dev/null' EXIT
 sleep 3
 
@@ -34,7 +40,7 @@ now() { date +%s%3N; }
 n=0
 while [ ! -e "$OUT/stop" ]; do
   t0=$(now)
-  kubectl exec -n "$NS" deploy/public-gateway-istio -- pilot-agent request GET stats/prometheus 2>/dev/null \
+  curl -sf -m 3 "http://127.0.0.1:$gw_port/stats/prometheus" \
     | grep -E '^envoy_' | grep -E '9000\|\|ratelimit|loadtest-backend|downstream_rq|_ratelimit_' >"$OUT/gw/$t0" &
   jobs_now=($!)
   for i in "${!ports[@]}"; do
