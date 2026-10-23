@@ -325,7 +325,10 @@ The full contract, the interfaces, and the implementations are in the [store con
   one, as it closes the connection of a check that timed out. A check dials on its own path only when it finds no open
   idle connection: before the spares first connect after a start, when a burst takes every spare before the
   replacements connect, and after Redis or the network closed the idle ones, which a check discards, up to three,
-  before it dials. The first check on a new connection runs the connection handshake, `HELLO` and `CLIENT SETINFO`.
+  before it dials. `ratelimit_store_pool_misses_total` counts the checks that found no open idle connection
+  ([chart](helm-chart.md), "Metrics: the naming contract"). It counts checks rather than dials: after a run of failed
+  dials, the client returns the last dial error without dialing. The first check on a new connection runs the
+  connection handshake, `HELLO` and `CLIENT SETINFO`.
   Idle connections do not expire on the service's side. Once a lookup of the database's host name has succeeded, a
   dial goes to the address the last lookup returned and starts the next lookup in the background, so it does not wait
   on DNS, and a lookup that fails keeps the last address.
