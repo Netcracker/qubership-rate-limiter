@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -52,6 +53,10 @@ type CounterBackend struct {
 	// CheckEviction reads whether the store may evict keys; nil when the
 	// store cannot.
 	CheckEviction func(ctx context.Context) error
+
+	// PoolStats reads the connection pool of the client behind Store; nil
+	// when the store has no pool.
+	PoolStats func() *goredis.PoolStats
 }
 
 // RequiredEvictionPolicy is the maxmemory-policy the counter store must run
@@ -116,6 +121,7 @@ func CounterStore(source *redisconn.Source) CounterBackend {
 		CheckEviction: func(ctx context.Context) error {
 			return CheckEviction(ctx, management)
 		},
+		PoolStats: decisions.PoolStats,
 	}
 }
 
@@ -125,18 +131,51 @@ func CounterStore(source *redisconn.Source) CounterBackend {
 // the client honors before this bound.
 const decisionTimeout = 250 * time.Millisecond
 
+// decisionSpareConns is the number of idle connections the decision client
+// keeps open beside the ones in use. Each spare costs the store one
+// connection per replica. When checks take spares faster than the
+// replacements connect, each spare lets one more check skip the dial.
+const decisionSpareConns = 4
+
 // DecisionOptions configures the client that decides the traffic's checks.
 //
 // A decision is never retried and its dial is attempted once: the gateway
 // waits on the check for the filter's timeout, tens of milliseconds, and a
 // replayed script would charge the same request twice. A store that refuses
 // the connection fails the check at once, with the dial error, rather than
-// after the deadline as a timeout. A pooled connection that the store closed,
-// on a restart for example, fails one check the same way; the gateway's
-// failure mode decides that check.
+// after the deadline as a timeout. A connection the store closes while a
+// check holds it, on a restart for example, fails that check the same way;
+// the gateway's failure mode decides that check.
+//
+// A check takes an idle connection that is already open when there is one.
+// The pool keeps [decisionSpareConns] idle connections beside the ones in
+// use, and dials a replacement in the background whenever a check takes one
+// or the client drops one, as it drops the connection of a check that timed
+// out. A check dials on its own when it finds no open idle connection: before
+// the spares first connect, when a burst takes every spare before the
+// replacements connect, and after the store closed the idle ones, which a
+// check discards, up to three, before it dials. The client runs the
+// connection's handshake, HELLO and CLIENT SETINFO, on the first check that
+// takes it.
+//
+// Idle connections never expire. By default go-redis drops a connection that
+// was idle for 30 minutes when a check takes it, and it hands out the most
+// recently returned connection first, so under light traffic the spares
+// would reach that age and the check that found them would dial.
+//
+// Dials go through a [resolvingDialer], so once a lookup has succeeded a dial
+// does not wait on DNS. The DBaaS Redis adapter writes a short host name,
+// <database>.<namespace>, which the pod's resolver expands through its search
+// domains before it finds the Service.
 func DecisionOptions(addr string, credentials func() (string, string)) *goredis.UniversalOptions {
+	dialer := &resolvingDialer{
+		addr:   addr,
+		lookup: net.DefaultResolver.LookupHost,
+		dial:   goredis.NewDialer(&goredis.Options{DialTimeout: decisionTimeout}),
+	}
 	return &goredis.UniversalOptions{
 		Addrs:                 []string{addr},
+		Dialer:                dialer.DialContext,
 		CredentialsProvider:   credentials,
 		ContextTimeoutEnabled: true,
 		DialTimeout:           decisionTimeout,
@@ -145,6 +184,8 @@ func DecisionOptions(addr string, credentials func() (string, string)) *goredis.
 		ReadTimeout:           decisionTimeout,
 		WriteTimeout:          decisionTimeout,
 		MaxRetries:            -1,
+		MinIdleConns:          decisionSpareConns,
+		ConnMaxIdleTime:       -1,
 	}
 }
 

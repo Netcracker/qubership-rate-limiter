@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,6 +58,47 @@ func TestRunner_servesUntilTheContextEnds(t *testing.T) {
 
 	_, err = http.Get(target) //nolint:noctx // the deadline is the test's
 	assert.Error(t, err, "GET %s after the runner stopped", target)
+}
+
+// Start returns and closes the socket even when its context ends before the
+// server starts accepting. A service's context ends that early when a sibling
+// listener fails to bind or a SIGTERM arrives during startup. The OnListen hook
+// forces that order: it ends the context while the server is starting and holds
+// the server back until Shutdown has returned. Start used to hang there,
+// because Shutdown found no registered listener and closed nothing, and the
+// server then kept accepting on the socket.
+func TestRunner_stopsWhenTheContextEndsBeforeTheServerAccepts(t *testing.T) {
+	h := newTestAPI(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	shutDown := make(chan struct{})
+	h.app.Hooks().OnShutdown(func() error {
+		close(shutDown)
+		return nil
+	})
+	h.app.Hooks().OnListen(func(fiber.ListenData) error {
+		cancel()
+		<-shutDown
+		return nil
+	})
+
+	runner := &Runner{Addr: "127.0.0.1:0", App: h.app, Log: discardLogger{}}
+	stopped := make(chan error, 1)
+	go func() { stopped <- runner.Start(ctx) }()
+
+	select {
+	case err := <-stopped:
+		require.NoError(t, err, "Start on a context that ended before the server accepted")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out after 10s waiting for Start to return on a context that ended before the server accepted")
+	}
+
+	addr := runner.boundAddr()
+	require.Regexp(t, `^127\.0\.0\.1:\d+$`, addr, "the address the runner bound for %s", runner.Addr)
+	conn, err := net.Dial("tcp", addr)
+	if err == nil {
+		_ = conn.Close()
+	}
+	assert.Error(t, err, "dial %s after Start returned", addr)
 }
 
 func TestRunner_reportsAnAddressItCannotHave(t *testing.T) {

@@ -42,20 +42,22 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 		if store, ok = releaseCounterStore(); !ok {
 			Skip("the namespace carries no " + redisSecretName + " Secret to reach the store through")
 		}
-		// The fixture half runs once even across flake retries: the budget is
-		// an hour long, so a retry that minted a fresh policy would leave the
-		// gateway un-warmable behind the first attempt's spent budget.
+		// The fixture half runs once even across flake retries: the budget
+		// stays spent for longer than the run, so a retry that minted a fresh
+		// policy would leave the gateway un-warmable behind the first
+		// attempt's refusals.
 		if !applied {
 			applied = true
 
 			// The gateway is warmed before the policy exists, not after:
 			// every warm-up probe would otherwise come out of the budget
-			// this suite is about to count. An hour-long window, so a
-			// restart straddling a boundary cannot hand the budget back
-			// and blame Redis for it.
+			// this suite is about to count. The rate is GCRA: once the limit
+			// is spent, the next request is due 3600/limit seconds later (30
+			// minutes), longer than any restart takes. A fixed window refills
+			// at the top of the hour, which a restart can straddle.
 			waitGatewayServes("public-gateway", probePath)
 			Expect(apply(newPolicy(domain,
-				prefixLimits(probePath, "total", nil, limit, 3600)))).To(Succeed())
+				hourlyGCRALimits(probePath, "total", nil, limit)))).To(Succeed())
 			waitApplied(domain)
 		}
 	})
@@ -85,9 +87,9 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 	})
 
 	It("enforces a declared limit through the shared store", func() {
-		// The budget is spent deliberately, one request at a time, so the
-		// count in Redis is a number this test chose rather than whatever a
-		// burst happened to land.
+		// The budget is spent one request at a time, and each request is
+		// asserted on its own, so a refusal inside the budget names the
+		// request it hit.
 		for i := 1; i <= limit; i++ {
 			Expect(gatewayGet("public-gateway", probePath, nil)).NotTo(Equal(429),
 				"request %d of the budget was refused; another policy is limiting this path", i)
@@ -123,7 +125,7 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 		// key came back first: the suites share gateway.public, so a scan of
 		// the domain returns their counters too, in whatever order Redis
 		// hands them over.
-		want := "rl:v1:" + tag + ":probe/total:fixedwindow:3600:"
+		want := "rl:v1:" + tag + ":probe/total:gcra:3600:"
 		Expect(keys).To(ContainElement(want),
 			"no counter at the documented key; the domain holds %v", keys)
 	})
