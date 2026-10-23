@@ -36,11 +36,13 @@ while [ ! -e "$OUT/stop" ]; do
   t0=$(now)
   kubectl exec -n "$NS" deploy/public-gateway-istio -- pilot-agent request GET stats/prometheus 2>/dev/null \
     | grep -E '^envoy_' | grep -E '9000\|\|ratelimit|loadtest-backend|downstream_rq|_ratelimit_' >"$OUT/gw/$t0" &
+  jobs_now=($!)
   for i in "${!ports[@]}"; do
     curl -sf -m 3 "http://127.0.0.1:${ports[$i]}/metrics" \
       | grep -E '^(ratelimit_(check_duration|store_roundtrip|store_errors|checks_total)|go_gc_duration|go_goroutines|process_cpu_seconds)' \
       | sed "s/^/${pods[$i]} /"
   done >"$OUT/svc/$t0" &
+  jobs_now+=($!)
   # shellcheck disable=SC2016 # the script runs in the Redis pod, with the password as $1
   kubectl exec -n "$RNS" deploy/e2e-redis -- sh -c '
     p="$1"
@@ -51,13 +53,18 @@ while [ ! -e "$OUT/stop" ]; do
     echo "## histogram"; redis-cli --no-auth-warning -a "$p" LATENCY HISTOGRAM evalsha eval
     echo "## slowlog"; redis-cli --no-auth-warning -a "$p" SLOWLOG GET 1024
     redis-cli --no-auth-warning -a "$p" SLOWLOG RESET >/dev/null' _ "$pw" >"$OUT/redis/$t0" 2>/dev/null &
+  jobs_now+=($!)
   kubectl get --raw "/api/v1/nodes/$NODE/proxy/metrics/cadvisor" 2>/dev/null \
     | grep -E '^container_cpu_(cfs_throttled_periods_total|cfs_periods_total|usage_seconds_total|cfs_throttled_seconds_total)\{' \
     | grep -E 'container="(service|istio-proxy|redis|generator|nginx)"' >"$OUT/cadv/$t0" &
+  jobs_now+=($!)
   if [ $((n % 3)) = 0 ]; then
     { printf '%s ' "$t0"; docker stats --no-stream --format '{{.CPUPerc}} {{.MemUsage}}' "$NODE"; } >>"$OUT/node-cpu.log" &
+    jobs_now+=($!)
   fi
-  wait
+  # Only this sample's jobs: a bare wait would also wait for the
+  # port-forwards, which never end.
+  wait "${jobs_now[@]}"
   n=$((n + 1))
   left=$((5000 - ($(now) - t0)))
   if [ "$left" -gt 0 ]; then
