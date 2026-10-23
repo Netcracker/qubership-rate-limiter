@@ -270,14 +270,15 @@ decision is never retried, so a store that refuses connections shows as `other` 
 not move during the outage: it describes rules, not counters, and `Ready` stays `True`.
 
 The pool series tell whether the checks wait for a connection to Redis on their own path.
-`ratelimit_store_pool_misses_total` counts the checks that found no idle connection in the replica's pool. Such a check
-waits within the gateway's deadline for a new connection, which the client usually dials, and a dial that outlasts the
-deadline ends the check as a `timeout`. Misses are not dials: after a run of failed dials the client returns the last
-dial error at once until a background dial, tried once a second, connects again, so while Redis refuses connections
-misses grow with every failed check and the client dials once a second. The client closes the connection of a check
-whose deadline ends before Redis answers, which `ratelimit_store_pool_removed_connections_total` counts, and the next
-check that finds no idle connection waits for a new one. Misses that grow beside `reason="timeout"` are such waits:
-after a Redis restart, which closes every pooled connection, or when more checks run at once than the pool holds idle
+`ratelimit_store_pool_misses_total` counts the calls of the decision client that found no idle connection in the
+replica's pool; a check makes a call for each of its descriptors that reaches Redis. Such a call waits within the
+gateway's deadline for a new connection, which the client usually dials, and a dial that outlasts the deadline ends the
+check as a `timeout`. Misses are not dials: after a run of failed dials the client returns the last dial error at once
+until a background dial, tried once a second, connects again, so while Redis refuses connections misses grow with every
+failed call and the client dials once a second. The client closes the connection of a check whose deadline ends before
+Redis answers, which `ratelimit_store_pool_removed_connections_total` counts, and the next call that finds no idle
+connection waits for a new one. Misses that grow beside `reason="timeout"` are such waits: after a Redis restart, which
+closes every pooled connection, or when more calls run at once than the pool holds idle
 (`ratelimit_store_pool_idle_connections`). One pool on each replica serves all of its domains, so the pool series carry
 no `domain` label:
 
@@ -1210,7 +1211,7 @@ of section 7.
 | `ratelimit_unknown_domain_checks_total` | service pods | a domain typo between the gateway and the policy (section 2) |
 | `ratelimit_extractions_total{domain, key}`, `ratelimit_tokens_seen_total{domain}` | service pods | the extraction detector (section 2) |
 | `ratelimit_store_errors_total{domain, reason}`, `ratelimit_store_roundtrip_seconds{domain}` | service pods | the store (section 1) |
-| `ratelimit_store_pool_misses_total`, `ratelimit_store_pool_idle_connections` | service pods | checks that found no idle connection to Redis, and the connections ready for the next check (section 1) |
+| `ratelimit_store_pool_misses_total`, `ratelimit_store_pool_idle_connections` | service pods | calls to Redis that found no idle connection, and the connections ready for the next call (section 1) |
 | `ratelimit_check_duration_seconds{domain}` | service pods | the whole check as the gateway waits for it; `RatelimitDecisionLatencyHigh` (section 10) |
 | `ratelimit_token_cache_hits_total`, `ratelimit_token_cache_misses_total` | service pods | the extraction half of a slow check (section 10) |
 | `ratelimit_policy_ready{domain, reason}`, `ratelimit_policy_generation_lag{domain}` | operator pod | the status as gauges |
