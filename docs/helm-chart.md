@@ -658,7 +658,9 @@ service reads host and port once: an address that changes in the Secret ends the
 onto the new database. It resolves the connection again every 30 s and uses the password the Secret holds from the
 next connection on, without a restart. DBaaS itself never changes this password: the Redis adapter does not manage
 users, and the aggregator refuses a password change for such adapters. Connection properties with `tls: true`, which
-the aggregator adds when the adapter is installed with TLS, fail the start: the service connects in plain text.
+the aggregator adds when the adapter is installed with TLS, fail the start: the service connects in plain text. Each
+replica keeps 4 idle connections to the database beside the ones its checks hold, so the database serves at least 4
+connections per replica ([engine](engine.md), "Counter storage").
 
 Both objects carry `spec.operatorNamespace`: a dbaas-operator reconciles only the objects that name its own namespace.
 It is `redis.dbaas.operatorNamespace` when that is set, and otherwise the namespace in the host of `API_DBAAS_ADDRESS`
@@ -739,8 +741,14 @@ exclude.
 | `ratelimit_extraction_skips_total` | `domain`, `key`, `reason: decode_failed\|bad_type\|too_long\|too_many_items` | extraction anomalies; `domain` because mappings live on the policy, and two domains of one namespace may declare the same key |
 | `ratelimit_extractions_total` | `domain`, `key` | decisions whose request carried a value for the declared key; the series are SEEDED with zero from the extraction plan at snapshot swap, so "zero" is observable |
 | `ratelimit_tokens_seen_total` | `domain` | decisions with a token on a known domain that a block targeted, the requests whose token the engine reads; the detector's denominator, per domain so that an idle domain's declared keys are not judged by another domain's traffic |
+| `ratelimit_store_pool_hits_total` | none | calls of the decision client, the Redis client the checks go through, that took an idle connection from its pool; one pool on each replica serves all of its domains, and the management API's client has a pool of its own that no series reports |
+| `ratelimit_store_pool_misses_total` | none | calls of the decision client that found no idle connection, such as the checks of a burst that takes every idle connection before the replacements connect; such a call usually waits for a dial within the check's deadline, but after a run of failed dials the client returns the last dial error without dialing, so misses are not a count of dials |
+| `ratelimit_store_pool_timeouts_total` | none | calls of the decision client that waited the whole pool timeout, 250 ms, for a free connection, which happens only while every connection the pool may open is in use; a wait that the check's own deadline ends first, such as the gateway's `filter.timeout`, counts in `ratelimit_store_errors_total{reason="timeout"}` instead |
+| `ratelimit_store_pool_removed_connections_total` | none | connections the decision client closed and removed from its pool, most often one whose command timed out or hit a network error, or one that Redis or the network closed; the client closes the connection of every check whose deadline ends before Redis answers, and keeps the connection of a check that Redis answers with an error |
+| `ratelimit_store_pool_connections` | none | open connections of the decision client's pool, in use and idle |
+| `ratelimit_store_pool_idle_connections` | none | idle connections of the decision client's pool, which the next checks take without a dial; a connection the pool opens in the background to keep 4 idle counts as idle from the start of its dial, before `ratelimit_store_pool_connections` counts it, so this gauge can briefly read more than that one |
 | `ratelimit_store_roundtrip_seconds` | `domain` | store round-trip histogram (a domain = one shard) |
-| `ratelimit_store_errors_total` | `domain`, `reason: timeout\|server\|other` | store errors: `timeout` is no answer within the check's deadline or no free pooled connection, `server` the store answering an error, `other` a connection that failed outright, a refused connection or a name that does not resolve; a decision is never retried |
+| `ratelimit_store_errors_total` | `domain`, `reason: timeout\|server\|other` | store errors: `timeout` is no answer within the check's deadline or no free pooled connection, `server` the store answering an error, `other` a connection that failed outright, a refused connection or a name that does not resolve before the first lookup succeeds; a decision is never retried |
 | `ratelimit_snapshot_rebuilds_total` | `result: ok\|refused` | applies and swaps of the in-memory snapshot on a service replica; `refused` is a reading the replica would not apply (a format it does not read, an unknown field, a payload that fails the decoder or decompresses past 8 MiB), the snapshot stays and the reason is on `/debug/applied` |
 | `ratelimit_snapshot_timestamp_seconds` | none | when the enforced rules last changed while the replica ran ("did the rules change before the incident"); 0 until the first change after a start, since a restart is not one |
 | `ratelimit_config_absent` | none | 1 while the replica's mounted directory holds no manifest: the ConfigMap is gone, and nothing will change what the replica enforces |

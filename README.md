@@ -189,9 +189,10 @@ Prerequisites, which the charts do not install:
 - the Prometheus Operator CRDs behind `PodMonitor` and `PrometheusRule`, when `MONITORING_ENABLED` is set.
 
 The images are `ghcr.io/netcracker/qubership-ratelimit-operator` and `ghcr.io/netcracker/qubership-ratelimit-service`.
-Every push to `main` publishes them tagged `main-<sha>`, the first seven characters of the commit; no release exists,
-so that is the `TAG` to pass below. The pages under [`docs/`](docs/README.md) carry the detail behind this section: the
-chart reference, the resource specification, the runbook, and the management API.
+A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. Every push
+to `main` also publishes them tagged `main-<sha>`, the first seven characters of the commit, for an unreleased build.
+The pages under [`docs/`](docs/README.md) carry the detail behind this section: the chart reference, the resource
+specification, the runbook, and the management API.
 
 The delivery is three charts under `helm-templates/`. `ratelimit-crds` holds the `RateLimitPolicy` CRD and is installed
 once per cluster, before any namespace; the other two are installed into each namespace, the operator chart before the
@@ -427,6 +428,11 @@ checks stay clean on every replica while the pod is replaced, that the Lease mov
 replacement resumes the status writes. It restores the original replica count through Helm — a `kubectl scale` would
 take field-manager ownership of `.spec.replicas` and make every later `helm upgrade` conflict.
 
+The load test kit under `tests/load` is an image and a chart that load-test the rate limit through a gateway on a
+cluster of your own, and check their own results; [Load testing](docs/load-testing.md) describes a run. The `Load test`
+workflow runs the kit on kind for every pull request that changes it, and uploads the summary and the JMeter report as
+the `load-results` artifact.
+
 `make test` runs the envtest suites of `operator/internal` against a real API server, which is where the CRD schema
 and the status subresource actually exist — the fake client the other tests use validates nothing. The first run
 downloads the envtest binaries into `bin/`, so it needs internet. Both derive their Kubernetes version from `go.mod`,
@@ -470,3 +476,12 @@ writes. It is read through `configloader`, so any property source the platform c
 loader reads each binary's `application.yaml` from the directory in `PROPERTY_FILE_PATH`, trailing slash included; the
 `run*` targets set it to `operator/` and `service/`, and a process started without it logs
 `open application.yaml: no such file or directory` and retries instead of starting.
+
+### Release
+
+The Release workflow in GitHub Actions is started by hand with a `MAJOR.MINOR.PATCH` version. It tags the head of the
+branch it runs on, builds and tests the root module at that tag, publishes both images as `v<version>`, and creates the
+GitHub release. It does not run the engine tests, the linters, the chart checks, or e2e: those run on pushes and pull
+requests. Dispatch it from a `main` whose checks have all passed, and start with a dry run, which builds the images
+without pushing them and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same
+version can be released again.

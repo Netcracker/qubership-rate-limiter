@@ -185,13 +185,13 @@ func prefixLimits(prefix, rule string, counters []string, requests, periodSecond
 	}}
 }
 
-// hourlyGCRALimits is prefixLimits counted per path under GCRA, requests an
-// hour. A 3600 s fixed window resets at the top of the hour, so a run whose
-// last request crossed hh:00 would have it admitted; GCRA with the default
-// burst admits the requests at once and then refuses until the next one is
-// due, with no calendar boundary for a run to cross.
-func hourlyGCRALimits(prefix, rule string, requests int32) []v1.LimitBlock {
-	blocks := prefixLimits(prefix, rule, []string{"path"}, requests, 3600)
+// hourlyGCRALimits is prefixLimits under GCRA, requests an hour. A 3600 s
+// fixed window resets at the top of the hour, so a run whose last request
+// crossed hh:00 would have it admitted; GCRA with the default burst admits the
+// requests at once and then refuses until the next one is due, with no
+// calendar boundary for a run to cross.
+func hourlyGCRALimits(prefix, rule string, counters []string, requests int32) []v1.LimitBlock {
+	blocks := prefixLimits(prefix, rule, counters, requests, 3600)
 	blocks[0].Rules[0].Rates[0].Algorithm = v1.AlgorithmGCRA
 	return blocks
 }

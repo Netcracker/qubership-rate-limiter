@@ -278,6 +278,37 @@ func TestService_servesItsOwnRegistryOnTheMetricsListener(t *testing.T) {
 		`ratelimit_snapshot_rebuilds_total{result="ok"}`)
 }
 
+// A service that counts in Redis has the series of the decision client's
+// connection pool on its registry from the moment it is built, before any
+// check has taken a connection.
+func TestService_registersTheDecisionPoolOfARedisStore(t *testing.T) {
+	configloader.InitWithSourcesArray([]*configloader.PropertySource{configloader.EnvPropertySource()})
+	service, err := Build("biz", Options{
+		ProbeAddr: "0", MetricsAddr: "0", ManagementAddr: "0", RLSAddr: freeAddr(t), RedisAddr: "127.0.0.1:6380",
+		ConfigDir: t.TempDir(), Log: logr.Discard(), Platform: logging.GetLogger("test"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.close)
+
+	families, err := service.Registry.Gather()
+
+	require.NoError(t, err)
+	var pool []string
+	for _, family := range families {
+		if strings.HasPrefix(family.GetName(), "ratelimit_store_pool_") {
+			pool = append(pool, family.GetName())
+		}
+	}
+	assert.ElementsMatch(t, []string{
+		"ratelimit_store_pool_hits_total",
+		"ratelimit_store_pool_misses_total",
+		"ratelimit_store_pool_timeouts_total",
+		"ratelimit_store_pool_removed_connections_total",
+		"ratelimit_store_pool_connections",
+		"ratelimit_store_pool_idle_connections",
+	}, pool)
+}
+
 // The management API answers on its own listener. A request under its base
 // path without a bearer token reaches the API's identity check, which refuses
 // it: 401, or 503 while no token verifier could be built, as on a machine with

@@ -316,9 +316,24 @@ The full contract, the interfaces, and the implementations are in the [store con
   `OVER_LIMIT` whatever the setting, so a refusal never turns into unlimited traffic. A request to the management API
   in a domain listed in the service chart's `management.gatewayDomains` is not decided at all: its check reads
   no store, answers `OK`, and counts as `verdict="exempt"` ([chart](helm-chart.md), "Management API port").
-- **A store operation carries no deadline of the service's own.** The Redis client's timeouts bound it: 5 s for a read
-  and 5 s for a new connection. The gateway waits at most `filter.timeout`, 50 ms by default, and then applies its
-  failure mode; a direct gRPC consumer's deadline ends its own call and not the store operation behind it.
+- **A decision's store operation ends at the check's deadline.** The gateway waits at most `filter.timeout`, 50 ms by
+  default, and then applies its failure mode; the decision's call to Redis ends at that deadline too, as it ends at the
+  deadline of a direct gRPC consumer. A check that carries no deadline is bounded at 250 ms for each step: the dial, the
+  wait for a pooled connection, the write, and the read. A connection Redis closes while a check holds it, on a
+  restart for example, fails that check.
+- **A check takes a Redis connection that is already open.** Each replica keeps 4 idle connections to Redis beside
+  the ones its checks hold, and opens a replacement in the background whenever a check takes one or the service closes
+  one, as it closes the connection of a check that timed out. A check dials on its own path only when it finds no open
+  idle connection: before the spares first connect after a start, when a burst takes every spare before the
+  replacements connect, and after Redis or the network closed the idle ones, which a check discards, up to three,
+  before it dials. `ratelimit_store_pool_misses_total` counts the calls of the decision client that found no open
+  idle connection ([chart](helm-chart.md), "Metrics: the naming contract"). A check that carries several descriptors
+  makes a call for each one that reaches Redis, and after a run of failed dials the client returns the last dial error
+  without dialing, so the counter counts neither checks nor dials. The first check on a new connection runs the
+  connection handshake, `HELLO` and `CLIENT SETINFO`.
+  Idle connections do not expire on the service's side. Once a lookup of the database's host name has succeeded, a
+  dial goes to the address the last lookup returned and starts the next lookup in the background, so it does not wait
+  on DNS, and a lookup that fails keeps the last address.
 
 ## Token and identity
 
