@@ -246,21 +246,24 @@ The generators run outside the mesh, so they read both ports in plain HTTP. A `P
 a NetworkPolicy can refuse that; the reason under the table then names the connection error. Allow the generators'
 pods, or read the same statistics from Prometheus.
 
-Prometheus reads the gateway's statistics from `:15020/stats/prometheus`, and the dump of a gateway pod shows them
-too, with a trailing `;` after a cluster's name:
+Prometheus reads the gateway's statistics from `:15020/stats/prometheus`. To read them by hand, port-forward to
+Envoy's `:15090`, the port the generators read, rather than `kubectl exec` into the gateway's pod. Each exec starts a
+process in the gateway's container, and that process can push the container into CPU throttling. During a test the
+requests that arrive meanwhile then wait in the gateway past `filter.timeout` and count as undecided, although the
+rate limit service decides their checks in time.
 
 ```bash
-kubectl exec -n <namespace> <gateway pod> -- pilot-agent request GET stats | grep ratelimit
+kubectl port-forward -n <namespace> <gateway pod> 15090:15090 &
+curl -s http://127.0.0.1:15090/stats/prometheus | grep ratelimit
 ```
 
-- `cluster.outbound|9000||ratelimit.<namespace>.svc.cluster.local;.upstream_rq_time`, in Prometheus
-  `envoy_cluster_upstream_rq_time` with that `cluster_name`: the time of the gateway's call to the service, in
-  milliseconds.
-- `upstream_rq_timeout` of the same cluster: the calls cut at `filter.timeout`.
-- `cluster.<route cluster>;.ratelimit.<prefix>.ok`, `over_limit`, `error`, and `failure_mode_allowed`, in Prometheus
-  `envoy_cluster_ratelimit_<prefix>_ok` and its siblings: the outcomes of the filter. The prefix is the gateway's name
-  with `_` for `-`, such as `public_gateway`. Envoy creates each counter at its first increment, and drops the
-  counters of the test route when `helm uninstall` removes the route's cluster.
+- `envoy_cluster_upstream_rq_time` with the `cluster_name` `outbound|9000||ratelimit.<namespace>.svc.cluster.local`:
+  the time of the gateway's call to the service, in milliseconds.
+- `envoy_cluster_upstream_rq_timeout` of the same cluster: the calls cut at `filter.timeout`.
+- `envoy_cluster_ratelimit_<prefix>_ok`, `_over_limit`, `_error`, and `_failure_mode_allowed`, with the
+  `cluster_name` of the test route's cluster: the outcomes of the filter. The prefix is the gateway's name with `_` for
+  `-`, such as `public_gateway`. Envoy creates each counter at its first increment, and drops the counters of the test
+  route when `helm uninstall` removes the route's cluster.
 
 ```promql
 histogram_quantile(0.99, sum by (le) (rate(
