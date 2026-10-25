@@ -223,20 +223,6 @@ func TestLimited_addressedResetDropsARefusingCounter(t *testing.T) {
 	assert.False(t, found, "the refusing counter is still listed")
 }
 
-// StartBackground is what keeps an accepted sweep alive past its request; the
-// runner calls it, and without it the walk runs under context.Background, which
-// shutdown never reaches.
-func TestBackgroundContext_isTheOneTheRunnerGave(t *testing.T) {
-	h := newTestAPI(t)
-	require.Equal(t, context.Background(), h.api.backgroundContext(), "before StartBackground")
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-	defer cancel()
-
-	h.api.StartBackground(ctx)
-	assert.Equal(t, ctx, h.api.backgroundContext(), "after StartBackground")
-}
-
 // A bulk command whose record cannot be read is refused before anything binds,
 // so its retry under the same key, once the store answers, runs the command
 // instead of finding it in flight.

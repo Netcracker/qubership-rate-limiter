@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/baseproviders/xrequestid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -310,8 +312,8 @@ func (c contextBoundRecords) Put(ctx context.Context, key string, value []byte, 
 	return c.Store.Put(ctx, key, value, ttl)
 }
 
-// shutDown gives the sweeps a background context that is already cancelled,
-// as a service shutting down does, over records that refuse a done context.
+// shutDown gives StartBackground a context that is already cancelled, as a
+// service shutting down does, over records that refuse a done context.
 func (h *testAPI) shutDown(t *testing.T) {
 	t.Helper()
 	h.api.Records = contextBoundRecords{Store: h.records}
@@ -352,9 +354,12 @@ func TestBulk_recordsAFailureWhenShutdownEndsTheWalk(t *testing.T) {
 	assert.NotNil(t, body.Meta.PartialReset, "a failure after acceptance discloses")
 }
 
-// batchRefusingRecords cancels the sweeps' context when the first batch is
-// sent and then refuses it, the way the Redis client refuses a call under a
-// done context: the walk fails inside a store call, and nothing is deleted.
+// batchRefusingRecords cancels the context StartBackground received when the
+// first batch is sent, as shutdown does. It refuses the batch once that has
+// ended the walk's context, the way the Redis client refuses a call under a
+// done context: the walk fails inside a store call, and nothing is deleted. A
+// batch that the cancellation has not reached within five seconds runs, so a
+// walk that shutdown never reaches fails the test's assertions.
 type batchRefusingRecords struct {
 	contextBoundRecords
 	cancel context.CancelFunc
@@ -362,10 +367,12 @@ type batchRefusingRecords struct {
 
 func (b batchRefusingRecords) Batch(ctx context.Context, batch records.Batch) error {
 	b.cancel()
-	if err := ctx.Err(); err != nil {
-		return err
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(5 * time.Second):
+		return b.Store.Batch(ctx, batch)
 	}
-	return b.Store.Batch(ctx, batch)
 }
 
 // A sweep that shutdown interrupts inside a batch discloses what the store
@@ -476,6 +483,113 @@ func TestBulk_recordsAFailedMintWhenShutdownEndsTheWalk(t *testing.T) {
 	requireError(t, h.bulk(t, map[string]any{
 		"selector": map[string]any{"ruleIds": []string{"orders"}}, "dryRun": true,
 	}, "key-1", listedCaller), http.StatusInternalServerError, CodeInterrupted)
+}
+
+// batchBoundRecords refuses a batch under a done context as well, the way the
+// Redis client refuses to send one.
+type batchBoundRecords struct {
+	contextBoundRecords
+}
+
+func (b batchBoundRecords) Batch(ctx context.Context, batch records.Batch) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.Store.Batch(ctx, batch)
+}
+
+// An execution that starts after shutdown has begun walks under a context that
+// has already ended, so the store refuses its first batch and no counter is
+// deleted.
+func TestBulk_anExecutionStartedAfterShutdownDeletesNothing(t *testing.T) {
+	h := newTestAPI(t)
+	for _, client := range []string{"alice", "bob", "carol"} {
+		h.spend(t, "/api/orders", map[string][]string{model.KeySub: {client}}, 1)
+	}
+	selector := map[string]any{"ruleIds": []string{"orders"}}
+	preview := h.preview(t, map[string]any{"selector": selector}, "key-preview")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	h.api.StartBackground(ctx)
+	h.api.Records = batchBoundRecords{contextBoundRecords{Store: h.records}}
+
+	body := requireError(t, h.bulk(t, map[string]any{
+		"selector": selector, "confirmationToken": preview.ConfirmationToken,
+	}, "key-execute", listedCaller), http.StatusInternalServerError, CodeInterrupted)
+	require.NotNil(t, body.Meta.PartialReset, "a failure after acceptance discloses")
+	require.NotNil(t, body.Meta.PartialReset.ResetCount, "the disclosure of an execution carries resetCount")
+	assert.Equal(t, 0, *body.Meta.PartialReset.ResetCount, "the failure names deletions the store refused")
+
+	for _, client := range []string{"alice", "bob", "carol"} {
+		_, found := h.remaining(t, client)
+		assert.True(t, found, "the counter of %s is gone", client)
+	}
+}
+
+// An accepted sweep runs to its outcome after the request's deadline has
+// passed, because its walk drops the deadline with the rest of the request's
+// cancellation. Here the deadline passes before the handler runs, and the
+// store refuses a batch under a done context.
+func TestBulk_aSweepRunsPastTheRequestsDeadline(t *testing.T) {
+	h := newTestAPI(t)
+	h.spend(t, "/api/orders", map[string][]string{model.KeySub: {"alice"}}, 1)
+	timeout := requestTimeout
+	requestTimeout = time.Nanosecond
+	t.Cleanup(func() { requestTimeout = timeout })
+	h.api.Records = batchBoundRecords{contextBoundRecords{Store: h.records}}
+
+	var preview BulkResult
+	decode(t, h.bulk(t, map[string]any{
+		"selector": map[string]any{"ruleIds": []string{"orders"}}, "dryRun": true,
+	}, "key-1", listedCaller), http.StatusOK, &preview)
+	require.NotNil(t, preview.MatchedCount, "the answer of a preview carries matchedCount")
+	assert.Equal(t, 1, *preview.MatchedCount)
+}
+
+// The goroutine that cancelOnShutdown starts returns once the sweep's context
+// ends, while shutdown has not begun, so a finished sweep leaves nothing
+// running. synctest.Test fails the test when a goroutine of its bubble is still
+// blocked after the function returns; nothing closes the shutdown channel here.
+func TestCancelOnShutdown_stopsWaitingOnceTheSweepEnds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		api := &API{shutdown: make(chan struct{})}
+		ctx, cancel := context.WithCancel(t.Context())
+
+		api.cancelOnShutdown(ctx, cancel)
+		cancel()
+	})
+}
+
+// The lines an accepted sweep logs carry the id of the request that runs it,
+// the id its answer names. The walk used to run under the runner's context,
+// which carries no request id, so the lines of a failed sweep named no request.
+func TestBulk_aSweepLogsUnderTheRequestID(t *testing.T) {
+	h := newTestAPI(t)
+	log := &recordingLogger{}
+	h.api.Log = log
+	h.spend(t, "/api/orders", map[string][]string{model.KeySub: {"alice"}}, 1)
+	h.api.Records = putRefusingRecords{contextBoundRecords{Store: h.records}}
+
+	recorder := h.bulk(t, map[string]any{
+		"selector": map[string]any{"ruleIds": []string{"orders"}}, "dryRun": true,
+	}, "key-1", listedCaller)
+
+	want := recorder.Header().Get(RequestIDHeader)
+	require.NotEmpty(t, want, "the answer names a request id")
+	for _, prefix := range []string{"failed to store a confirmation token", "a bulk reset failed after acceptance"} {
+		assert.Equal(t, want, loggedRequestID(log.find(t, prefix)), "the request id of the line %q", prefix)
+	}
+}
+
+// loggedRequestID is the request id a line was written under, or empty when
+// its context carries none.
+func loggedRequestID(line loggedLine) string {
+	id, err := xrequestid.Of(line.ctx)
+	if err != nil {
+		return ""
+	}
+	return id.GetRequestId()
 }
 
 // The Retry-After of a poll never exceeds the time left on the lease, which

@@ -181,9 +181,12 @@ func (a *API) sweep(
 ) error {
 	// The walk outlives the request on purpose: a client that disconnects
 	// changes nothing for an accepted command, which runs to its recorded
-	// outcome either way.
-	ctx, cancel := context.WithTimeout(a.backgroundContext(), leaseTTL)
+	// outcome either way. Its context drops the request's cancellation and
+	// deadline and keeps the request's values, so every line the walk logs
+	// carries the request id; shutdown and the lease end it.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.UserContext()), leaseTTL)
 	defer cancel()
+	a.cancelOnShutdown(ctx, cancel)
 
 	walker := a.newSweeper(snapshot, command, keys, fencing)
 	deadline := a.now().Add(sweepDeadline)
