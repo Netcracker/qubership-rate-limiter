@@ -497,4 +497,5 @@ It does not run the engine tests, the linters, the chart checks, or e2e: those r
 it from a `main` whose checks have all passed, and start with a dry run, which builds the images without pushing them
 and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same version can be
 released again. A run that succeeds keeps its tag, and the workflow refuses a version whose tag exists, so it does not
-release a published version a second time while that tag stands.
+release a published version a second time while that tag stands. A published version is never released again or
+deleted: a defect in it is fixed in the next patch version.
