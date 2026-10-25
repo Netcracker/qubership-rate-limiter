@@ -55,7 +55,7 @@ team ── kubectl apply ──► RateLimitPolicy <domain>                    
                                    │  the kubelet projects the volume (sync period, 1 min by default)
                                    ▼
                           ratelimit-service ◄── /debug/applied probe ── ratelimit-operator (every 10 s)
-                          (REPLICAS replicas: decode → compile → swap; no API access)
+                          (REPLICAS replicas: decode → compile → swap; no Role)
                                    ▲            └── atomic Lua ──► Redis from DBaaS (one instance, adapter ns)
                                    │  gRPC ShouldRateLimit
                                    │
@@ -99,11 +99,12 @@ plane:
   directory at `/etc/ratelimit/config` (`optional: true`), watches the `..data` symlink swap, decodes the manifest
   strictly, compiles every domain with the engine module, and swaps the in-memory snapshot atomically. All replicas
   compile independently and deterministically; there is no shared state between them. Pod name and namespace come
-  from the Downward API. Its chart ships the Service `ratelimit`, a ServiceAccount without a mounted token
-  (`automountServiceAccountToken: false`), the HorizontalPodAutoscaler, the `InternalDatabase` and the
-  `DatabaseSecretClaim` of its counter store, the AuthorizationPolicy of the management port behind
-  `management.enabled`, its own PodMonitor, PrometheusRule, and Grafana dashboard behind `MONITORING_ENABLED`, and the
-  EnvoyFilters in every mode.
+  from the Downward API. Its chart ships the Service `ratelimit`, a ServiceAccount with no Role and
+  `automountServiceAccountToken: false` (the pod mounts its token only with `management.enabled`, to read the OIDC
+  discovery), the HorizontalPodAutoscaler, a PodDisruptionBudget when the service runs more than one replica
+  (`REPLICAS`, or `HPA_MIN_REPLICAS` with `HPA_ENABLED`), the `InternalDatabase` and the `DatabaseSecretClaim` of its
+  counter store, the AuthorizationPolicy of the management port behind `management.enabled`, its own PodMonitor,
+  PrometheusRule, and Grafana dashboard behind `MONITORING_ENABLED`, and the EnvoyFilters in every mode.
 - **Ready of a replica.** A replica that has never applied a manifest is NotReady and out of Endpoints, without a
   timeout. An explicitly empty manifest is a configuration: the replica is Ready, and every request is an unknown
   domain. After the first apply the replica keeps its snapshot in memory and stays Ready if the files vanish or a
@@ -111,9 +112,10 @@ plane:
 - **RBAC** is the operator's namespace-scoped Role: `ratelimitpolicies` get/list/watch, `ratelimitpolicies/status`
   update, Lease get/create/update, EndpointSlice get/list/watch, ConfigMap create and, by the name `ratelimit-config`,
   get/list/watch/update, its own Deployment get (the ConfigMap's owner), `events` create/patch; the
-  [Role table](helm-chart.md#roleyaml-operator-chart) carries each rule. No ClusterRole. The service has no Role and no
-  token: a depguard rule forbids client-go and controller-runtime under `service/`, and CI reads the build information
-  of the service binary and fails when client-go is present.
+  [Role table](helm-chart.md#roleyaml-operator-chart) carries each rule. No ClusterRole. The service has no Role, and
+  its pod mounts a token only with `management.enabled`, which reads the OIDC discovery and nothing else. A depguard
+  rule forbids client-go and controller-runtime under `service/`, and CI reads the build information of the service
+  binary and fails when client-go is present.
 - **Contract** is a set of constants in one Go package that both binaries import: the Service `ratelimit`, its gRPC port
   9000 named `grpc`, the probe port published on the Service under the name `metrics` (the service's metrics port,
   8080), and the ConfigMap `ratelimit-config`. The mode rule, satellite iff `BASELINE_ORIGIN` is non-empty, is the
@@ -240,9 +242,12 @@ contents from `BASELINE_ORIGIN`:
 
 | Scheme | `ratelimit-operator` renders | `ratelimit-service` renders |
 | --- | --- | --- |
-| single namespace | Deployment (`REPLICAS`, one active), SA, Role/RoleBinding; with `MONITORING_ENABLED`, PodMonitor and PrometheusRule | Deployment (`REPLICAS`), Service, SA, HPA, EnvoyFilters; with `redis.dbaas.enabled`, InternalDatabase and DatabaseSecretClaim; with `management.enabled`, AuthorizationPolicy; with `MONITORING_ENABLED`, PodMonitor, PrometheusRule, GrafanaDashboard |
+| single namespace | Deployment (`REPLICAS`, one active), SA, Role/RoleBinding; with `MONITORING_ENABLED`, PodMonitor and PrometheusRule | Deployment (`REPLICAS`), Service, SA, HPA, PDB, EnvoyFilters; with `redis.dbaas.enabled`, InternalDatabase and DatabaseSecretClaim; with `management.enabled`, AuthorizationPolicy; with `MONITORING_ENABLED`, PodMonitor, PrometheusRule, GrafanaDashboard |
 | composite, baseline | the same | the same |
 | composite, satellite | nothing: an empty release | only EnvoyFilters that target the baseline RLS; no Deployment, no Service, no ServiceAccount |
+
+The PodDisruptionBudget (PDB) renders only when the service runs more than one replica: `REPLICAS`, or
+`HPA_MIN_REPLICAS` with `HPA_ENABLED`, as in the `dev-ha` and `prod` profiles.
 
 Each chart declares only the values its templates read, and shared platform parameters keep identical key names in both.
 `REPLICAS` comes from the resource profile of each chart, the filter settings live in the service chart under `filter`,
@@ -261,8 +266,9 @@ first, then the operator, and a rollback reverses the order. A fresh installatio
 the service chart: the service stays NotReady until the operator writes, and the service chart's EnvoyFilters are live
 from the moment it is installed.
 
-**The CRD ships in a chart of its own**, `ratelimit-crds`, installed by one release per cluster before the namespace
-charts and upgraded first, to the newest operator version in the cluster. It carries `helm.sh/resource-policy: keep`,
+**The CRD ships in a chart of its own**, `ratelimit-crds`, which the platform installs as one release per cluster
+before the namespace charts and upgrades first, to the newest operator version in the cluster. Application pipelines do
+not install it. It carries `helm.sh/resource-policy: keep`,
 so deleting the release does not remove the type. Schema changes stay additive. Schema version skew
 between namespaces is a normal scenario and is held together by schema compatibility: changes are additive, the API
 server's ratcheting lets unchanged fields of old objects through, and an older operator rejects a generation that
@@ -298,7 +304,7 @@ the satellite namespace" step, run with `make test-e2e-go E2E_SATELLITE_NAMESPAC
 
 The suites cover both halves:
 
-- The data-plane suites (`ratelimit`, `jwt`, `failopen`, `redis`, `shadow`, `unknown-domain`, `management`,
+- The data-plane suites (`ratelimit`, `jwt`, `failopen`, `redis`, `shadow`, `unknown-domain`, `cost`, `management`,
   `management-outage`, `snapshot`) exercise the service through the gateway, the management port, and the diagnostics
   port.
 - The `policy`, `budget`, `lagging`, `rollout`, `metrics`, and `satellite` suites cover the configuration path: the

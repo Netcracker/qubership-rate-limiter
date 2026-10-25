@@ -23,9 +23,10 @@ ambient gateways (and any other consumers) over the Envoy RLS protocol (`envoy.s
 4. For every request, the gateway sends the service one flat descriptor: `path`, `method`, `token` (the value of the
    `authorization` header), and `request_id`. The gateway takes the request's domain from the configuration of its
    `envoy.filters.http.ratelimit` filter (the service chart installs it).
-5. The service decodes the JWT payload from `token`, **without verifying the signature**: the `jwt_authn` filter on
-   the gateway has already verified it. Identity keys are assembled from the claims: the built-in `sub` (the `sub`
-   claim, lowercased) and the keys declared in `spec.mappings` (for example `roles`, `tenant`).
+5. The service decodes the JWT payload from `token`, **without verifying the signature**: it assumes that a filter
+   ahead of the rate limit filter on the gateway, such as `jwt_authn`, has verified it. This delivery installs no such
+   filter ([README](../README.md), "What is not built"). Identity keys are assembled from the claims: the built-in
+   `sub` (the `sub` claim, lowercased) and the keys declared in `spec.mappings` (for example `roles`, `tenant`).
 6. The service finds the domain's rules, computes which ones matched, updates the counters in the shared store
    (Redis) with one atomic script, and returns `OK` or `OVER_LIMIT`; on a refusal the gateway returns `429` and the
    `x-ratelimit-*`, `ratelimit-policy`, and `ratelimit` headers to the client.
@@ -553,12 +554,12 @@ paginated and single-object endpoints alike, the specific routes go first and th
 ```yaml
 target:
   routes:
-  - path: { type: Template, value: /api/v1/{resource} }        # collections: the API's default page is 20
+  - path: { type: Template, value: "/api/v1/{resource}" }        # collections: the API's default page is 20
     methods: [GET]
     cost: { source: QueryParameter, name: limit, default: 20 }
-  - path: { type: Template, value: /api/v1/{resource}/{id} }   # single objects: one unit, no cost needed
+  - path: { type: Template, value: "/api/v1/{resource}/{id}" }   # single objects: one unit, no cost needed
     methods: [GET]
-  - path: { type: Prefix, value: /api/v1 }                     # everything else: one unit
+  - path: { type: Prefix, value: /api/v1 }                       # everything else: one unit
 ```
 
 A `Template` matches as many segments as it names, so a collection and a single object separate by segment count
@@ -628,8 +629,8 @@ Where a key is allowed: `matches[].key` is `sub`, a `mappings` key, or a capture
 `Prefix`/`Exact` the raw path). `token` is an input of extraction, not a key. The effective key set of a domain is
 `sub`, `path`, `method`, and the `spec.mappings` keys; `status.effectiveKeys` publishes exactly that set. Captures
 extend it only inside their own block and are not listed in `effectiveKeys`. A missing or malformed token is not an
-error: there are simply no identity keys, the rules on them do not match, and the rest apply. The gateway, not the
-component, enforces that a token is required.
+error: there are simply no identity keys, the rules on them do not match, and the rest apply. The component does not
+require a token; a gateway filter such as `jwt_authn` can, and this delivery installs none.
 
 ## Evaluation semantics
 
@@ -642,7 +643,7 @@ component, enforces that a token is required.
    `behavior: Shadow` counts but does not stop the cascade; `behavior: Bypass` ends the cascade with an allow;
    `replacedRules` is forbidden by validation.
 4. **A missing axis**: a rule whose `counters` axis is absent from the request (for example `sub` for an anonymous
-   caller) does not match; there is nothing to key the bucket with.
+   caller, or `path` for a direct check that sends none) does not match; there is nothing to key the bucket with.
 5. **The verdict**: `OVER_LIMIT` if at least one applied rule (of any block) is exceeded; the `x-ratelimit-*` headers
    come from the strictest matched rule, and `ratelimit-policy` and `ratelimit` carry its limit and remaining under
    that rule's name, `<block>/<rule>`, with the time until one more request is admitted ([engine](engine.md)).
@@ -659,7 +660,8 @@ component, enforces that a token is required.
    counters per its own verdict, the overall response is a refusal if at least one descriptor refuses, and the headers
    come from the strictest decision; per-descriptor verdicts (statuses) are not returned in v1: if you need a separate
    verdict, send separate checks. A request without descriptors is one decision over an empty request: the domain's
-   unconditional limits apply. An empty value of a descriptor entry means the key is absent, as in the identity layer.
+   unconditional limits apply. An empty value of a descriptor entry means the key is absent, as in the identity layer;
+   this holds for `path` and `method` too (item 4).
    A check carries at most 16 descriptors: one with more is refused as `OVER_LIMIT` (`too_many_descriptors`) before
    any decision is made. The 128-bucket budget binds each descriptor's decision on its own.
 9. **A key is a set** (a scalar is a one-element set, an array is its elements, a missing key is the empty set);
@@ -676,7 +678,7 @@ component, enforces that a token is required.
 The path of one request from the gateway to the verdict, through every layer:
 
 ```text
-client ──HTTP──> gateway ──jwt_authn──> (token signature verified)
+client ──HTTP──> gateway (signature assumed verified; no jwt_authn installed)
                     │
                     └──gRPC──> component ──1 atomic script──> store
                     <──── OK / OVER_LIMIT + headers ───┘
@@ -685,10 +687,11 @@ client ──HTTP──> gateway ──jwt_authn──> (token signature verifie
 1. **The gateway sends a flat descriptor**: `domain`, `path` (with the query), `method`, `token`, `request_id`.
 2. **Preparation**: the query is stripped from `path` (otherwise `?page=2` would split one endpoint across different
    buckets), and a matched route with a `cost` reads its parameter from it; the token payload is decoded without
-   signature verification, since the gateway has already done it; the identity keys are extracted per the mapping. No
-   token means no identity keys, and this is not an error. A request to the management API ends here with `OK`: for a
-   path under `/ratelimit/v1` in a domain listed in the service chart's `management.gatewayDomains`, no block is
-   matched, whatever its `target` ([chart](helm-chart.md), "Management API port").
+   signature verification, on the assumption that a gateway filter has verified it; the identity keys are extracted
+   per the mapping. No token means no identity keys, and this is not an error. A request to the management API ends
+   here with `OK`: for a path under `/ratelimit/v1` in a domain listed in the service chart's
+   `management.gatewayDomains`, no block is matched, whatever its `target` ([chart](helm-chart.md), "Management API
+   port").
 3. **Matching**: the blocks whose `target` matched are selected; inside a block, `mode` decides between all matched
    rules and the first one. A rule without its axis (`sub` for an anonymous caller) does not match. A `Bypass` rule
    ends its cascade with an allow and does not go to the store.
@@ -853,7 +856,8 @@ rollout), EndpointSlices get/list/watch across the namespace (the operator reads
 ConfigMaps create, the ConfigMap `ratelimit-config` by name get/list/watch/update, its own Deployment by name get (the
 ConfigMap's owner), `events` create/patch in the core and `events.k8s.io` groups. There is no ClusterRole; the CRD
 comes from the cluster chart `ratelimit-crds`. The service pod carries no Role and mounts no ServiceAccount token
-(`automountServiceAccountToken: false`).
+(`automountServiceAccountToken: false`) unless `management.enabled` is set: then it mounts its own token to verify the
+management API's callers, and without a Role that token reads only the OIDC discovery and the key set.
 
 ## Status
 
@@ -975,7 +979,7 @@ in them) and contain only root causes:
 | `UnresolvedReplacedRules`: `replacedRules` names a rule outside its own block | blocking |
 | `UnresolvedPresetReference`: `preset` names a preset that does not exist; `before` names a rule that is neither in the block preset nor written earlier in the list; `dropped` names a rule the block preset does not hold | blocking |
 | `IncompatibleOperator` / `InvalidCounterAxis`: the key type does not suit the operator or the axis | blocking |
-| `InvalidSpec`: a structural defect invisible to the schema: predicate arity, `Bypass` without `replacedRules` in `All`, a repeated placeholder, a template segment that is neither a literal nor a single placeholder (a brace outside a placeholder, an empty segment), an unknown field or enum value of a newer schema | blocking |
+| `InvalidSpec`: a structural defect invisible to the schema: predicate arity, `Bypass` without `replacedRules` in `All`, a placeholder name outside the key pattern or over 63 characters, a repeated placeholder, a template segment that is neither a literal nor a single placeholder (a brace outside a placeholder, an empty segment), an unknown field or enum value of a newer schema | blocking |
 | `InvalidSpec` on presets: a rule of a block preset that carries `before` or `dropped`; a preset declared twice or without a name; `before` or `dropped` in a block without `preset`; `dropped` beside any field other than `name`; `before` on a rule the block preset holds; `preset` on a rule that overrides a rule of its block preset by name; a block with no rules after resolution | blocking |
 | `InvalidWindow`: a window the math cannot enforce | blocking |
 | `DomainBudgetExceeded`: the worst case of a decision above 128 buckets | blocking |
@@ -999,9 +1003,9 @@ Schema (OpenAPI):
 
 - `domain`: format and length, see the binding section; the same pattern on the chart values side;
 - block, rule, group, and key names: a pattern and a length ≤ 63 (block and rule names are segments of the counter
-  key; group names and descriptor key names are not, only descriptor values are); every descriptor key
-  (`mappings[].key`, `Template` placeholders, `matches[].key`, `counters[]`) uses one pattern,
-  `^[a-z][a-zA-Z0-9_]*$`, camelCase allowed (`{orderId}` in the examples is valid); predicate values, group values, and
+  key; group names and descriptor key names are not, only descriptor values are); every descriptor key the schema sees
+  (`mappings[].key`, `matches[].key`, `counters[]`) uses one pattern, `^[a-z][a-zA-Z0-9_]*$`, camelCase allowed; the
+  placeholders of a `Template` are checked by the compiler; predicate values, group values, and
   claim paths ≤ 256 characters, where the engine skips an extracted value longer than 256 bytes, so a non-ASCII
   literal past 256 bytes passes the schema and never matches; a route path ≤ 2048 (the conventional URL limit);
 - uniqueness through list types: `limits`, `rules`, `groups`, `presets.rules`, and `presets.blocks` are a `map` by
@@ -1052,11 +1056,12 @@ Then:
   `path`/`method`/`token`; `Bypass` carries no `rates`, all others carry at least one window; `replacedRules` only in
   `All`; `Bypass` in `All` names `replacedRules`, otherwise `InvalidSpec` (a silent no-op is not acceptable);
   `mappings[].key` is not `path`/`method`/`token` (`sub` is an allowed override), and exactly one of
-  `claim`/`claimPath`; `Template`: segments are literals or a single `{name}`, placeholders do not repeat and do not
-  coincide with the built-in keys `path`, `method`, `token`, `sub` (for `sub` the ban is fundamental: the caller
-  controls the path, and a capture would let it assign itself an identity); an unknown field or enum value of a
-  newer schema: the object is decoded strictly (`sigs.k8s.io/json.UnmarshalStrict`), and the field path goes into
-  the message;
+  `claim`/`claimPath`; `Template`: segments are literals or a single `{name}`, a placeholder name follows the key
+  pattern `^[a-z][a-zA-Z0-9_]*$` and is at most 63 characters (`{orderId}` in the examples is valid; `{Order-Id}`
+  passes `kubectl apply` and is rejected here), placeholders do not repeat and do not coincide with the built-in
+  keys `path`, `method`, `token`, `sub` (for `sub` the ban is fundamental: the caller controls the path, and a
+  capture would let it assign itself an identity); an unknown field or enum value of a newer schema: the object is
+  decoded strictly (`sigs.k8s.io/json.UnmarshalStrict`), and the field path goes into the message;
 - windows (`InvalidWindow`, the engine's window check): `burst` only with GCRA; `requests ≤ periodSeconds × 10⁶`;
   with an emission rounded up to a whole µs < 100 µs, `periodSeconds × 10⁶` is divisible by `requests` without
   remainder;

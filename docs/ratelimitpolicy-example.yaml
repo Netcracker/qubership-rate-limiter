@@ -91,7 +91,8 @@ spec:
       replacedRules: [per-client]
       rates:
       - { requests: 10000, periodSeconds: 60 }
-    # An internal client past this block's limits and past Redis; in an All block, Bypass must name what it bypasses.
+    # An internal client freed from per-path and per-client: in an All block, Bypass lifts only the rules it names in
+    # replacedRules, so total still counts the client and its requests still reach Redis.
     - name: internal-scraper
       matches:
       - { key: sub, operator: Equals, value: prometheus }

@@ -35,7 +35,7 @@ no list needs `maxItems`.
 | | GCRA: depth | `burst × emission ≤ 10¹⁵ µs` | int64 protection | the compiler, `algo.Check` |
 | **Names** | domain | ≤ 63, `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$` | the hash tag of every counter key of the domain, without `:`, `{`, `}`, `/` | pattern, `maxLength` |
 | | block, rule, group | ≤ 63, `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$` | block and rule names are counter key segments; a group name enters no key | pattern, `maxLength` |
-| | descriptor keys: `mappings[].key`, placeholders, `matches[].key`, `counters[]` | ≤ 63, one pattern `^[a-z][a-zA-Z0-9_]*$` (camelCase allowed) | one pattern wherever a key is mentioned; the key's value, not its name, enters the counter key as a segment | pattern, `maxLength` |
+| | descriptor keys: `mappings[].key`, placeholders, `matches[].key`, `counters[]` | ≤ 63, one pattern `^[a-z][a-zA-Z0-9_]*$` (camelCase allowed) | one pattern wherever a key is mentioned; the key's value, not its name, enters the counter key as a segment | pattern, `maxLength`; for placeholders the compiler, `InvalidSpec` |
 | | predicate values, group values, claim paths | ≤ 256 characters | the engine skips an extracted value longer than 256 bytes (`MaxValueBytes`), so a non-ASCII literal past 256 bytes passes the schema and never matches | `maxLength` |
 | **Key** | axis values | escaped; token sanity limits | engine constants | the engine |
 
@@ -46,7 +46,7 @@ The number of rules, groups, and group values is bounded by nothing except the o
 1. **Client-side `kubectl apply`** writes a full copy of the manifest into the
    `kubectl.kubernetes.io/last-applied-configuration` annotation, and the API server bounds the total annotation size
    at **256 KiB**: the `TotalAnnotationSizeLimitB` constant, not configurable. A larger object fails on `apply` with
-   `metadata.annotations: Too long: must have at most 262144 bytes`. Projects place policies exactly this way.
+   `metadata.annotations: Too long: may not be more than 262144 bytes`. Projects place policies exactly this way.
 2. **etcd** accepts an object of up to **1.5 MiB** (`--max-request-bytes`); the safe zone, with headroom for auxiliary
    fields, is ~700 KiB. This wall is reachable only through server-side apply (Helm, Argo CD with SSA,
    `kubectl apply --server-side`), where there is no annotation.

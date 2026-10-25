@@ -304,25 +304,26 @@ api -X POST "$BASE/simulations" -d '{
 {
   "allowed": true,
   "evaluatedAt": "2026-08-24T14:02:09Z",
-  "headers": {"block": "quota", "rule": "daily", "algorithm": "gcra", "periodSeconds": 60,
-              "limit": 100, "remaining": 61, "resetAfterSeconds": 23.4, "effectiveWindowSeconds": 0.6},
+  "headers": {"block": "cascade", "rule": "premium", "algorithm": "gcra", "periodSeconds": 60,
+              "limit": 300, "remaining": 11, "resetAfterSeconds": 7.8, "effectiveWindowSeconds": 0.2},
   "rules": [
     {"id": "cascade/premium", "mode": "enforce", "allowed": true,
-     "algorithm": "gcra", "periodSeconds": 60, "limit": 300, "remaining": 254},
+     "algorithm": "gcra", "periodSeconds": 60, "limit": 300, "remaining": 11, "cost": 1},
     {"id": "quota/daily", "mode": "enforce", "allowed": true,
-     "algorithm": "gcra", "periodSeconds": 60, "limit": 100, "remaining": 61},
+     "algorithm": "gcra", "periodSeconds": 60, "limit": 100, "remaining": 61, "cost": 1},
     {"id": "tenants/per-tenant", "mode": "enforce", "allowed": true,
-     "algorithm": "gcra", "periodSeconds": 60, "limit": 1000, "remaining": 902},
+     "algorithm": "gcra", "periodSeconds": 60, "limit": 1000, "remaining": 902, "cost": 1},
     {"id": "total/all", "mode": "enforce", "allowed": true,
-     "algorithm": "gcra", "periodSeconds": 60, "limit": 5000, "remaining": 4310}
+     "algorithm": "gcra", "periodSeconds": 60, "limit": 5000, "remaining": 4310, "cost": 1}
   ],
   "extractedKeys": ["plan", "sub", "tenant"]
 }
 ```
 
-Reading it: alice with plan=gold goes down the premium branch of the cascade (300/1m), not everyone; headers is the
-binding window: on an admission, the enforcing window with the smallest remaining (here the minute window of
-quota/daily, 61 of 100), not premium.
+Reading it: alice with plan=gold goes down the premium branch of the cascade (300/1m), not everyone. She has just sent
+39 requests at once, so premium, whose remaining counts down from its burst of 50, has 11 left, and quota/daily has 61
+of 100. headers is the binding window: on an admission, the enforcing window with the fewest further
+requests at this cost, here premium, not quota/daily.
 
 The cascade for a client without a plan: everyone decides:
 
@@ -335,7 +336,7 @@ api -X POST "$BASE/simulations" -d '{
 
 ```json
 [{"id": "cascade/everyone", "allowed": true, "remaining": 17},
- {"id": "quota/daily", "allowed": true, "remaining": 40},
+ {"id": "quota/daily", "allowed": true, "remaining": 97},
  {"id": "tenants/per-tenant", "allowed": true, "remaining": 902},
  {"id": "total/all", "allowed": true, "remaining": 4309}]
 ```
@@ -365,8 +366,8 @@ api -X POST "$BASE/simulations" -d '{
 {"allowed": true, "evaluatedAt": "2026-08-24T14:02:33Z",
  "trial": [{"id": "cascade/trial", "mode": "shadow", "allowed": false,
    "refusalReason": "rate_limited",
-   "algorithm": "gcra", "periodSeconds": 60, "limit": 10, "remaining": 0,
-   "retryAfterSeconds": 42.1}]}
+   "algorithm": "gcra", "periodSeconds": 60, "limit": 10, "remaining": 0, "cost": 1,
+   "retryAfterSeconds": 4.2}]}
 ```
 
 replacedRules: for the gold plan the narrow rule gold silences heavy, so in rules[] the reports block has only it (bob
@@ -387,10 +388,10 @@ api -X POST "$BASE/simulations" -d '{
   "domain": "gateway.public", "path": "/api/invoices/1", "method": "GET",
   "keys": {"sub": ["bob"]}, "cost": 5
 }' | jq '{allowed, refusalReason, headers}'
-# with remaining=3 and cost=5 -> {"allowed": false, "refusalReason": "rate_limited",
-#    "headers": {"block": "quota", "rule": "daily", "algorithm": "gcra",
-#                "periodSeconds": 60, "limit": 100, "remaining": 3, "retryAfterSeconds": 1.2,
-#                "resetAfterSeconds": 58.2, "effectiveWindowSeconds": 0.6}}, which is what
+# with remaining=1 in cascade/everyone and cost=5 -> {"allowed": false, "refusalReason": "rate_limited",
+#    "headers": {"block": "cascade", "rule": "everyone", "algorithm": "gcra",
+#                "periodSeconds": 60, "limit": 100, "remaining": 1, "retryAfterSeconds": 2.4,
+#                "resetAfterSeconds": 11.4, "effectiveWindowSeconds": 0.6}}, which is what
 # limited=true (cost=1) in the listing will not show
 ```
 
@@ -442,7 +443,7 @@ api "$BASE/domains/gateway.public/counters?ruleId=cascade/everyone"
   {"key": "rl:v1:{core/gateway.public}:cascade/everyone:gcra:60:crawler:",
    "axes": {"sub": "crawler"},
    "limit": 100, "remaining": 0, "limited": true,
-   "retryAfterSeconds": 12.4, "resetAfterSeconds": 60,
+   "retryAfterSeconds": 0.35, "resetAfterSeconds": 11.75,
    "ruleId": "cascade/everyone", "mode": "enforce",
    "algorithm": "gcra", "periodSeconds": 60,
    "block": "cascade", "rule": "everyone"}
@@ -464,7 +465,7 @@ api "$BASE/domains/gateway.public/counters?axis.sub=alice" \
 ```
 
 ```json
-[{"ruleId": "cascade/premium", "axes": {"sub": "alice"}, "remaining": 254},
+[{"ruleId": "cascade/premium", "axes": {"sub": "alice"}, "remaining": 11},
  {"ruleId": "quota/daily", "axes": {"sub": "alice"}, "remaining": 61},
  {"ruleId": "quota/daily", "axes": {"sub": "alice"}, "remaining": 8734},
  {"ruleId": "reports/gold", "axes": {"sub": "alice", "path": "/api/reports/2026-08"}, "remaining": 0},
@@ -509,7 +510,7 @@ op -X POST "$BASE/domains/gateway.public/counter-resets" \
   -H "Idempotency-Key: $(uuidgen)" -d '{
   "selector": {"ruleIds": ["reports"]}, "dryRun": true
 }' | jq '{matchedCount, scanned}'
-# -> {"matchedCount": 5, "scanned": 490}
+# -> {"matchedCount": 5, "scanned": 5}
 ```
 
 Pagination: a page can be incomplete in the middle of the collection (the scan budget, or the cap of 128 store steps);

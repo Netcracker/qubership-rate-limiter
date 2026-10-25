@@ -98,6 +98,8 @@ tokens:
     caConfigMap:
       name: ""
       key: ca.crt
+    # Skip the check of the server's certificate, for a test stand whose
+    # Keycloak has a self-signed one; caConfigMap trusts its CA instead.
     insecureSkipVerify: false
 
 load:
@@ -132,6 +134,9 @@ load:
   # more than the rate of one generator times the response time in seconds,
   # or the generator falls behind its schedule and the check fails the step.
   threads: 200
+  # Threads of one generator for its hot users, a thread group of their own.
+  # Size it as threads, by the hot users' rate. Their lag counts in the
+  # step's, so a run with hot users that falls behind may need more of these.
   hotThreads: 4
   # Check every window of every user and group against the policy. Off for a
   # capacity run with a multiplier, where no limit fires.

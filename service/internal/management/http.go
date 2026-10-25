@@ -20,9 +20,10 @@ import (
 // RequestIDHeader carries the correlation id.
 //
 // It is a global contract of this API: optional on the request, mandatory on
-// every response, and the same value runs through the operator log, the audit
-// journal, and meta.requestId of every error body. It is what a person quotes
-// when asking what happened.
+// every response, and the same value is in meta.requestId of every error body
+// and in every log line the API writes for the request, the audit journal line
+// of a mutation among them. A refused request writes no line at the default log
+// level. It is what a person quotes when asking what happened.
 //
 // The platform owns all of that. Its context propagation reads the header or
 // generates a value, puts it on every response, and prints it beside every log
@@ -68,8 +69,8 @@ func withRequestID(c *fiber.Ctx) error {
 }
 
 // requestTimeout bounds the store calls a request makes under its own
-// context. An accepted sweep runs under the runner's context instead, and
-// records its outcome under its own bound. Tests shorten it.
+// context. An accepted sweep drops this deadline with the rest of the request's
+// cancellation, and records its outcome under its own bound. Tests shorten it.
 var requestTimeout = 10 * time.Second
 
 // withDeadline gives the request's context a deadline of requestTimeout, so a

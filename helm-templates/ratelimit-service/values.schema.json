@@ -207,7 +207,7 @@
             "enabled": {
               "type": "boolean",
               "default": true,
-              "description": "Render the InternalDatabase and the DatabaseSecretClaim. false expects the Secret <SERVICE_NAME>-redis, with connectionProperties.json in DBaaS's format, to be provided otherwise, as on a test cluster without DBaaS."
+              "description": "Render the InternalDatabase and the DatabaseSecretClaim. false expects the Secret <SERVICE_NAME>-redis, with the keys connectionProperties.json and metadata.json in DBaaS's format, to be provided otherwise, as on a test cluster without DBaaS; docs/helm-chart.md, \"The counter store from DBaaS\", has an example."
             },
             "operatorNamespace": {
               "type": "string",
@@ -446,7 +446,7 @@
             "domain": {
               "type": "string",
               "title": "Rate limit domain",
-              "description": "Binding key between this gateway and a RateLimitPolicy. Must equal spec.domain of the policy that carries the gateway's rules; a mismatch is silent apart from an unknown-rate-limit-domain line in the service log. The pattern is the CRD's spec.domain pattern, so a value the policy side cannot ever carry is refused here too.",
+              "description": "Binding key between this gateway and a RateLimitPolicy. Must equal spec.domain of the policy that carries the gateway's rules; a mismatch lets the gateway's traffic pass unlimited, counts its checks in ratelimit_unknown_domain_checks_total, which the RatelimitUnknownDomain alert fires on, and writes a sampled unknown-rate-limit-domain line naming the domain to the service log. The pattern is the CRD's spec.domain pattern, so a value the policy side cannot ever carry is refused here too.",
               "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$",
               "minLength": 1,
               "maxLength": 63
@@ -492,7 +492,7 @@
             "domain": {
               "type": "string",
               "title": "Rate limit domain",
-              "description": "Binding key between this gateway and a RateLimitPolicy. Must equal spec.domain of the policy that carries the gateway's rules; a mismatch is silent apart from an unknown-rate-limit-domain line in the service log. The pattern is the CRD's spec.domain pattern, so a value the policy side cannot ever carry is refused here too.",
+              "description": "Binding key between this gateway and a RateLimitPolicy. Must equal spec.domain of the policy that carries the gateway's rules; a mismatch lets the gateway's traffic pass unlimited, counts its checks in ratelimit_unknown_domain_checks_total, which the RatelimitUnknownDomain alert fires on, and writes a sampled unknown-rate-limit-domain line naming the domain to the service log. The pattern is the CRD's spec.domain pattern, so a value the policy side cannot ever carry is refused here too.",
               "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$",
               "minLength": 1,
               "maxLength": 63

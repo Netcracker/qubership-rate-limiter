@@ -6,6 +6,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netcracker/qubership-ratelimit/engine/compile"
 )
 
 // pruneTestSet is the active set of the prune tests: the domain prune.alive,
@@ -13,7 +15,7 @@ import (
 func pruneTestSet() *ActiveSet {
 	return &ActiveSet{
 		Domains: map[string]struct{}{"prune.alive": {}},
-		Rules:   map[string]struct{}{"b/kept": {}},
+		Rules:   map[string]map[string]struct{}{"prune.alive": {"b/kept": {}}},
 		Keys:    map[string]map[string]struct{}{"prune.alive": {"tenant": {}}},
 	}
 }
@@ -56,6 +58,25 @@ func TestPruneStale_dropsOnlyTheSeriesWhoseLabelsLeftTheActiveSet(t *testing.T) 
 		"a key another domain still declares is pruned with the domain that dropped it")
 }
 
+// A rule is held per domain, as a key is: when one domain renames a rule that
+// another domain still holds, the series of the domain that renamed it go, and
+// the series of the domain that holds it stay.
+func TestPruneStale_dropsARenamedRuleThatAnotherDomainStillHolds(t *testing.T) {
+	holderBefore := testutil.ToFloat64(Decisions.WithLabelValues("prune.holder", "api/shared", OutcomeOK))
+	Decisions.WithLabelValues("prune.holder", "api/shared", OutcomeOK).Inc()
+	Decisions.WithLabelValues("prune.renamer", "api/shared", OutcomeOK).Inc()
+
+	PruneStale(ActiveSetOf(map[string]*compile.Snapshot{
+		"prune.holder":  compiledSnapshot(t, "prune.holder", "shared"),
+		"prune.renamer": compiledSnapshot(t, "prune.renamer", "renamed"),
+	}))
+
+	assert.Zero(t, testutil.ToFloat64(Decisions.WithLabelValues("prune.renamer", "api/shared", OutcomeOK)),
+		"the series of the domain that renamed the rule")
+	assert.Equal(t, holderBefore+1, testutil.ToFloat64(Decisions.WithLabelValues("prune.holder", "api/shared", OutcomeOK)),
+		"the series of the domain that still holds the rule")
+}
+
 // The histogram vectors are swept like the counter vectors.
 func TestPruneStale_dropsTheHistogramSeriesOfARetiredDomain(t *testing.T) {
 	CheckDuration.WithLabelValues("prune.retired").Observe(0.001)
@@ -91,7 +112,7 @@ func TestPruneOnce_judgesByTheLatestPublishedSet(t *testing.T) {
 	Decisions.WithLabelValues("prune.alive", "b/comeback", OutcomeOK).Inc()
 	PruneStale(pruneTestSet())
 	restored := pruneTestSet()
-	restored.Rules["b/comeback"] = struct{}{}
+	restored.Rules["prune.alive"]["b/comeback"] = struct{}{}
 	PruneStale(restored)
 	Decisions.WithLabelValues("prune.alive", "b/comeback", OutcomeOK).Inc()
 
@@ -108,7 +129,7 @@ func TestPruneOnce_judgesByTheLatestPublishedSet(t *testing.T) {
 func TestPruneStale_keepsAnActiveSeriesUnderConcurrentPublication(t *testing.T) {
 	churn := &ActiveSet{
 		Domains: map[string]struct{}{"prune.churn": {}},
-		Rules:   map[string]struct{}{"b/churn": {}},
+		Rules:   map[string]map[string]struct{}{"prune.churn": {"b/churn": {}}},
 		Keys:    map[string]map[string]struct{}{},
 	}
 	before := testutil.ToFloat64(Decisions.WithLabelValues("prune.churn", "b/churn", OutcomeOK))

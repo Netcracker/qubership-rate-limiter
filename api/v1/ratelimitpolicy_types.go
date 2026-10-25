@@ -144,7 +144,10 @@ type Route struct {
 	// cost reads the cost of a request matched through this route from the
 	// request, and every window of the block charges that many units instead
 	// of one. The first route of the target that matches a request decides its
-	// cost. Without it a request through the gateway costs one unit.
+	// cost. Without it a request through the gateway costs one unit. A window
+	// refuses a cost above its capacity (burst for GCRA, requests for
+	// FixedWindow) however long the caller waits, and that refusal carries no
+	// retry-after.
 	// +optional
 	Cost *RouteCost `json:"cost,omitempty"`
 }
@@ -177,7 +180,10 @@ type RouteCost struct {
 
 	// default is the cost of a request without a usable value: the parameter
 	// absent, empty, zero, or anything but decimal digits. It defaults to 1;
-	// the default page size of the API is the usual value.
+	// the default page size of the API is the usual value. A default above the
+	// capacity of a window of the block is reported as the informational
+	// problem CostExceedsCapacity, because that window refuses every request
+	// without a usable value.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=1000000000
@@ -240,7 +246,9 @@ type Predicate struct {
 // Rate is one counting window of a rule. Windows of a rule are independent
 // buckets, so a rate limit and a quota live side by side.
 type Rate struct {
-	// requests is the quota of the window.
+	// requests is the quota of the window, in units of cost: a request matched
+	// through a route with cost spends that many units, and any other request
+	// through the gateway spends one.
 	// +required
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=2147483647
@@ -287,7 +295,10 @@ type Rate struct {
 
 // Rule is one counter of a block.
 type Rule struct {
-	// name is unique within its block and is part of the counter key.
+	// name is unique within its block and is part of the counter key. The
+	// ratelimit-policy and ratelimit response headers carry it to the client
+	// as block/rule, unless the service chart sets responseHeaders.ietf to
+	// false.
 	// +required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`
 	// +kubebuilder:validation:MinLength=1
@@ -372,7 +383,10 @@ type Rule struct {
 // Blocks always add up: a request that lands in several blocks has to fit the
 // verdict of each.
 type LimitBlock struct {
-	// name is unique within its policy and is part of the counter key.
+	// name is unique within its policy and is part of the counter key. The
+	// ratelimit-policy and ratelimit response headers carry it to the client
+	// as block/rule, unless the service chart sets responseHeaders.ietf to
+	// false.
 	// +required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`
 	// +kubebuilder:validation:MinLength=1
@@ -632,9 +646,12 @@ type ReplicaStatus struct {
 	// +kubebuilder:validation:MaxLength=32
 	Summary string `json:"summary,omitempty"`
 
-	// lastCheckTime is the freshness of the probe. When no pod exists at all
-	// there is nobody to write the status, and the age of this stamp is what
-	// shows it.
+	// lastCheckTime is when the operator last asked the fleet, the freshness of
+	// total and applied. The operator rewrites it with every status change and
+	// otherwise once it is 5 minutes old, so an older stamp means that no
+	// operator is writing the status, or that its probe fails, which the Ready
+	// condition reports as Unknown with reason ProbeFailed. A fleet without a
+	// ready pod is reported as Ready False with reason NoReplicas.
 	// +optional
 	LastCheckTime *metav1.Time `json:"lastCheckTime,omitempty"`
 }

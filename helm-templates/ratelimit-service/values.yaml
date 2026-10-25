@@ -80,8 +80,10 @@ redis:
   dbaas:
     # Render the InternalDatabase and the DatabaseSecretClaim. false leaves
     # both to someone else, who still has to produce the Secret
-    # <SERVICE_NAME>-redis with the key connectionProperties.json in DBaaS's
-    # format: a test cluster without DBaaS, as the e2e workflow's is.
+    # <SERVICE_NAME>-redis with the keys connectionProperties.json and
+    # metadata.json in DBaaS's format: a test cluster without DBaaS, as the
+    # e2e workflow's is. docs/helm-chart.md, "The counter store from DBaaS",
+    # has an example; a Secret without metadata.json is not read.
     enabled: true
     # The namespace of the dbaas-operator that reconciles those objects.
     # Empty reads it from the host of API_DBAAS_ADDRESS,
@@ -138,8 +140,11 @@ responseHeaders:
 # Service of its own. What limits who reaches the port is the
 # AuthorizationPolicy, and that is enforced by ztunnel at the pod: a second
 # Service would change nothing about who can reach the port, and would add a
-# second name for the platform's HTTPRoute to get right. The gateway's route names port 8082 on
-# the one Service, which is what backendRefs.port is for.
+# second name for a route to get right. The chart renders no HTTPRoute: an
+# installation that routes a gateway to the API adds one whose backendRefs
+# name port 8082 on the one Service, lists the gateway in
+# authorizationPolicy.allowedServiceAccounts, and keeps its domain in
+# gatewayDomains.
 management:
   enabled: false
 
@@ -147,8 +152,10 @@ management:
   # <namespace>/<name> for one in another namespace. Each holds the operator
   # role. The schema refuses an empty list while enabled is true. A caller
   # sends a token the API server issued for its ServiceAccount with the
-  # audience below, which the platform's clients do with
-  # KUBERNETES_M2M_ENABLED=true.
+  # audience below. The platform's Go REST client sends one for the netcracker
+  # audience with M2M_AUTH_MODE=k8s (qubership-core-lib-go v3.15.0 and later)
+  # or KUBERNETES_M2M_ENABLED=true (v3.12 to v3.14); otherwise it sends a
+  # token of the identity provider, which gets 401.
   callers: []
 
   # The audience a caller's token is issued for. A token for any other
@@ -284,7 +291,8 @@ alerts:
   # collect across a domain, against the budget of 128 the compiler enforces.
   # Past the budget an edit stops compiling and the domain stays on its
   # last-good generation; the warning fires at this many so the author has
-  # room left when it does. 104 is 80 percent of the budget.
+  # room left when it does. 104 is about 80 percent of the budget. The schema
+# holds the value to 1..128.
   domainBudgetWarnAt: 104
 
   # RatelimitConfigurationAbsent: a replica's mounted directory holds no
@@ -295,9 +303,10 @@ alerts:
   configAbsentFor: 5m
 
 # The Gateway objects the filters target, by name. They must match the
-# parameters of qubership-core-mesh-config, which creates the Gateways. The
-# private gateway's identity is also what the management AuthorizationPolicy
-# allows by default.
+# parameters of qubership-core-mesh-config, which creates the Gateways. Only
+# the filters read these names: the management AuthorizationPolicy admits the
+# private gateway only when its ServiceAccount is listed in
+# management.authorizationPolicy.allowedServiceAccounts.
 ISTIO_PUBLIC_GATEWAY_NAME: public-gateway
 ISTIO_PRIVATE_GATEWAY_NAME: private-gateway
 
@@ -318,8 +327,14 @@ BASELINE_CONTROLLER: ""
 # What this chart owns per gateway: whether to rate limit it, and under which
 # domain. The domain is the binding key: it must equal spec.domain of the
 # RateLimitPolicy that carries this gateway's rules. Nothing validates the
-# match; a typo shows up only as an "unknown rate limit domain" line in the
-# service log.
+# match. A typo lets the gateway's traffic pass unlimited and counts each of
+# its checks in ratelimit_unknown_domain_checks_total, on which the alert
+# RatelimitUnknownDomain fires with MONITORING_ENABLED; the sampled "unknown
+# rate limit domain" line in the service log names the domain.
+#
+# When the private gateway routes to the management API, keep its domain in
+# management.gatewayDomains as well: nothing checks that the two match, and
+# a renamed domain leaves the API's paths checked like any other.
 #
 # namespace is optional and defaults to NAMESPACE. timeout,
 # failClosed, rateLimitedStatus and grpcAsResourceExhausted may be set here to

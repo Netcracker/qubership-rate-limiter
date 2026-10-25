@@ -91,8 +91,8 @@ type Runner struct {
 	Addr string
 	App  *fiber.App
 
-	// API is the mounted API, so an accepted sweep runs under this runner's
-	// context: a client that goes away does not stop it, and shutdown does.
+	// API is the mounted API. Start ties its accepted sweeps to this runner's
+	// context: a client that goes away does not stop them, and shutdown does.
 	API *API
 
 	Log Logger
