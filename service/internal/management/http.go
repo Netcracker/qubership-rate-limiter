@@ -69,8 +69,8 @@ func withRequestID(c *fiber.Ctx) error {
 }
 
 // requestTimeout bounds the store calls a request makes under its own
-// context. An accepted sweep runs under the runner's context instead, and
-// records its outcome under its own bound. Tests shorten it.
+// context. An accepted sweep drops this deadline with the rest of the request's
+// cancellation, and records its outcome under its own bound. Tests shorten it.
 var requestTimeout = 10 * time.Second
 
 // withDeadline gives the request's context a deadline of requestTimeout, so a
