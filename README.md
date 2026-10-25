@@ -25,8 +25,10 @@ separate tenants.
 ## How it fits together
 
 A policy binds to a gateway through a domain string that has to match on both sides: the rate limit filter of the
-gateway carries it, and the CR names it. Nothing validates the match. A mismatch surfaces only as an `unknown rate limit
-domain` line in the service log, so that line is the one to alert on.
+gateway carries it, and the CR names it. Nothing validates the match. A check for a domain no policy claims passes,
+and the service counts it in `ratelimit_unknown_domain_checks_total`; with `MONITORING_ENABLED`, the service chart's
+`RatelimitUnknownDomain` alert fires on that counter. The domain's name appears only in the service log, in an
+`unknown rate limit domain` line sampled to 10 lines a second.
 
 On every request the gateway sends one flat descriptor with four entries: `path`, `method`, the `authorization` header
 as `token`, and `x-request-id` as `request_id`. Those are the inputs the schema is written against: a rule matches on
@@ -183,23 +185,32 @@ Prerequisites, which the charts do not install:
   the counter store below);
 - the Prometheus Operator CRDs behind `PodMonitor` and `PrometheusRule`, when `MONITORING_ENABLED` is set.
 
+No chart declares a `kubeVersion`. CI runs the envtest suites against a Kubernetes 1.36 API server, and the e2e
+workflow installs on a kind cluster from `helm/kind-action` v1.15.1 with its default node image, Gateway API v1.4.0, and
+qubership-istio from its `main` branch. No workflow pins Helm: CI uses the Helm of the GitHub runner image. Adopting an
+existing CRD with `--take-ownership` needs Helm 3.17 or later ([the CRD chart](docs/helm-chart.md#the-crd-chart)).
+
 The images are `ghcr.io/netcracker/qubership-ratelimit-operator` and `ghcr.io/netcracker/qubership-ratelimit-service`.
-A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. Every push
-to `main` also publishes them tagged `main-<sha>`, the first seven characters of the commit, for an unreleased build.
+A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. A push to
+`main` whose build completes also publishes them tagged `main-<sha>`, the first seven characters of the commit, for an
+unreleased build. These tags do not cover every commit and do not last: when two pushes land within minutes of each
+other, one of the two builds can be cancelled and its commit gets no image, and a weekly cleanup deletes `main-*` tags
+older than seven days, so a tag lives one to two weeks. Install anything that has to outlive that from a `v<version>`
+tag.
 The pages under [`docs/`](docs/README.md) carry the detail behind this section: the chart reference, the resource
 specification, the runbook, and the management API.
 
-The delivery is three charts under `helm-templates/`. `ratelimit-crds` holds the `RateLimitPolicy` CRD and is installed
-once per cluster, before any namespace; the other two are installed into each namespace, the operator chart before the
-service chart:
+The delivery is three charts under `helm-templates/`. `ratelimit-crds` holds the `RateLimitPolicy` CRD; the platform
+installs it once per cluster, before any namespace, and application pipelines do not. The other two are installed into
+each namespace, the operator chart before the service chart:
 
 ```bash
 helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds --namespace <platform-namespace>
 ```
 
 The order is a requirement: an operator installed before the CRD exits at start with
-`no matches for kind "RateLimitPolicy"` and restarts until the CRD release is installed, and the `--wait` of its
-install times out. The release's name and namespace stay fixed for the cluster's lifetime, see
+`... no matches for ratelimit.netcracker.com/v1 ...` and restarts until the CRD release is installed, and the `--wait`
+of its install times out. The release's name and namespace stay fixed for the cluster's lifetime, see
 [the CRD chart](docs/helm-chart.md#the-crd-chart).
 
 ```bash
@@ -249,7 +260,8 @@ the EndpointSlices.
 `ratelimit-service` renders `REPLICAS` service replicas that mount the `ratelimit-config` ConfigMap at
 `/etc/ratelimit/config` with `optional: true`, are bound to no `Role` and mount their ServiceAccount token only with
 `management.enabled`, the `Service` `ratelimit` with the ports `grpc`, `metrics`, and `management`, the management
-`AuthorizationPolicy`, a `HorizontalPodAutoscaler`, a `PodMonitor`, a `PrometheusRule`, the dashboard, and one
+`AuthorizationPolicy`, a `HorizontalPodAutoscaler`, a `PodDisruptionBudget` when the service runs more than one replica
+(`REPLICAS`, or `HPA_MIN_REPLICAS` with `HPA_ENABLED`), a `PodMonitor`, a `PrometheusRule`, the dashboard, and one
 `EnvoyFilter` per enabled gateway. Its values are `redis.*`, `metrics.*`, `management.*`, `alerts.*`, the filter's
 (`filter.*`; the port the filters send checks to is the contract's 9000 and not a value), `runtime.*`, `gateways.*`,
 `responseHeaders.*` (the IETF `RateLimit` fields, on by default), the gateway names, and the five resource keys. Neither
@@ -327,8 +339,8 @@ Both charts read `BASELINE_ORIGIN`, the platform's composite variable that `core
 
 The service chart also reads `BASELINE_CONTROLLER`, for parity with `control-plane`, which resolves the baseline the
 same way; when set in a satellite, it takes precedence over `BASELINE_ORIGIN` as the target namespace. On this platform
-the baseline is never blue-green'd, so the platform leaves it empty. The e2e workflow and the local install above run in
-the first row.
+the baseline is never blue-green'd, so the platform leaves it empty. The local install above runs in the first row; the
+e2e workflow installs both rows, a baseline and a satellite of it.
 
 The gateway names are not the service chart's to choose. They are deployment parameters shared with
 `qubership-core-mesh-config`, the chart that creates the `Gateway` objects, and the platform injects the same set into
@@ -362,14 +374,17 @@ has to follow the gateway.
 ### The CRD has one owner
 
 `ratelimitpolicies.ratelimit.netcracker.com` is cluster-scoped, and every namespace installation shares that one
-object, so it ships in a chart of its own, `ratelimit-crds`, installed by one release per cluster. The namespace charts
-carry no copy: with one, every namespace's operator release would contend for the object's ownership, and an upgrade of
-an older namespace would put its older schema back for the whole cluster. Upgrade the CRD release first, to the newest
+object, so it ships in a chart of its own, `ratelimit-crds`, which the platform installs as one release per cluster.
+Application pipelines do not install it, and the namespace charts carry no copy: with one, every namespace's operator
+release would contend for the object's ownership, and an upgrade of an older namespace would put its older schema back
+for the whole cluster. Upgrade the CRD release first, to the newest
 operator version in the cluster; schema changes are additive, so the newest schema serves every older operator. The
 chart annotates the CRD with `helm.sh/resource-policy: keep`, so uninstalling the release does not take every
 namespace's policies with it.
 
 ## Develop
+
+`make help` lists every target; these are the ones the daily loop uses:
 
 ```bash
 make build              # compile both binaries, bin/ratelimit-operator and bin/ratelimit-service
@@ -404,10 +419,11 @@ make test-e2e-go E2E_NAMESPACE=core E2E_SATELLITE_NAMESPACE=core-sat
 ```
 
 The `redis` suite is the exception to "run everything": it asserts what only a
-shared counter store can do — that the operator selected Redis rather than
-falling back, that the counters carry the documented key, and that a spent budget
-survives the process that spent it. It reaches the store through the Secret
-`ratelimit-service-redis`, and skips in a namespace without one.
+shared counter store can do — that the service selected Redis, as its startup
+line `counter store selected backend=` names, that the counters carry the
+documented key, and that a spent budget survives the process that spent it. It
+reaches the store through the Secret `ratelimit-service-redis`, and skips in a
+namespace without one.
 
 It covers what no unit test can: that the installed CRD is the one carrying the current validation, that a policy
 change reaches every service replica through the ConfigMap, that an earlier generation keeps running while an edit is
@@ -443,8 +459,8 @@ structural checks the estimator would not accept live in the compiler instead �
 `replacedRules` naming a rule of its own block — and a policy failing either is rejected with `Accepted: False`,
 exactly as the API server would have rejected it.
 
-Run the pair from your host. The operator talks to the cluster of your current kubeconfig; the service talks to
-nothing but a directory, which `make service-config` fills from the live `ratelimit-config` of the namespace:
+Run the pair from your host. The operator talks to the cluster of your current kubeconfig; the service talks to a
+directory and to Redis, and `make service-config` fills the directory from the live `ratelimit-config` of the namespace:
 
 ```bash
 CLOUD_NAMESPACE=<ns> make service-config   # export the ConfigMap into bin/config
@@ -456,14 +472,15 @@ CLOUD_NAMESPACE=<ns> make run-service
 The operator is told its Deployment's name as the chart tells it (`OPERATOR_DEPLOYMENT`, `ratelimit-operator` by
 default); off cluster it warns that there is no Deployment to adopt and writes the ConfigMap without an owner. It probes
 the service replicas at their pod IPs, so from a host that cannot reach the pod network, kind included, every policy
-reads `Ready: Unknown` with `ProbeFailed`; the status is right, the host is not a peer of the pods. The service reads
-`SERVICE_CONFIG_DIR` (`bin/config` by default) the way it reads the mounted volume in a pod, and any directory holding a
-manifest and its payloads works. The service counts in Redis alone, never in its own memory: the targets that start it
-pass `--redis-addr` with `LOCAL_REDIS_ADDR`, `127.0.0.1:6379` by default, where `make local-redis` keeps a disposable
-`redis:8-alpine` container running, so they need Docker. In the pair the service keeps the defaults, metrics on `:8080`
-and probes on `:8081`, and the operator moves to `:8090` and `:8091` (`OPERATOR_METRICS_ADDR`, `OPERATOR_PROBE_ADDR`),
-since both binaries default to the same two ports and whichever binds second would die. `make docker-build` builds both
-images, `OPERATOR_IMG` and `SERVICE_IMG`, from the two Dockerfiles.
+reads `Ready: Unknown` with `ProbeFailed`; the status is right, the host is not a peer of the pods. The targets that
+start the service pass `SERVICE_CONFIG_DIR` (`bin/config` by default) as `--config-dir`, which the service reads the way
+it reads the mounted volume in a pod; any directory holding a manifest and its payloads works. The service counts in
+Redis alone, never in its own memory: the targets that start it pass `--redis-addr` with `LOCAL_REDIS_ADDR`,
+`127.0.0.1:6379` by default, where `make local-redis` keeps a disposable `redis:8-alpine` container running, so they
+need Docker. In the pair the service keeps the defaults, metrics on `:8080` and probes on `:8081`, and the operator
+moves to `:8090` and `:8091` (`OPERATOR_METRICS_ADDR`, `OPERATOR_PROBE_ADDR`), since both binaries default to the same
+two ports and whichever binds second would die. `make docker-build` builds both images, `OPERATOR_IMG` and
+`SERVICE_IMG`, from the two Dockerfiles.
 
 `CLOUD_NAMESPACE` has no default. An unset value is a startup error for either process, not a fallback to watching
 the cluster: it is what keeps the operator's RBAC a `Role`, and it is a segment of every counter key the service
@@ -475,8 +492,10 @@ loader reads each binary's `application.yaml` from the directory in `PROPERTY_FI
 ### Release
 
 The Release workflow in GitHub Actions is started by hand with a `MAJOR.MINOR.PATCH` version. It tags the head of the
-branch it runs on, builds and tests the root module at that tag, publishes both images as `v<version>`, and creates the
-GitHub release. It does not run the engine tests, the linters, the chart checks, or e2e: those run on pushes and pull
-requests. Dispatch it from a `main` whose checks have all passed, and start with a dry run, which builds the images
-without pushing them and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same
-version can be released again.
+branch it runs on, builds and tests the root module at that tag, publishes three images as `v<version>`, the operator,
+the service, and the load test kit (`ghcr.io/netcracker/qubership-ratelimit-loadtest`), and creates the GitHub release.
+It does not run the engine tests, the linters, the chart checks, or e2e: those run on pushes and pull requests. Dispatch
+it from a `main` whose checks have all passed, and start with a dry run, which builds the images without pushing them
+and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same version can be
+released again. A run that succeeds keeps its tag, and the workflow refuses a version whose tag exists, so it does not
+release a published version a second time while that tag stands.

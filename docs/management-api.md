@@ -14,8 +14,12 @@ turns it on ([Management API port](helm-chart.md#management-api-port)). Worked s
    the CR, the GitOps path; there are no configuration write endpoints.
 2. Reads never charge counters: everything goes through Peek, and the state is judged at cost=1; an arbitrary cost is
    the simulation's job (it has cost).
-3. Every mutation is audited: the carrier is a structured audit journal line (request id, subject, selector, outcome)
-   into the platform's log pipeline. The service writes nothing to the API server, so there is no Kubernetes Event.
+3. Every mutation is audited: the carrier is a structured audit journal line into the platform's log pipeline, with
+   the request id and the subject. An addressed DELETE writes one line with its rule, axes, and outcome. A bulk command
+   writes one line when it is accepted, with its selector and no outcome; the outcome is in the command record, which
+   the caller's retry of the same command with the same Idempotency-Key replays for at least 24 hours after the outcome
+   ([Idempotency and command lifecycle](#idempotency-and-command-lifecycle)). The service writes nothing to the API
+   server, so there is no Kubernetes Event.
 4. The destructive radius is bounded by construction: DELETE addresses one rule; anything wider goes through
    counter-resets, whose execution exists only with a single-use confirmation token from a mandatory preview; the
    sweep's work is bounded server-side: a deadline plus one sweep per domain.
@@ -24,14 +28,18 @@ turns it on ([Management API port](helm-chart.md#management-api-port)). Worked s
 
 ## Surface
 
+The Role column names the role each endpoint requires. Every caller listed in `management.callers` holds `operator`,
+which covers `viewer`, so a listed caller passes every row, and a caller listed nowhere passes none
+([Security](#security)).
+
 | Method and path | Role | Semantics |
 | --- | --- | --- |
 | GET /domains | viewer | The domains of the enforced set: per-domain ruleSetVersion, sizes (blocks/rules), effectiveKeys. No pagination: domains are few. |
-| `GET /domains/{d}/rules?path=&method=&axis.<n>=` | viewer | The domain's enforced set, which can be a last-good generation rather than the latest object in the cluster, plus its ruleSetVersion. `path` and `method` filter down to blocks with the engine's matcher, and `axis.<n>` annotates every rule with its applicability under a partial identity, see "Applicability for a partial identity". |
+| `GET /domains/{d}/rules?path=&method=&axis.<n>=` | viewer | The domain's enforced set, which can be a last-good generation rather than the latest object in the cluster, plus its ruleSetVersion. `path` and `method` filter down to blocks with the engine's matcher, and `axis.<n>` annotates every rule with its applicability under a partial identity, see "Selector grammar and work bounds". |
 | `GET /domains/{d}/counters?<grammar>&pageSize=&cursor=` | viewer | A Peek listing over the full selector grammar plus pagination. The listing skips counters of rules outside the enforced set (scanned counts them). |
 | `DELETE /domains/{d}/counters?ruleId=&axis.<n>=&algorithm=&period=&limited=&expectedRuleSetVersion=&dryRun=` | operator | The addressed form: one full ruleId plus every axis of that rule, so the keys are computed from the snapshot rather than scanned. A partial axis set is 0400, and a rule outside the enforced set is 404. Idempotency-Key is mandatory; see "Selector grammar and work bounds". |
 | POST /domains/{d}/counter-resets | operator | The bulk form, a oneOf of four bodies: preview or execute, over a selector or over the whole domain. Execution accepts only a confirmationToken minted by a preview of the same selection, runs to the end inside the call, and answers 200. Idempotency-Key is mandatory. |
-| POST /simulations | viewer (post on the exact path) | Body {domain, path, method, identitySource?, token?, keys?, cost?} → a Peek decision: allowed, headers, per-rule verdicts, skips, extractedKeys. Not under /domains/{d}/: one non-mutating POST path with its own verb makes the role model trivial (viewer holds post here only). |
+| POST /simulations | viewer (post on the exact path) | Body {domain, path, method, identitySource?, token?, keys?, cost?} → a Peek decision: allowed, headers, per-rule verdicts, skips, extractedKeys. Not under /domains/{d}/: one non-mutating POST path keeps the role model per path and verb (the one POST that requires only viewer). |
 | GET /status | viewer | Per-replica view: the replica, the snapshot swap time, ruleSetVersions {domain: version} (skew between replicas during a rollout and last-good divergence), the store backend. |
 | GET /openapi.yaml | viewer | The embedded specification (go:embed): what the binary was built against. |
 
@@ -75,8 +83,8 @@ expiry is 0400, not silently a different listing. Pages are not a snapshot: a li
 newer numbers. /domains is not paginated at all. A page reads the store in whole steps, each of at most the room left on
 the page and in the budget, and at most 128 steps; its cursor is the store's own cursor of the next step, so the walk
 stays on the chain of cursors the store returns, which is what the store's completeness is conditioned on (the [store
-contract](store-contract.md)). pageSize is the size a page asks for: exact on the in-process store, and on Redis, whose
-step is a hint, a few items over at most; items are unsorted.
+contract](store-contract.md)). pageSize is the size a page asks for; Redis, whose scan step is a hint, may return a few
+items more; items are unsorted.
 
 Semantics under live traffic: a reset is NOT a snapshot. resetCount is the keys actually deleted; traffic during the
 sweep creates counters independently. Fence/generation mechanics are deliberately not introduced: the price is not
@@ -182,11 +190,12 @@ correlation: the client neither parses nor constructs it, and its format is outs
 ## Response observability and errors
 
 X-Request-Id is a global contract: an optional request header on every operation (outside the log-safe pattern it is
-0400, without sanitizing), a mandatory header on every response (round-tripped or generated), carried through to the
-log, the audit journal, and the meta.requestId of every error body. The one response without it is the refusal of a body
-over 1 MiB (1048576 bytes): the HTTP server's body limit refuses it before the request-id middleware runs, so that 400
-carries no X-Request-Id header and an empty meta.requestId. 401 is an explicit response on all operations with a
-mandatory WWW-Authenticate: Bearer.
+0400, without sanitizing), a mandatory header on every response (round-tripped or generated), and the meta.requestId
+of every error body. The service carries it into each log line it writes for the request: the audit journal line of a
+mutation, and the error line of a failure inside the service or its store. A refusal (401, 403, or another 4xx) writes
+no line at the chart's default `LOG_LEVEL: info`, so its id is in the response alone; at `debug`, a refused token
+writes `management API refused a bearer token kid=<kid> error=<error>`. 401 is an explicit response on all operations
+with a mandatory WWW-Authenticate: Bearer.
 
 Two refusals are not tied to one endpoint. A body over 1 MiB (1048576 bytes) is 0400 with `the request body is larger
 than the 1048576 bytes this API accepts`. On GET /rules, GET /counters, and DELETE /counters, a query parameter the
@@ -194,14 +203,15 @@ endpoint does not define is 0400 with `the query carries parameters this endpoin
 ignored (names are case-sensitive: `dryrun` is not `dryRun`).
 
 Errors are NC.TMFErrorResponse.v1.0: id (the instance UUID), code (the contract for branching), reason (the code's
-title), message (detail, not a contract), status (as a string), meta.requestId (mandatory except on the oversized-body
-refusal above), an optional meta.fields (validation) and meta.partialReset (the partial disclosure of a failed bulk).
-The code catalog:
+title), message (detail, not a contract), status (as a string), meta.requestId (mandatory), an optional meta.fields
+(validation) and meta.partialReset (the partial disclosure of a failed bulk). The code catalog:
 
 - RLS-0400 invalid request (query/body/cursor/header patterns)
 - RLS-0401 authentication required: no bearer token, or one the service does not accept (not well formed, expired or
-  not valid yet, issued for another audience or by another issuer, a signature that does not verify, or not a
-  Kubernetes ServiceAccount token); the message names which, and never quotes the token
+  not valid yet, issued for another audience or by another issuer, signed with a key the cluster does not hold, a
+  signature that does not verify, or not a Kubernetes ServiceAccount token); the message names which, and never quotes
+  the token. A token of the identity provider gets `the bearer token is signed with a key this cluster does not hold`;
+  the client setting that sends a ServiceAccount token instead is in [What a caller owes](#what-a-caller-owes)
 - RLS-0403 access denied
 - RLS-0404 unknown resource (domain/rule/window; per endpoint, only what the endpoint actually validates: bulk and the
   listing, the domain only; DELETE, domain/rule/window)
@@ -278,8 +288,10 @@ arrive only with a new API version.
 Every request carries a Kubernetes ServiceAccount token as its bearer token: a JWT the cluster's API server issued for
 the caller's ServiceAccount with the audience the release sets in `management.m2m.audience`, `netcracker` by default.
 The service verifies the token itself against the API server's OIDC discovery: the signature, the issuer, the audience,
-the expiry, and the issue time. A token that fails any check, a token without the `kubernetes.io` claim (such as one of
-the identity provider), and a request without a token get 401 (RLS-0401), and the message names the check that failed.
+the expiry, and the issue time. A token that fails any check, a token without the `kubernetes.io` claim, and a request
+without a token get 401 (RLS-0401), and the message names the check that failed. A token of the identity provider fails
+the signature check, because the cluster's key set does not hold its key: `the bearer token is signed with a key this
+cluster does not hold`.
 The caller is the verified token's `sub` claim, `system:serviceaccount:<namespace>:<name>`, read from that one place: no
 header that names a user (X-Forwarded-User and the like) is read, so there is nothing to forge.
 
@@ -305,8 +317,13 @@ list does on its own. A legacy ServiceAccount token from a Secret, which carries
 A caller is usually a backend acting for its own users, such as the platform's user interface, and the service sees
 the backend's ServiceAccount, never the user. The caller therefore:
 
-- runs with `KUBERNETES_M2M_ENABLED=true`, so the platform's REST client sends the ServiceAccount token with the
-  `netcracker` audience; without it the client sends a token of the identity provider, which gets 401;
+- sends a ServiceAccount token, which the platform's Go REST client (`NewM2MRestClient` of `qubership-core-lib-go`)
+  does with `M2M_AUTH_MODE=k8s` from v3.15.0 on, and with `KUBERNETES_M2M_ENABLED=true` in v3.12 to v3.14. v3.15.0 and
+  later ignore `KUBERNETES_M2M_ENABLED`. With the variable unset, the client sends a token of the identity provider,
+  which gets 401 `the bearer token is signed with a key this cluster does not hold`; `M2M_AUTH_MODE=hybrid` sends the
+  ServiceAccount token and falls back to the identity provider's token after a 401. The client always requests the
+  `netcracker` audience, so a release that sets another `management.m2m.audience` needs callers that request their
+  tokens themselves;
 - checks its user's roles before it calls: every listed caller holds `operator`, so the service cannot tell one user's
   rights from another's;
 - generates a distinct Idempotency-Key for each user's command: the key is scoped to the ServiceAccount, so two users
@@ -324,8 +341,8 @@ the backend's ServiceAccount, never the user. The caller therefore:
 - **No what-if with changed limits**: that is what a rule's `Shadow` behavior in the CR is for.
 - **No decision history**: metrics plus a sampled log answer "what happened"; the API reads live state.
 - **No expansion from client to tenant**: that is the IdP's boundary, and the keys carry no such linkage.
-- **No masking of axis values**: whoever holds `viewer` sees client ids, a documented property of the access model, and
-  a reset requires the exact value anyway.
+- **No masking of axis values**: every listed caller sees client ids, a documented property of the access model, and a
+  reset requires the exact value anyway.
 - **No sorting by "top consumers"**: metrics provide the aggregates.
 - **No fence or generation on a reset**: a reset is not a snapshot, and the price of making it one is not justified for
   a "clean slate" operation.
@@ -333,7 +350,8 @@ the backend's ServiceAccount, never the user. The caller therefore:
   outlive the client connection, but it is always run to its outcome inside the call.
 - **No per-subject command budget**: the protection against a flood of commands is the one-sweep-per-domain slot, which
   answers 409, not a rate limit on the management plane itself.
-- **"Who reset what"** is answered by the audit journal, read the standard way, not by an endpoint.
+- **"Who reset what"** is answered by the audit journal, read the standard way, not by an endpoint. For a bulk command
+  the journal holds the acceptance; how many keys it deleted is in its command record (principle 3).
 
 ## How it works
 

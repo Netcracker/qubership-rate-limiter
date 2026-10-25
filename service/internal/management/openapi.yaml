@@ -52,7 +52,7 @@ info:
     * RLS-0504 - token verification unavailable: the service cannot verify
       tokens yet, so it refuses every request until it can
 
-    Traceability: every response the service forms carries the X-Request-Id header - a caller-supplied value round-trips, an absent one is generated - and the same id runs through the operator log, the audit journal, and the meta.requestId of every error body. Quote it when asking what happened. The one exception is the refusal of a body over 1 MiB (1048576 bytes): the HTTP server's body limit refuses it before the request-id middleware runs, so that 400 carries no X-Request-Id header and an empty meta.requestId.
+    Traceability: every response the service forms carries the X-Request-Id header - a caller-supplied value round-trips, an absent one is generated - and the same id is in the meta.requestId of every error body and in every log line the service writes for the request: the audit journal line of a mutation and the error line of a failure inside the service or its store. A refusal (401, 403, or another 4xx) writes no line at the default log level, so its id is in the response alone. Quote it when asking what happened.
 servers:
 - url: /ratelimit/v1
 security:
@@ -990,8 +990,8 @@ paths:
                   limit: 100
                   remaining: 0
                   limited: true
-                  retryAfterSeconds: 12.4
-                  resetAfterSeconds: 60
+                  retryAfterSeconds: 0.35
+                  resetAfterSeconds: 11.75
                 scanned: 2
           headers:
             X-Request-Id:
@@ -1703,6 +1703,8 @@ paths:
         cost the body names or, in a block whose matched route reads a cost,
         at the cost that route reads from the query string of path. The answer is the verdict as of evaluatedAt - nothing is reserved, and parallel traffic can change the real outcome - plus the per-rule breakdown the gateway never sees.
 
+        The simulation does not model the exemption of this API's own paths: in a domain the release lists in management.gatewayDomains, a real check of a path under /ratelimit/v1 is admitted without a decision, while the simulation of that path reports the decision the domain's rules make.
+
         Identity comes from `identitySource`; the three request forms are
         structural (see SimulationRequest):
         * `merge` (default) - extract from the token, then explicit keys
@@ -1714,7 +1716,7 @@ paths:
         The token is write-only input: it is never echoed in the response,
         never written to access or audit logs, and never quoted in errors.
 
-        The domain travels in the body rather than the path: one mutation-free POST path keeps the role model trivial - viewer holds post on exactly this path and never on the mutations.
+        The domain travels in the body rather than the path: one mutation-free POST path keeps the role model per path and verb - this path requires viewer, as every GET does, and the mutations require operator. Every caller the release lists holds operator, which covers viewer.
       requestBody:
         required: true
         content:
@@ -1765,9 +1767,9 @@ paths:
                   rule: everyone
                   limit: 100
                   remaining: 0
-                  retryAfterSeconds: 23.4
-                  resetAfterSeconds: 60
-                  effectiveWindowSeconds: 23.4
+                  retryAfterSeconds: 0.35
+                  resetAfterSeconds: 11.75
+                  effectiveWindowSeconds: 0.35
                   algorithm: gcra
                   periodSeconds: 60
                 rules:
@@ -1778,14 +1780,14 @@ paths:
                   limit: 100
                   remaining: 0
                   cost: 1
-                  retryAfterSeconds: 23.4
+                  retryAfterSeconds: 0.35
                   algorithm: gcra
                   periodSeconds: 60
                 - id: quota/daily
                   mode: enforce
                   allowed: true
                   limit: 100
-                  remaining: 61
+                  remaining: 80
                   cost: 1
                   algorithm: gcra
                   periodSeconds: 60
@@ -1942,7 +1944,7 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: |
-        A Kubernetes ServiceAccount token: a JWT the cluster's API server issued for the caller's ServiceAccount with the audience the release configures (netcracker by default), as the platform's machine-to-machine clients send it with KUBERNETES_M2M_ENABLED=true. The service verifies it itself - the signature against the keys of the API server's OIDC discovery, the issuer, the audience, the expiry, and the issue time - and refuses a token that fails any check with 401 (RLS-0401), naming the check but never quoting the token. A token without the kubernetes.io claim, such as one of the identity provider, is refused the same way. Identity is read from exactly one source, the verified token's sub claim, system:serviceaccount:<namespace>:<name>; no header that names a user (X-Forwarded-User and kin) is read. Authorization is an allowlist the release configures: a listed ServiceAccount holds operator, which covers every endpoint, and any other verified caller is refused with 403 (RLS-0403). The role model stays per path and verb - viewer for every GET and POST /simulations, operator for the mutations plus everything viewer holds - and every listed caller holds operator. The subject feeds the audit journal, the Idempotency-Key scope, and the confirmation-token binding, so a caller acting for its users keeps the record of which user asked, generates a distinct Idempotency-Key for each user's command, and binds a preview's confirmation token to the user who requested it; X-Request-Id correlates its record with this service's. Whoever is listed sees axis values (client ids), which is a documented property of the access model.
+        A Kubernetes ServiceAccount token: a JWT the cluster's API server issued for the caller's ServiceAccount with the audience the release configures (netcracker by default), as the platform's Go REST client sends it with M2M_AUTH_MODE=k8s (qubership-core-lib-go v3.15.0 and later) or KUBERNETES_M2M_ENABLED=true (v3.12 to v3.14). The service verifies it itself - the signature against the keys of the API server's OIDC discovery, the issuer, the audience, the expiry, and the issue time - and refuses a token that fails any check with 401 (RLS-0401), naming the check but never quoting the token. A token without the kubernetes.io claim is refused the same way, and a token of the identity provider fails the signature check: the bearer token is signed with a key this cluster does not hold. Identity is read from exactly one source, the verified token's sub claim, system:serviceaccount:<namespace>:<name>; no header that names a user (X-Forwarded-User and kin) is read. Authorization is an allowlist the release configures: a listed ServiceAccount holds operator, which covers every endpoint, and any other verified caller is refused with 403 (RLS-0403). The role model stays per path and verb - viewer for every GET and POST /simulations, operator for the mutations plus everything viewer holds - and every listed caller holds operator. The subject feeds the audit journal, the Idempotency-Key scope, and the confirmation-token binding, so a caller acting for its users keeps the record of which user asked, generates a distinct Idempotency-Key for each user's command, and binds a preview's confirmation token to the user who requested it; X-Request-Id correlates its record with this service's. Whoever is listed sees axis values (client ids), which is a documented property of the access model.
   parameters:
     domain:
       name: domain
@@ -2004,7 +2006,7 @@ components:
         pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$
   responses:
     Forbidden:
-      description: Access denied (RLS-0403).
+      description: Access denied (RLS-0403) - the verified caller's ServiceAccount is not among the callers the release lists (management.callers), so it holds no role. The message names the subject, the role the endpoint requires, and the method and path.
       content:
         application/json:
           schema:
@@ -2013,7 +2015,7 @@ components:
             id: e4b19c6d-2a53-4f70-8d14-6b9e0c3a7f28
             code: RLS-0403
             reason: Access denied
-            message: subject support-viewer lacks the operator role for DELETE /ratelimit/v1/domains/gateway.public/counters
+            message: subject system:serviceaccount:support-tools:support-console lacks the operator role for DELETE /ratelimit/v1/domains/gateway.public/counters
             status: '403'
             '@type': NC.TMFErrorResponse.v1.0
             meta:
@@ -2046,6 +2048,7 @@ components:
       description: 'Authentication required (RLS-0401): the request arrived without
         a bearer token, or with one the service does not accept - not well formed,
         expired or not valid yet, issued for another audience or by another issuer,
+        signed with a key the cluster does not hold (a token of the identity provider),
         with a signature that does not verify, or not a Kubernetes ServiceAccount
         token. The message names which, and never quotes the token.'
       headers:
@@ -3138,8 +3141,9 @@ components:
         impossibility binds harder than any wait, and retryAfterSeconds is undefined
         for them, so among them the tie-break is the smallest counter key. Then
         retryable refusals, by the longest retryAfterSeconds - the constraint that
-        actually binds the client. Then, on an admission, the window with the least
-        remaining. Every remaining tie breaks by the lexicographically smallest
+        actually binds the client. Then, on an admission, the window with the
+        fewest further requests at the cost it was charged, its remaining divided
+        by that cost. Every remaining tie breaks by the lexicographically smallest
         counter key, which orders by the block/rule id, then algorithm,
         then periodSeconds - the same on every replica.'
       required:
@@ -4122,8 +4126,10 @@ components:
     XRequestId:
       description: 'The request id of this call: a caller-supplied X-Request-Id
         round-tripped, or a generated one when the caller sent none. The same id
-        runs through the operator log, the audit journal, and meta.requestId of
-        every error body.'
+        is in meta.requestId of every error body and in every log line the service
+        writes for the request (the audit journal line of a mutation, the error line
+        of a failure inside the service); a refusal writes no line at the default
+        log level.'
       required: true
       schema:
         type: string

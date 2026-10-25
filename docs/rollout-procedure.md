@@ -26,12 +26,13 @@ A limit is turned on and off in two places, and they do different things:
 
 `behavior` is per rule, durable, and travels with the policy through Git and Argo CD. The two fractions are values of
 the service chart, `runtime.enabledPercent` and `runtime.enforcedPercent`; they are per gateway, cover every domain
-behind it, and exist as brakes: section 4 shows both forms of pulling them. The whole procedure is edits of `behavior`
-on one rule at a time, with the brakes untouched unless something goes wrong.
+behind it, and exist as brakes: section 4 shows both forms of pulling them. In a composite every satellite's gateway
+has filters of its own, so a brake covers the composite only when it is pulled in every namespace (section 4). The
+whole procedure is edits of `behavior` on one rule at a time, with the brakes untouched unless something goes wrong.
 
-The commands assume the setup of the runbook: `NS`, `DOMAIN`, `BASE`, a `viewer` token behind `api` and an `operator`
-token behind `op`. Traffic on the stand went through a port-forward to the public gateway pod with a token of the
-client named; a request is the plain
+The commands assume the setup of the runbook: `NS`, `DOMAIN`, `BASE`, and the token of a ServiceAccount listed in
+`management.callers` behind `api` and `op`; every listed caller holds the `operator` role. Traffic on the stand went
+through a port-forward to the public gateway pod with a token of the client named; a request is the plain
 
 ```bash
 curl -s -o /dev/null -w '%{http_code} ' -H "Authorization: Bearer $TOKEN_BOB" "$GW/api/v1/exports/1"
@@ -44,7 +45,7 @@ charged, and reported, and it refuses nobody. What to look at, and where each ob
 
 | Observation | Where | What good looks like |
 | --- | --- | --- |
-| the domain is wired to the gateway | `ratelimit_unknown_domain_checks_total`, `ratelimit_checks_total{domain}` | the first stays at zero, the second grows at the gateway's request rate |
+| the domain is wired to the gateway | `ratelimit_unknown_domain_checks_total`, `ratelimit_checks_total{domain="<your domain>"}` | the first stays at zero, the second grows at the gateway's request rate; a check for a domain no policy claims counts under `domain="[unknown]"` |
 | the blocks' routes match the traffic | `ratelimit_unmatched_checks_total{domain}` | the share of requests no block targets, and nothing else |
 | every declared key arrives | `ratelimit_extractions_total{domain, key}` against `ratelimit_tokens_seen_total{domain}`, `ratelimit_extraction_skips_total` | every key above zero while tokens are seen; skips at zero |
 | every rule matched at least once | `ratelimit_decisions_total{rule}` | one `ok` series per rule; a rule with no series never matched |
@@ -194,8 +195,8 @@ Argo CD the sync wave closes on `Ready`, which is the same signal as `kubectl ge
 
 **The order.** Rules differ in how much they change when they start refusing:
 
-1. Unconditional ceilings with empty `counters`, such as `api/total` and `api/per-path`: they protect the backend,
-   refuse no client in particular, and occupy one bucket per window.
+1. Unconditional ceilings that count no identity: `api/total`, with empty `counters` and one bucket per window, and
+   `api/per-path`, which counts per path. They protect the backend and refuse no client in particular.
 2. Per-identity rules of `All` blocks, such as `api/per-client`: a refusal now names a client.
 3. Overrides together with the rule they override: `api/enterprise-per-client` with its `replacedRules: [per-client]`,
    `api/internal-scraper` with its `Bypass`. Enforcing the wide rule before its override refuses exactly the clients
@@ -251,14 +252,17 @@ ratelimit_decisions_total{domain="gateway.public",outcome="ok",rule="orders/orde
 
 So before enforcing a cascade rule, know which rule below it loses traffic, and check that its own limit and its
 counters are ready for the change. Two readings answer it. The rule listing scoped by the request and the identity,
-`GET /rules?path=/api/v1/orders&method=POST&axis.sub=dave`, marks the rule that decides `always` and the ones it
-preempts `never`; a capture such as `{orderId}` is decided from the route the request matches, so the same query for
-`/api/v1/orders/42/items` names `orders/items-per-order` instead, and without a path the capture stays open and the
-rule keyed on it is `conditional`. The simulation of one request is the second reading, and the two agree.
+`GET /rules?path=/api/v1/orders&method=POST&axis.sub=dave&axis.roles=ROLE_Importer`, marks the rule that decides
+`always` and the ones it preempts `never`. The query has to name every key the rule matches on: without
+`axis.roles` the role is undecided, and the rule and the one below it are both `conditional`. A capture such as
+`{orderId}` is decided from the route the request matches; without a path the capture stays open and the rule keyed
+on it is `conditional`. The simulation of one request is the second reading, and the two agree.
 
 **What to watch after each enablement.** The rule's own `over_limit` and `near_limit`, the domain's
 `ratelimit_checks_total{verdict="over_limit"}`, the gateway's `429` rate, and the listing with `limited=true` for the
-rule. On the stand, enforcing the exporters' trial at ten per hour after the reset of stage two:
+rule. The domain's `over_limit` verdict also counts the refusals of `ratelimit_refusals_total{domain, cause}`, which no
+rule makes: a check over the service's bounds on descriptors, cost, or buckets ([runbook](runbook.md), section 2). On
+the stand, enforcing the exporters' trial at ten per hour after the reset of stage two:
 
 ```text
 bob(ROLE_Exporter) x9 GET /api/v1/exports/1: 200 200 200 200 200 200 200 429 429
@@ -307,7 +311,10 @@ bucket drains.
 
 **The brakes.** When the policy edit is slower than the incident, the gateway fractions stop the refusals for the whole
 gateway. The runtime override takes effect at once and lives only as long as the gateway pod; the values change on the
-service release is the durable form and needs no pod restart. On the stand, with `bob` over his limit:
+service release is the durable form and needs no pod restart. In a composite, pull the brake in every namespace: the
+service release of each satellite renders `EnvoyFilter`s for the satellite's own gateways, with the same runtime keys,
+so the override goes to every gateway pod of the composite and the values change to the service release of the
+baseline and of every satellite. On the stand, with `bob` over his limit:
 
 ```bash
 GW=$(kubectl get pod -n "$NS" -l gateway.networking.k8s.io/gateway-name=public-gateway \
@@ -379,7 +386,9 @@ opposite order, the service first, then the operator.
 
 **A rename.** The block and rule names are in the counter key, so a renamed rule starts on fresh buckets: every
 identity gets a full budget once, the old buckets stay in the store until their TTL, and the metric series of the old
-name are dropped within seconds of the swap. On the stand, `exports-per-client-trial` renamed to `exports-per-client`:
+name are dropped within seconds of the swap, unless another domain of the namespace has a rule with the same
+`block/rule` id: then the old name's `ratelimit_decisions_total` and `ratelimit_near_limit_total` series stay. On the
+stand, `exports-per-client-trial` renamed to `exports-per-client`:
 
 ```bash
 api "$BASE/domains/$DOMAIN/counters?ruleId=api/exports-per-client-trial" | jq -c '{scanned, items}'
@@ -412,7 +421,7 @@ effect without the new name. Renaming a block renames every rule in it.
 | 4 | `enforced=0`, `enabled=0` at runtime, then removed | 9 | `200` under both; the service counts only under the first |
 | 4 | `runtime.enforcedPercent` 0 and back through Helm on the service release | 9 | `200`, then `429`; no pod restart |
 | 4 | the trial back to `Shadow` | 10 | `200`, same key and `remaining` |
-| 4 | the trial renamed | 11 | fresh bucket, old key left with its TTL, old series gone |
+| 4 | the trial renamed | 11 | fresh bucket, old key left with its TTL, old series gone, since no other domain has the rule's id |
 | end | the example policy again | 12 | `Ready: True`, 12 rules, the original rule set version |
 
 ## Appendix: observation to metric or status field
@@ -427,7 +436,7 @@ writes the status.
 | keys arrive | `ratelimit_extractions_total{domain, key}`, `ratelimit_extraction_skips_total{domain, key, reason}`, `ratelimit_tokens_seen_total{domain}` | as named |
 | a rule matched | `ratelimit_decisions_total{domain, rule, outcome="ok"}` | as named |
 | would-be refusals | `ratelimit_decisions_total{outcome="shadow_over_limit"}`, `GET /counters?limited=true` | as named |
-| refusals after enablement | `ratelimit_decisions_total{outcome="over_limit"}`, `ratelimit_checks_total{verdict="over_limit"}` | as named |
+| refusals after enablement | `ratelimit_decisions_total{outcome="over_limit"}`, `ratelimit_checks_total{verdict="over_limit"}` | the verdict also counts the refusals no rule makes, `ratelimit_refusals_total{domain, cause}` |
 | clients close to an enforced limit | `ratelimit_near_limit_total{domain, rule}` | shadow excluded; the margin is a share of the window's capacity, `burst` for GCRA |
 | consumption per identity | `GET /counters`: `limit`, `remaining`, `retryAfterSeconds`, `mode` | as named |
 | which rules a request applies | `POST /simulations`: `rules[].mode`, `rules[].allowed`; `GET /rules?path=&method=&axis.<name>=`: `applicability` | as named |

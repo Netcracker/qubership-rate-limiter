@@ -9,8 +9,10 @@ is in the [topology](deployment-topology.md), the [resource specification](ratel
 which hold the metric names.
 
 Every scenario has the same shape: the signal that starts it, the commands that diagnose it with the output to expect,
-the action, and the check that closes it. Commands assume `kubectl` access to the namespace and a platform token with
-the `viewer` or `operator` role; Prometheus queries assume the PodMonitors of the two charts. The outputs were taken
+the action, and the check that closes it. Commands assume `kubectl` access to the namespace and a token of a
+ServiceAccount listed in `management.callers`. Every listed caller holds the `operator` role, which covers every call of
+the API, and no value of `management.callers` grants `viewer` alone. Prometheus queries assume the PodMonitors of the
+two charts. The outputs were taken
 from a kind stand running the two charts and the reference policy of the repository; pod names, timestamps, and image
 tags are the stand's. Every command below ran there, except where the text says the stand cannot (section 8).
 
@@ -26,16 +28,20 @@ DOMAIN=gateway.public        # the policy is named after its domain
 kubectl port-forward -n "$NS" svc/ratelimit 8082:8082 &
 BASE=http://127.0.0.1:8082/ratelimit/v1
 CALLER=<a ServiceAccount listed in management.callers>
-TOKEN=$(kubectl create token -n "$NS" "$CALLER" --audience netcracker)   # the release's management.m2m.audience
+CALLER_NS=<its namespace>    # "$NS" for an entry <name>, <namespace> for an entry <namespace>/<name>
+TOKEN=$(kubectl create token -n "$CALLER_NS" "$CALLER" --audience netcracker)   # the release's management.m2m.audience
 api() { curl -sS -H "Authorization: Bearer $TOKEN" "$@"; }
 op()  { api "$@"; }      # every listed caller holds operator
 ```
 
-Where the release lists the private gateway in `management.authorizationPolicy.allowedServiceAccounts`, the same API is
-also routed through that gateway under the same prefix, and stays reachable there during a store outage whatever the
-gateway's failure mode (section 1); otherwise only the listed callers' workloads reach the port. The port-forward is the
-path for an operator who already holds `kubectl` access. The service verifies the token either way, so a port-forward
-skips the mesh policy on the port and nothing else: the token still has to belong to a listed caller.
+The charts render no route to port 8082
+([What the charts do not install](helm-chart.md#what-the-charts-do-not-install)). A gateway listed in
+`management.authorizationPolicy.allowedServiceAccounts` is only admitted to the port: the route through it is an
+HTTPRoute the platform creates. Where both exist, the API is reachable through that gateway under the same prefix, and
+stays reachable there during a store outage whatever the gateway's failure mode (section 1); otherwise only the listed
+callers' workloads reach the port. The port-forward is the path for an operator who already holds `kubectl` access.
+The service verifies the token either way, so a port-forward skips the mesh policy on the port and nothing else: the
+token still has to belong to a listed caller.
 
 The installation is two Deployments in the namespace. The operator pod reads the policies, writes their status, and
 writes the ConfigMap `ratelimit-config`; the service pods mount that ConfigMap and serve the decisions and the
@@ -56,14 +62,15 @@ kubectl logs -n "$NS" deploy/ratelimit-operator --since=10m | tail
 kubectl logs -n "$NS" deploy/ratelimit-service --since=10m | tail
 ```
 
-An operator pod that restarts at start, never turns Ready, and logs the line below runs in a cluster without the CRD:
-the cluster chart `ratelimit-crds` is not installed, or was installed after the operator and the pod has not restarted
-since. `kubectl get rlp` fails the same way, with `the server doesn't have a resource type "rlp"`.
+An operator pod that restarts at start, never turns Ready, and logs a line with
+`no matches for ratelimit.netcracker.com/v1` runs in a cluster without the CRD: the cluster chart `ratelimit-crds` is
+not installed, or was installed after the operator and the pod has not restarted since. `kubectl get rlp` fails the
+same way, with `the server doesn't have a resource type "rlp"`.
 
 ```text
-[ERROR] ... [class=ratelimit-operator] operator exited with an error: create manager: failed to determine if
-  *unstructured.Unstructured is namespaced: failed to get restmapping: no matches for kind "RateLimitPolicy" in
-  version "ratelimit.netcracker.com/v1"
+[ERROR] ... [class=ratelimit-operator] ... operator exited with an error: create manager: failed to determine if
+  *unstructured.Unstructured is namespaced: failed to get restmapping: unable to retrieve the complete list of server
+  APIs: ratelimit.netcracker.com/v1: no matches for ratelimit.netcracker.com/v1, Resource=
 ```
 
 Install the CRD release; the operator starts on its next restart, see
@@ -117,7 +124,7 @@ the chart value named, with its default:
 | `RatelimitConfigWriteErrors` | critical | a write of `ratelimit-config` failed and none has succeeded since | `policyAlerts.configWriteFailingFor`, 5m | 9 |
 | `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader failed every reconcile within `policyAlerts.reconcileErrorsWindow`, 30m | `policyAlerts.reconcileFailingFor`, 5m | 9 |
 | `RatelimitNoOperatorLeader` | critical | no scrape of the namespace reports `ratelimit_leader 1` | `policyAlerts.noLeaderFor`, 5m | 10 |
-| `RatelimitUnknownDomain` | warning | a check for a domain no policy claims within 5m | `alerts.unknownDomainFor`, 5m | 2 |
+| `RatelimitUnknownDomain` | warning | a check for a domain no policy claims within 5m | `alerts.unknownDomainFor`, 5m | 2, or 3 for a policy that enforces no generation |
 | `RatelimitStoreErrors` | critical | a failed store decision within 5m | `alerts.storeErrorsFor`, 5m | 1 |
 | `RatelimitDecisionLatencyHigh` | warning | the p99 of a check above `alerts.latencyBudgetSeconds`, 0.01 s | `alerts.latencyFor`, 10m | 10 |
 | `RatelimitKeyDeclaredNotExtracted` | warning | a declared key with no extraction within `alerts.keyNotExtractedWindow`, 15m, while the domain's tokens arrive | `alerts.keyNotExtractedFor`, 30m | 2, and stage one of the [rollout procedure](rollout-procedure.md) |
@@ -145,7 +152,8 @@ kubectl get rlp -n "$NS" "$DOMAIN" \
 
 `replicas.lastCheckTime` is the time of the probe round the status rests on. The operator rewrites it with every
 status change and otherwise once it is 5 minutes old, so an age past 5 minutes and a probe cycle means that no
-operator is writing the status: the pod is down, or no pod holds the Lease (section 10).
+operator is writing the status: the pod is down, no pod holds the Lease (section 10), or the leader's status writes
+fail, which `RatelimitOperatorReconcileFailing` reports for the controller `ratelimitpolicy` (section 9).
 
 The service's own view, per replica, through the management API:
 
@@ -236,14 +244,15 @@ ratelimit_store_errors_total{domain="gateway.public",reason="timeout"} 25
 The management API answers every call that needs the store with `RLS-0503`, and the gateway's clients see no `429` at
 all while `failClosed` is off.
 
-Where the release routes it through the private gateway (the gateway listed in
+Where the platform routes it through the private gateway (an HTTPRoute to port 8082, with the gateway listed in
 `management.authorizationPolicy.allowedServiceAccounts`), the API itself stays reachable there, also with
 `failClosed: true` on it: the service admits the checks of `/ratelimit/v1` in the domains of `management.gatewayDomains`
 of the service chart without reading the store, and counts them as `verdict="exempt"`. The endpoints that read no
 counters, `GET /status`, `/domains`, `/domains/{domain}/rules`, and `/openapi.yaml`, return `200` during the outage. A
-`503` from the API with no `RLS-` code in its body is the gateway's: the gateway's domain is missing from
-`management.gatewayDomains`, or the check itself got no answer within `filter.timeout`. The port-forward of section 0
-reaches the API past the gateway in both cases.
+`503` from the API with no `RLS-` code in its body is the gateway's, and has three causes. The gateway has no route to
+the API: the charts render none (section 0), and on the stand such a call answered `503` with the body
+`no healthy upstream`. The gateway's domain is missing from `management.gatewayDomains`. Or the check itself got no
+answer within `filter.timeout`. The port-forward of section 0 reaches the API past the gateway in every case.
 
 **Diagnose.**
 
@@ -387,7 +396,9 @@ a rule ahead of it in a `FirstMatch` cascade or a `replacedRules` neighbor that 
 Name more of the identity, and the picture narrows:
 
 ```bash
-api "$BASE/domains/$DOMAIN/rules?axis.sub=alice&axis.plan=enterprise&absent=roles"
+api "$BASE/domains/$DOMAIN/rules?axis.sub=alice&axis.plan=enterprise&absent=roles" \
+  | jq '{always: [.blocks[].rules[] | select(.applicability == "always") | .id],
+         conditional: [.blocks[].rules[] | select(.applicability == "conditional") | .id]}'
 # {"always": ["api/per-path", "api/enterprise-per-client", "api/total"],
 #  "conditional": ["orders/items-per-order", "orders/orders-per-client"]}
 ```
@@ -428,6 +439,21 @@ api -X POST "$BASE/simulations" -H 'Content-Type: application/json' -d '{
 #            {"key": "plan", "reason": "decode_failed"}]}
 ```
 
+**A `429` no counter explains.** The service refuses a check that breaks its own bounds, whatever the rules and the
+gateway's failure mode: more than 16 descriptors, a cost above 1000000000 on a descriptor or in total, or a decision
+over the bucket budget. The gateway answers `429` without `x-ratelimit-*` headers, and the counter listing with
+`limited=true` stays empty. The check counts as `ratelimit_checks_total{verdict="over_limit"}` and under
+`ratelimit_refusals_total{domain, cause}`, with the cause `too_many_descriptors`, `invalid_cost`, or
+`too_many_buckets`, and the sampled `[ERROR]` line of the service names it:
+
+```text
+rate limit check carries <n> descriptors, over the limit of 16 domain=<domain> path=<path> suppressed=<n>
+rate limit check carries hits_addend <n> on descriptor <i>, over the limit of 1000000000 domain=<domain> ...
+rate limit check carries a total cost of <n>, over the limit of 1000000000 domain=<domain> ...
+rate limit check carries is_negative_hits on descriptor <i> domain=<domain> ...
+rate limit decision over the bucket budget domain=<domain> path=<path> error=<error> suppressed=<n>
+```
+
 **The limit fires for nobody.** Two counters say whether the domain is wired at all:
 
 ```promql
@@ -435,8 +461,10 @@ rate(ratelimit_unknown_domain_checks_total[5m]) > 0      # the gateway sends a d
 sum by (domain) (rate(ratelimit_unmatched_checks_total[5m]))   # checks that applied no rule
 ```
 
-An unknown domain is a typo between the gateway filter and `spec.domain`; the name itself is in the sampled log of the
-service, not in a label. And the extraction detector: a declared key that never arrives in a token. The extraction
+An unknown domain is a typo between the gateway filter and `spec.domain`, a deleted policy, or a policy that enforces
+no generation (`activeGeneration: 0`, section 3), which the operator leaves out of the configuration. The name itself is
+in the sampled log of the service, `unknown rate limit domain: no RateLimitPolicy is bound to it domain=<domain>`, not
+in a label. And the extraction detector: a declared key that never arrives in a token. The extraction
 counters carry the domain and the declared key, and so does the token counter they are judged against, so two
 domains of one namespace keep separate series and an idle domain is never judged by a busy one's traffic:
 
@@ -636,7 +664,8 @@ ratelimit_policy_applied_generation{domain="gateway.public"}    # one series per
 causes. The operator could not write the manifest: the manifest's generation is the one the replicas report, below
 `activeGeneration`, and `ratelimit_config_write_errors_total` grows (section 9). The kubelet has not projected the
 ConfigMap update into the pod yet: that resolves within the sync period and stays `Propagating` below the threshold.
-The replica's watch of the mounted directory stopped delivering. Or the validated
+The replica cannot read the manifest in the mounted directory and keeps its snapshot; it reads the directory again
+every 10 s, events or not. Or the validated
 spec of that one domain does not compile in the replica's build, a version skew inside the compiler rather than the
 format: the replica keeps the last-good engine of the domain and reports the generation it came from, the other domains
 of the namespace move on, and the log names the domain in the line `keeping the last-good engine`. A domain the replica
@@ -653,8 +682,10 @@ kubectl logs -n "$NS" <the pod the message names> --since=15m | grep -E 'configu
 ```
 
 The manifest holds the generation the operator wrote; `/debug/applied` holds the one the replica applied. A manifest
-that agrees with `/debug/applied` and lags `activeGeneration` is the failed write. A gap that
-outlasts the sync period, with no `configuration applied` line in the log, is a watch that stopped. A gap on one domain,
+that agrees with `/debug/applied` and lags `activeGeneration` is the failed write. A gap that outlasts the sync period,
+with no `configuration applied` line and the line
+`failed to read the configuration, keeping the applied snapshot dir=<dir>: read the manifest: <error>` in the log, is
+the failed read. A gap on one domain,
 with the apply in the log and the `does not compile` line beside it, is the compiler skew. Image version skew during a
 rollout of the service shows as a refusal, `ReplicaFormatUnsupported`, as one domain held at its last-good generation,
 or not at all: every image reads the same manifest.
@@ -736,10 +767,11 @@ Then the kubelet projected the rewritten object, the replicas applied generation
 `Ready: True` with `AllReplicas` followed 9 s later. In a real skew the rewrite is in the same unreadable format, so the
 condition stays until the versions match.
 
-**Act.** A watch that stopped: delete the pod; the replacement mounts the ConfigMap, applies the current manifest, and
-joins the denominator once Ready. A blocked metrics port: admit the operator's ServiceAccount to the metrics port of the
-service pods; the probe is same-namespace traffic from the operator pod. On the stand, deleting the blocking policy
-brought `Ready: True` back within 6 s, and the stalled series went back to `reason="Progressing"` at `0`.
+**Act.** A failed read: the error after `read the manifest:` names the file and the cause. Delete the pod; the
+replacement mounts the ConfigMap, applies the current manifest, and joins the denominator once Ready. A blocked
+metrics port: admit the operator's ServiceAccount to the metrics port of the service pods; the probe is
+same-namespace traffic from the operator pod. On the stand, deleting the blocking policy brought `Ready: True` back
+within 6 s, and the stalled series went back to `reason="Progressing"` at `0`.
 `ReplicaFormatUnsupported`, and a domain held at its last-good generation because its spec does not compile in the
 replica's build: upgrade the service to the operator's version, or roll the operator back to the service's; section 5
 has the order. The replicas apply the next manifest they read, and the condition clears on the next probe.
@@ -812,7 +844,9 @@ read yet.
 **What traffic sees meanwhile.** Last-good, as in section 3: `/debug/applied` stayed at generation 9 and the domain
 listing kept its 12 rules and its rule set version throughout. A policy whose only generation carries the field has
 no last-good and enforces nothing: on the stand such a policy reported `no generation is enforced: domain is
-unprotected` and listed zero rules. A domain whose saved last-good is the generation that carries the field loses
+unprotected` with `RULES` empty. The service does not hold the domain: it is absent from `GET /domains`,
+`GET /domains/{domain}/rules` answers `RLS-0404`, and its checks count as an unknown domain (section 2). A domain whose
+saved last-good is the generation that carries the field loses
 it as well, with the event `LastGoodLost`, `last-good generation N was saved from a read that did not carry every
 field` (section 3): the operator saved that generation from a read made before the CRD defined the field, and its
 next read carries the field. Under `ReplicaFormatUnsupported` traffic sees the previous snapshot: a replica that
@@ -881,7 +915,9 @@ the filter out of the request path. They are Envoy runtime fractions `ratelimit.
 a runtime override flips them without a redeploy; a values change on the service release is the durable form, and it
 lasts only while the release's values carry it. An upgrade with `-f` and `--set` and no `--reuse-values` drops it and
 restores enforcement at once; keep the brake in the installation's values file or the Argo CD application, and check it
-after every upgrade ([rollout procedure](rollout-procedure.md), section 4).
+after every upgrade ([rollout procedure](rollout-procedure.md), section 4). In a composite, every satellite's service
+release renders the filters of its own gateways, with the same runtime keys, so pull the brake in every namespace of the
+composite: a brake on the baseline alone leaves the satellites' gateways enforcing.
 
 **Switching an algorithm or a window.** The counter key carries the algorithm and the period:
 
@@ -975,15 +1011,18 @@ recorded too, so a lost preview repeated returns the same token rather than mint
 for at least 24 hours; do not retry across days.
 
 **Who reset what.** Every mutation writes one structured log line on the replica that served it; the addressed form
-logs the outcome, the bulk form logs the acceptance with the hash of the selection:
+logs the outcome, the bulk form logs the acceptance with the hash of the selection. `subject` is the caller's
+ServiceAccount as `system:serviceaccount:<namespace>:<name>`:
 
 ```bash
 kubectl logs -n "$NS" deploy/ratelimit-service --since=24h | grep 'management mutation'
-# management mutation subject=operator@example.com idempotencyKey=CE81F29B-... domain=gateway.public
-#   endpoint=counters ruleId=api/per-client axes={"sub":"alice"} dryRun=false outcome=reset count=1
-# management mutation subject=operator@example.com idempotencyKey=69DA3B84-... domain=gateway.public
-#   endpoint=counters ruleId=api/per-client axes={"sub":"alice"} dryRun=true outcome=previewed count=1
-# management mutation accepted subject=operator@example.com idempotencyKey=08439BE2-... domain=gateway.public
+# management mutation subject=system:serviceaccount:ratelimit-e2e:e2e-management-caller idempotencyKey=CE81F29B-...
+#   domain=gateway.public endpoint=counters ruleId=api/per-client axes={"sub":"alice"} dryRun=false outcome=reset count=1
+# management mutation subject=system:serviceaccount:ratelimit-e2e:e2e-management-caller idempotencyKey=69DA3B84-...
+#   domain=gateway.public endpoint=counters ruleId=api/per-client axes={"sub":"alice"} dryRun=true outcome=previewed
+#   count=1
+# management mutation accepted subject=system:serviceaccount:ratelimit-e2e:e2e-management-caller
+#   idempotencyKey=08439BE2-... domain=gateway.public
 #   endpoint=counter-resets command=execute-selector selection=72a94e83cf44e26d dryRun=false
 #   selector={"ruleIds":["api"]}
 ```
@@ -1063,10 +1102,24 @@ configuration throughout. The alert is `RatelimitConfigWriteErrors` in the [Helm
 `size` for a state the object cannot hold even after the fit, `api` for an answer of the API server, `read` for a
 policy list or a read of the object that failed, `other` for the rest. A failed read logs
 `failed to read the policies; the configuration was not written` or
-`failed to read the configuration; it was not written`. The action is on the cause: the Role of the operator chart, the API server, the size of the namespace's policies.
-After the fix the retry follows the workqueue's exponential backoff: on the stand the write landed within 20 s of the
-verb's return, but after a longer outage the backoff runs to minutes. A change of any policy generation, or a restart of
-the operator pod, writes at once; on the stand a generation change reached `Ready: True` 11 s later.
+`failed to read the configuration; it was not written`. The action is on the cause: the Role of the operator chart,
+the API server, the size of the namespace's policies. After the fix the retry follows the workqueue's exponential
+backoff: on the stand the write landed within 20 s of the verb's return, but after a longer outage the backoff runs
+to minutes. A change of any policy generation, or a restart of the operator pod, writes at once; on the stand a
+generation change reached `Ready: True` 11 s later.
+
+**A controller that fails every reconcile.** `RatelimitOperatorReconcileFailing` fires when a controller of the
+operator's leader failed its reconciles, by `controller_runtime_reconcile_errors_total`, and completed none within
+`policyAlerts.reconcileErrorsWindow`, 30m, held for `policyAlerts.reconcileFailingFor`, 5m. The leader still holds the
+Lease, so `RatelimitNoOperatorLeader` stays quiet. The `controller` label names one of two controllers.
+`ratelimit-config` is the writer above, with its log line and `ratelimit_config_write_errors_total`. `ratelimitpolicy`
+compiles each policy and writes its status: while it fails, the status stays as it was and `lastCheckTime` ages
+(section 0). Its errors are controller-runtime's lines, and a permission the Role lacks, such as `update` on
+`ratelimitpolicies/status`, shows there as `forbidden`:
+
+```bash
+kubectl logs -n "$NS" deploy/ratelimit-operator --since=10m | grep 'Reconciler error controller=ratelimitpolicy'
+```
 
 **A replica born without the object.** With no operator running and no ConfigMap, a fresh service pod mounts an empty
 directory and stays NotReady, without a timeout, and out of the Endpoints; the replicas that had applied a manifest keep
@@ -1109,15 +1162,18 @@ entries below state what the rule, the series, and the code establish, and the c
 
 **`RatelimitChecksStopped`.** Ready replicas enforce the domain, `ratelimit_policy_replicas{state="applied"}` above
 zero, and `ratelimit_checks_total` of the domain did not move within `policyAlerts.checksStoppedWindow`, 10m: the
-gateway sends no checks, so its traffic passes unlimited. Four causes: the filter is off, `runtime.enabledPercent: 0`
+gateway sends no checks, so its traffic passes unlimited. Five causes: the filter is off, `runtime.enabledPercent: 0`
 or a runtime override of `ratelimit.<gateway>.enabled` ([rollout procedure](rollout-procedure.md), section 4); its
 `EnvoyFilter` is gone; its domain differs from the policy's, and then `ratelimit_unknown_domain_checks_total` grows
-(section 2); or the path from the gateway to the Service `ratelimit` is broken. A gateway that carries no traffic at
+(section 2); the path from the gateway to the Service `ratelimit` is broken; or the service pods are not scraped, the
+service chart's PodMonitor `ratelimit-service-pod-monitor` is missing or its scrape fails, and with no
+`ratelimit_checks_total` series at all the alert fires for every enforced domain. A gateway that carries no traffic at
 all fires the same way, so a domain idle for long stretches needs a wider window.
 
 ```bash
 kubectl get envoyfilter -n "$NS"
 kubectl get endpointslice -n "$NS" -l kubernetes.io/service-name=ratelimit
+kubectl get podmonitor -n "$NS"
 ```
 
 **`RatelimitNoOperatorLeader`.** No scrape of the namespace reports `ratelimit_leader 1` for `policyAlerts.noLeaderFor`,
@@ -1185,12 +1241,16 @@ without the cluster's ServiceAccount CA in its trust store: the service reaches 
 system trust store. An error that says the token could not be acquired is a pod without the `serviceaccount` volume,
 which the chart renders only with `management.enabled`. A refused connection or a timeout is the network between the pod
 and the API server, or an API server that accepts the connection and does not answer: each request to it is given ten
-seconds. A `401` with the detail `the bearer token is signed with a key this cluster does not hold`, for a token the API
-server just issued while the verifier is ready, is a key set the service could not fetch after the discovery; the
-service fetches it again on the next unknown key, at most every five minutes. A `401` that names the audience is a
-caller that sends a token for another audience: the release's `management.m2m.audience` and the caller's token have to
-agree, which the platform's clients do with `KUBERNETES_M2M_ENABLED=true` and the default `netcracker`. A `403` is a
-caller missing from `management.callers`; the start line lists the ones the service read.
+seconds. A `401` with the detail `the bearer token is signed with a key this cluster does not hold` has two causes. The
+common one is a caller that sends a token of the identity provider instead of a ServiceAccount token: the platform's Go
+REST client does that unless it runs with `M2M_AUTH_MODE=k8s` (`qubership-core-lib-go` v3.15.0 and later) or
+`KUBERNETES_M2M_ENABLED=true` (v3.12 to v3.14), see
+[What a caller owes](management-api.md#what-a-caller-owes). The other is a key set the service could not fetch after
+the discovery, for a token the API server just issued while the verifier is ready; the service fetches it again on the
+next unknown key, at most every five minutes. A `401` that names the audience is a caller that sends a token for another
+audience: the release's `management.m2m.audience` and the caller's token have to agree, and the platform's client always
+requests `netcracker`, the default. A `403` is a caller missing from `management.callers`; the start line lists the ones
+the service read.
 
 **Revoke a caller.** Remove it from `management.callers` and upgrade the release: the service reads the list at start,
 and the upgrade restarts the pods. Until a pod restarts it still admits the caller, and a token already issued stays
@@ -1208,7 +1268,8 @@ of section 7.
 | `ratelimit_checks_total{domain, verdict}` | service pods | `unavailable` counts the checks the gateway's failure mode decided (section 1); `exempt` counts the requests to the management API, admitted without a decision |
 | `ratelimit_decisions_total{domain, rule, outcome}` | service pods | `shadow_over_limit` while introducing a limit (section 6) |
 | `ratelimit_near_limit_total{domain, rule}` | service pods | clients close to a limit before it fires; the margin is a share of the window's capacity, `burst` for GCRA |
-| `ratelimit_unknown_domain_checks_total` | service pods | a domain typo between the gateway and the policy (section 2) |
+| `ratelimit_refusals_total{domain, cause}` | service pods | refusals that are no limit at work: `too_many_descriptors`, `invalid_cost`, `too_many_buckets`; the gateway answers `429` without headers (section 2) |
+| `ratelimit_unknown_domain_checks_total` | service pods | a domain typo between the gateway and the policy, or a policy that enforces no generation (section 2) |
 | `ratelimit_extractions_total{domain, key}`, `ratelimit_tokens_seen_total{domain}` | service pods | the extraction detector (section 2) |
 | `ratelimit_store_errors_total{domain, reason}`, `ratelimit_store_roundtrip_seconds{domain}` | service pods | the store (section 1) |
 | `ratelimit_store_pool_misses_total`, `ratelimit_store_pool_idle_connections` | service pods | calls to Redis that found no idle connection, and the connections ready for the next call (section 1) |
