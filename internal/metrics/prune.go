@@ -16,12 +16,13 @@ func RuleID(block, rule string) string {
 }
 
 // ActiveSet lists the label values the current snapshot can produce. Series
-// outside it are leftovers of renamed or deleted objects. Keys are held per
-// domain: a key is declared by a domain's mappings, and one domain dropping
-// it must not keep the series alive on the strength of another that kept it.
+// outside it are leftovers of renamed or deleted objects. Rules and keys are
+// held per domain: each is declared by one domain's policy, and one domain
+// dropping it must not keep the series alive on the strength of another that
+// kept it.
 type ActiveSet struct {
 	Domains map[string]struct{}
-	Rules   map[string]struct{}
+	Rules   map[string]map[string]struct{}
 	Keys    map[string]map[string]struct{}
 }
 
@@ -88,7 +89,7 @@ func sweep() {
 			if !domainAlive(labels) {
 				return false
 			}
-			_, ok := active.Rules[labels["rule"]]
+			_, ok := active.Rules[labels["domain"]][labels["rule"]]
 			return ok
 		})
 	}

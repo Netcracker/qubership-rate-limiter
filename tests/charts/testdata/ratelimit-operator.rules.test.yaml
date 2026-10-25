@@ -216,9 +216,9 @@ tests:
               summary: An operator controller fails every reconcile
               description: >-
                 Controller ratelimit-config of the ratelimit operator in biz has failed its reconciles for 5m
-                and completed none in 30m. The leader holds the Lease, so no other alert names it: policy
-                edits do not reach the replicas, and the policy status stays as it was. The operator log
-                names the error, often a permission the operator's Role lacks.
+                and completed none in 30m. The leader holds the Lease, so RatelimitNoOperatorLeader stays
+                quiet. Policy edits do not reach the replicas. The operator log names the error, often a
+                permission the operator's Role lacks.
 
   # The writer reconciles only on events, so after an idle hour its window
   # holds no success. A failure its retry recovers from within one scrape is
@@ -249,9 +249,9 @@ tests:
               summary: An operator controller fails every reconcile
               description: >-
                 Controller ratelimitpolicy of the ratelimit operator in biz has failed its reconciles for 5m
-                and completed none in 30m. The leader holds the Lease, so no other alert names it: policy
-                edits do not reach the replicas, and the policy status stays as it was. The operator log
-                names the error, often a permission the operator's Role lacks.
+                and completed none in 30m. The leader holds the Lease, so RatelimitNoOperatorLeader stays
+                quiet. The policy status stays as it was. The operator log names the error, often a
+                permission the operator's Role lacks.
 
   # The Lease changing hands is a rollout, not an outage: the replacement
   # takes it inside the hold and nothing pages.

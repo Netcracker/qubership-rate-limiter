@@ -78,9 +78,12 @@ values:
 
 | Deployment scheme | `ratelimit-operator` renders | `ratelimit-service` renders |
 | --- | --- | --- |
-| single namespace | the operator (Deployment, SA, Role/RoleBinding); with `MONITORING_ENABLED`, its PodMonitor and PrometheusRule | the service (Deployment, Service, SA, HPA) and the EnvoyFilters; with `redis.dbaas.enabled`, InternalDatabase and DatabaseSecretClaim; with `management.enabled`, the AuthorizationPolicy; with `MONITORING_ENABLED`, PodMonitor, PrometheusRule, and the dashboard |
+| single namespace | the operator (Deployment, SA, Role/RoleBinding); with `MONITORING_ENABLED`, its PodMonitor and PrometheusRule | the service (Deployment, Service, SA, HPA, PDB) and the EnvoyFilters; with `redis.dbaas.enabled`, InternalDatabase and DatabaseSecretClaim; with `management.enabled`, the AuthorizationPolicy; with `MONITORING_ENABLED`, PodMonitor, PrometheusRule, and the dashboard |
 | composite, baseline | the same | the same |
 | composite, satellite | nothing: an empty release | only the filters, which target the baseline RLS; no service, no Service, no ServiceAccount |
+
+The PodDisruptionBudget (PDB) renders only when the service runs more than one replica: `REPLICAS`, or
+`HPA_MIN_REPLICAS` with `HPA_ENABLED`, as in the `dev-ha` and `prod` profiles.
 
 The contract between the charts and the binaries is a set of constants in one Go package under `api/`, imported by
 both binaries:
@@ -113,18 +116,20 @@ helm-templates/ratelimit-crds/templates/
                                    #   the helm CI job catches drift of the copy; helm.sh/resource-policy: keep
 ```
 
-- one release per cluster owns the CRD, installed before the namespace charts; the namespace charts carry no copy, so
-  their releases do not contend for its ownership, and an upgrade of an older namespace cannot put its older schema back
-  for the whole cluster. The chart takes no values and renders the same in every namespace scheme;
+- the platform installs it, one release per cluster in a platform namespace, before the namespace charts; application
+  pipelines do not install `ratelimit-crds`. The namespace charts carry no copy, so their releases do not contend for
+  its ownership, and an upgrade of an older namespace cannot put its older schema back for the whole cluster. The chart
+  takes no values and renders the same in every namespace scheme;
 - an operator started before the CRD exists exits at manager creation and restarts until the CRD release is installed;
   it never serves `/readyz`, so the `--wait` of its install times out. Its log ends in
-  `create manager: failed to determine if *unstructured.Unstructured is namespaced: failed to get restmapping: no
-  matches for kind "RateLimitPolicy" in version "ratelimit.netcracker.com/v1"`, and installing `ratelimit-crds`
-  repairs it ([runbook](runbook.md), section 0);
+  `operator exited with an error: create manager: failed to determine if *unstructured.Unstructured is namespaced: ...`,
+  which contains `no matches for ratelimit.netcracker.com/v1`, and installing `ratelimit-crds` repairs it
+  ([runbook](runbook.md), section 0);
 - the release's name and namespace are fixed for the cluster's lifetime: the CRD that `keep` leaves after
   `helm uninstall` still carries the `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace` annotations, and
-  an install under another name or namespace fails with `invalid ownership metadata`. Reinstall it under the same name
-  and namespace, or move it with `--take-ownership` as below;
+  an install under another name or namespace fails with `invalid ownership metadata`. Do not answer that error with
+  `--take-ownership` while the other release exists: both releases then own the CRD, and the routine upgrade of either
+  one applies its own schema to the whole cluster. Reinstall it under the same name and namespace, or move it as below;
 - the CRD release is upgraded first, to the newest operator version in the cluster, and schema version skew between
   namespaces is a normal scenario: each namespace's operator may be older than the schema;
 - `helm.sh/resource-policy: keep`: uninstalling or reinstalling the release does not remove the type; the policies of
@@ -135,20 +140,18 @@ helm-templates/ratelimit-crds/templates/
   the unstructured object) and leaves `ratelimit-config` on the last-good generation: neither half crashes, and
   nothing enforces the object partially.
 
-A cluster that already has the CRD moves it to the CRD release once. Helm refuses to install a release over an
-object another release owns (`invalid ownership metadata`), which is the case after an operator release installed it,
-and over an object without the label `app.kubernetes.io/managed-by: Helm`
-(`label validation error: missing key "app.kubernetes.io/managed-by"`), which is the case after
-`kubectl apply -f config/crd/bases` (`make install`). `--take-ownership` (Helm 3.17 and later) adopts the object in
-both cases; later upgrades of the release run without it:
+Two cases adopt an existing CRD with `--take-ownership` (Helm 3.17 and later), once; later upgrades of the release run
+without it:
+
+- moving the platform release to another name or namespace: run `helm uninstall` on the old release first (`keep`
+  leaves the CRD in the cluster), then install the new one with `--take-ownership`;
+- a cluster where the CRD came from `kubectl apply -f config/crd/bases` (`make install`): Helm refuses an object
+  without the label `app.kubernetes.io/managed-by: Helm` (`label validation error: missing key
+  "app.kubernetes.io/managed-by"`), and `--take-ownership` adopts it.
 
 ```bash
 helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds --namespace <platform-namespace> --take-ownership
 ```
-
-The next upgrade of the operator release then drops the CRD from that release and leaves it in the cluster. Helm
-decides what to keep from the previous release's manifest, not from the live object, and the operator chart's CRD
-template carried `helm.sh/resource-policy: keep`.
 
 ## Platform parameters and resource profiles
 
@@ -169,7 +172,7 @@ only the keys its templates read:
 | `SERVICE_NAME` | both | the name of each chart's Deployment and ServiceAccount (and the operator's RBAC pair), its `app.kubernetes.io/name` and `name` labels, and in the service chart the DBaaS classifier's `microserviceName`; `ratelimit-operator` and `ratelimit-service` by default; the Service stays `ratelimit`; a DNS label of at most 63 characters, which the schema checks |
 | `NAMESPACE` | both | the namespace every object lands in, as on the platform's other services; required, and the schema refuses an empty one. The pods read their namespace back through the Downward API, so the installation's scope, the counter key prefix, and the DBaaS classifier follow it |
 | `IMAGE_REPOSITORY`, `TAG` | both | the image; `TAG` is required, and the schema refuses an empty one |
-| `LOG_LEVEL` | both | the root level of the platform logger, passed as `LOGGING_LEVEL_ROOT` in lower case |
+| `LOG_LEVEL` | both | the root level of the platform logger, passed as `LOGGING_LEVEL_ROOT` in lower case; `debug`, `info`, `warn`, or `error`, in lower or upper case, which the schema checks |
 | `APPLICATION_NAME`, `MANAGED_BY`, `ARTIFACT_DESCRIPTOR_VERSION` | both | `app.kubernetes.io/part-of` and `managed-by` on every object (`MANAGED_BY` is `Helm` in `values.yaml`, and empty renders empty); `version` on the Deployment and its pods (empty renders empty) |
 | `DEPLOYMENT_SESSION_ID` | both | `deployment.netcracker.com/sessionId` on every object but the pods; required, and the schema refuses an empty one |
 | `PAAS_PLATFORM`, `READONLY_CONTAINER_FILE_SYSTEM_ENABLED` | both | on `KUBERNETES` the container runs as group 10001 and, with the flag set (the default), on a read-only root filesystem; on `OPENSHIFT` the platform assigns both and the root filesystem is writable |
@@ -283,6 +286,8 @@ redis:                               # InternalDatabase.yaml, DatabaseSecretClai
   dbaas:                             #   from DBaaS"
     enabled: true                    # render the InternalDatabase and the DatabaseSecretClaim; false = the Secret
                                      #   <SERVICE_NAME>-redis is written by someone else in DBaaS's format (CI)
+    operatorNamespace: ""            # _helpers.tpl (ratelimit.dbaasNamespace): the dbaas-operator's namespace on
+                                     #   both objects; empty = the second label of API_DBAAS_ADDRESS's host
 
 API_DBAAS_ADDRESS: http://dbaas-aggregator.dbaas:8080   # _helpers.tpl (ratelimit.dbaasNamespace): the platform's address of
                                      #   dbaas-aggregator; the second label of its host names the dbaas-operator's
@@ -293,10 +298,11 @@ metrics:                             # (there are no port values: probes 8081, m
   nearLimitRatio: "0.9"              # Deployment.yaml: an allowed request counts as near-limit once this share of
                                      #   the window's capacity is used up: the burst of a GCRA window, the requests
                                      #   of a fixed one; goes out as METRICS_NEAR_LIMIT_RATIO. A ratio in (0, 1),
-                                     #   quoted so YAML cannot reshape it. The schema does not check the range: a
-                                     #   value outside it, or one that does not parse, is not rejected, and the
-                                     #   service logs `METRICS_NEAR_LIMIT_RATIO="1.5" is not a ratio in (0, 1),
-                                     #   using 0.9` and uses 0.9
+                                     #   quoted so YAML cannot reshape it. The schema refuses a value outside the
+                                     #   range, or one that does not parse: `at '/metrics/nearLimitRatio': 'anyOf'
+                                     #   failed`. A service run without the chart logs
+                                     #   `METRICS_NEAR_LIMIT_RATIO="1.5" is not a ratio in (0, 1), using 0.9` for
+                                     #   such a value and uses 0.9
 
 responseHeaders:
   ietf: true                         # Deployment.yaml: the ratelimit-policy and ratelimit fields of
@@ -352,12 +358,14 @@ alerts:                              # PrometheusRule.yaml: the rules over the d
   storeErrorsFor: 5m                 # RatelimitStoreErrors: likewise, so one retried timeout never pages
   keyNotExtractedWindow: 15m         # RatelimitKeyDeclaredNotExtracted: the rate window of both halves
   keyNotExtractedFor: 30m            # and the hold over it
-  domainBudgetWarnAt: 104            # RatelimitDomainBudgetNearLimit: 80 percent of the budget of 128
+  domainBudgetWarnAt: 104            # RatelimitDomainBudgetNearLimit: about 80 percent of the budget of 128;
+                                     #   the schema holds it to 1..128
   configAbsentFor: 5m                # RatelimitConfigurationAbsent: past the projection of a recreated ConfigMap
 
 ISTIO_PUBLIC_GATEWAY_NAME: public-gateway     # EnvoyFilter.yaml: the Gateway of the public role
-ISTIO_PRIVATE_GATEWAY_NAME: private-gateway   # EnvoyFilter.yaml: the Gateway of the private role;
-                                              #   AuthorizationPolicy.yaml: the default allowed principal
+ISTIO_PRIVATE_GATEWAY_NAME: private-gateway   # EnvoyFilter.yaml: the Gateway of the private role; the
+                                              #   AuthorizationPolicy admits the gateway only through
+                                              #   management.authorizationPolicy.allowedServiceAccounts
 BASELINE_ORIGIN: ""                  # _helpers.tpl (mode, serviceNamespace): the platform's composite variables,
 BASELINE_CONTROLLER: ""              #   see "Platform parameters": empty = the whole stack (single namespace or
                                      #   baseline), set = the filters only
@@ -373,7 +381,8 @@ gateways:                            # EnvoyFilter.yaml and validateDomains: two
     #   gateway failing closed while the public one fails open
   private:
     enabled: true
-    domain: gateway.private
+    domain: gateway.private          # when this gateway routes to the management API, keep it in
+                                     #   management.gatewayDomains: nothing checks that the two match
 
 CLOUD_TOPOLOGY_KEY: kubernetes.io/hostname   # Deployment.yaml: topologySpreadConstraints, maxSkew 1, ScheduleAnyway;
                                      #   CLOUD_TOPOLOGIES, the platform parameter, replaces it with one constraint
@@ -422,7 +431,7 @@ What is **deliberately absent** from values:
 | the Lease | always on, in the operator | the Lease holder alone writes the status and `ratelimit-config`, a standby takes over when it goes, and the Lease covers the overlap of two pods during a rollout |
 | the ConfigMap `ratelimit-config` | written by the operator | Helm and Argo CD overwrite what a chart renders on every sync; the channel to the service cannot come from a chart |
 | the Service name and port | contract constants (`ratelimit`, 9000) | fixed in the templates of both charts and checked against the Go constants by the CI render test; there is no `rls.port` value |
-| `healthProbe.port`, `metrics.port`, `management.port` | fixed in the service chart's templates: probes 8081, metrics 8080, management 8082 | the operator chart and the charts of the qubership-core services fix their container ports too, and the gateway's `HTTPRoute` to the management API names port 8082 |
+| `healthProbe.port`, `metrics.port`, `management.port` | fixed in the service chart's templates: probes 8081, metrics 8080, management 8082 | the operator chart and the charts of the qubership-core services fix their container ports too, and an `HTTPRoute` to the management API, which the installation adds (see "What the charts do not install"), names port 8082 |
 | sanity bounds (token size and the like) | constants in the binaries | not knobs: nobody tunes them |
 | `replicaCount`, `resources` | resource profiles (`REPLICAS`, `CPU_*`, `MEMORY_*`, and the service's `HPA_*`) | one source of truth with the platform |
 | `image.*`, `logLevel`, `nameOverride`, `fullnameOverride` | the platform parameters `IMAGE_REPOSITORY` and `TAG`, `LOG_LEVEL`, and `SERVICE_NAME` | the charts of the qubership-core services declare none of these keys either |
@@ -541,7 +550,8 @@ context); it is never an identity.
 Each filter carries the annotation `envoyfilter.istio.io/referenced-services: <serviceNamespace>/<rlsAuthority>`, the
 Service behind `cluster_name`, in every mode. Without `PILOT_FILTER_GATEWAY_CLUSTER_CONFIG` on istiod it changes
 nothing; with it, istiod adds that Service to the gateways the filter targets, which otherwise get no cluster of a
-Service no route of theirs points at. Note that Istio releases up to 1.30.6 drop the cluster again on the next route change and require the HTTPRoute to pin.
+Service no route of theirs points at. Note that Istio releases up to 1.30.6 drop the cluster again on the next route
+change and require the HTTPRoute to pin.
 
 ### Service.yaml (service chart): the critical detail
 
@@ -731,8 +741,8 @@ exclude.
 
 | Metric | Labels | What it counts |
 | --- | --- | --- |
-| `ratelimit_checks_total` | `domain`, `verdict: ok\|over_limit\|unavailable\|exempt` | checks; unavailable = store unavailable, the checks the gateway's failure mode decided; exempt = requests to the management API, admitted without a decision |
-| `ratelimit_check_duration_seconds` | `domain` | decision histogram; the bucket bounds are laid on the 10ms budget and the filter timeout |
+| `ratelimit_checks_total` | `domain`, `verdict: ok\|over_limit\|unavailable\|exempt` | checks; unavailable = store unavailable, the checks the gateway's failure mode decided; exempt = requests to the management API, admitted without a decision; a check for a domain no policy claims counts under `domain="[unknown]"`, `verdict="ok"` |
+| `ratelimit_check_duration_seconds` | `domain` | decision histogram; the bucket bounds are laid on the 10ms budget and the filter timeout; a check for a domain no policy claims is timed under `domain="[unknown]"` |
 | `ratelimit_decisions_total` | `domain`, `rule` (limit block/rule), `outcome: ok\|over_limit\|shadow_over_limit` | per-rule outcomes |
 | `ratelimit_near_limit_total` | `domain`, `rule` | allowed requests within the margin of the window's capacity, the burst of a GCRA window or the requests of a fixed one (the threshold is `metrics.nearLimitRatio`); shadow is excluded |
 | `ratelimit_refusals_total` | `domain`, `cause: too_many_buckets\|too_many_descriptors\|invalid_cost` | hard refusals for configuration or protocol violations, not limits |
@@ -856,7 +866,7 @@ The operator chart, group `ratelimit-operator`:
 | `RatelimitChecksStopped` | warning | `ratelimit_policy_replicas{state="applied"} > 0` while the domain's `ratelimit_checks_total` has no rate over `checksStoppedWindow`, for `checksStoppedFor`: the filter is off, removed, or on another domain, and traffic passes unlimited with every status Ready; an idle gateway fires too (the composite case is below the table) |
 | `RatelimitRuleProblems` | warning | `ratelimit_policy_rule_problems{severity="blocking"} > 0` for `ruleProblemsFor`: the latest generation is not enforced and last-good runs instead |
 | `RatelimitConfigWriteErrors` | critical | `ratelimit_config_write_failing == 1` by `reason` for `configWriteFailingFor`: a write failed with that reason and none has succeeded since, so policy changes stop reaching the service; a write that succeeds on its retry clears it |
-| `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader records reconcile errors and no completed reconcile (`success` or `requeue_after`) over `reconcileErrorsWindow`, for `reconcileFailingFor`: the leader holds the Lease and does nothing, so no other alert names it |
+| `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader records reconcile errors and no completed reconcile (`success` or `requeue_after`) over `reconcileErrorsWindow`, for `reconcileFailingFor`: the leader holds the Lease, so `RatelimitNoOperatorLeader` stays quiet |
 | `RatelimitNoOperatorLeader` | critical | `absent(ratelimit_leader == 1)` for `noLeaderFor`: no operator pod holds the Lease, so nothing compiles policies or writes `ratelimit-config` |
 
 `RatelimitChecksStopped` sums the domain's checks over every gateway, so in a composite one gateway's disabled
@@ -882,8 +892,9 @@ threshold moved without its rationale fails CI rather than a pager.
 
 The [management API](management-api.md) lives in the service and its chart. It is off by default:
 `management.enabled` adds the `management` port (8082, plain HTTP) to the container and the Service and passes
-`--management-bind-address` to the process; without it the endpoints do not exist. The port is outside the gateways'
-data path, and public traffic never reaches it. Its idempotency records and confirmation tokens live in the counter
+`--management-bind-address` to the process; without it the endpoints do not exist. The chart routes no gateway to the
+port: a caller reaches it directly, or through a route the installation adds (see "What the charts do not install").
+Its idempotency records and confirmation tokens live in the counter
 store, so the service writes nothing to the API server.
 
 The service authenticates every call itself: the bearer token is a Kubernetes ServiceAccount token issued for
@@ -939,7 +950,8 @@ with `management.enabled: false` the variable is not rendered and no path is exe
 
 The exemption removes the dependency on the counter store, not on the check: the gateway still sends one, and under
 `failClosed: true` a check that gets no answer within `filter.timeout` is a `503` for the API's request as for any
-other. A `503` with no `RLS-` code in its body is that case, or a gateway whose domain is missing from the list.
+other. A `503` with no `RLS-` code in its body is that case, a gateway whose domain is missing from the list, or a
+gateway with no route to the port.
 
 `/debug/*` on the metrics port is not the management API: read-only diagnostics with no mutations and no
 authentication, cluster-internal, outside the compatibility promises. `/debug/applied` is the operator's probe, and
@@ -959,3 +971,12 @@ what one replica enforces, for a human with a port-forward. The management role 
 - **An `AuthorizationPolicy` or a `NetworkPolicy` on the RLS port 9000.** Neither namespace chart renders one; the
   only AuthorizationPolicy of the delivery covers the management port 8082, behind `management.enabled`. Where direct
   callers of the RLS must be restricted, the installation adds the policy ([engine](engine.md), "Token and identity").
+- **An `HTTPRoute` from a gateway to the management port 8082.** Neither namespace chart renders a route to the
+  management API. Where the callers come through a gateway, the installation adds the route, with a `backendRefs` entry
+  for the Service `ratelimit` on port 8082, lists the gateway's ServiceAccount in
+  `management.authorizationPolicy.allowedServiceAccounts`, and keeps the gateway's domain in
+  `management.gatewayDomains` (see "Management API port"). Without the route, the gateway answers `404`, `NR` in its
+  access log, whatever the AuthorizationPolicy admits. Where the mesh installs a catch-all fallback route, as
+  Qubership's mesh configuration does, the call goes to the fallback route's service instead; where that service has
+  no endpoints, as on the e2e stand, the gateway answers `503` with the body `no healthy upstream`, `UH` in its access
+  log. The same `503` through the installation's route means that no pod of the Service `ratelimit` is ready.

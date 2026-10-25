@@ -161,9 +161,8 @@ func judge(outcome policy.Outcome, view FleetView, probeErr error, since, deadli
 		}
 
 	case view.Total == 0:
-		// A leader that is alive but is not itself a ready endpoint. With no
-		// pod at all there is nobody to write this, and the age of
-		// lastCheckTime is what shows that instead.
+		// The service has no ready endpoint. The leader still writes this
+		// status and stamps lastCheckTime.
 		progressing.ready = metav1.ConditionFalse
 		progressing.readyReason = v1.ReasonNoReplicas
 		progressing.readyMessage = "the service has no ready endpoint: nothing is enforcing this policy"

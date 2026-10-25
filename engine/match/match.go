@@ -339,18 +339,29 @@ type blockCtx struct {
 	cost     int64
 }
 
-// valueOf resolves a key to its value set within the block.
+// valueOf resolves a key to its value set within the block. An empty path or
+// method resolves to the empty set, so a rule that counts by one does not
+// match a direct check that omits it.
 func (c *blockCtx) valueOf(k string) []string {
 	switch k {
 	case model.KeyPath:
-		return []string{c.pathAxis}
+		return builtinValue(c.pathAxis)
 	case model.KeyMethod:
-		return []string{c.method}
+		return builtinValue(c.method)
 	}
 	if v, ok := c.captures[k]; ok {
 		return []string{v}
 	}
 	return c.keys[k]
+}
+
+// builtinValue is the value set of the path or the method: empty when the
+// request carries none.
+func builtinValue(v string) []string {
+	if v == "" {
+		return nil
+	}
+	return []string{v}
 }
 
 // matchTarget finds the first matching route in authored order — the only

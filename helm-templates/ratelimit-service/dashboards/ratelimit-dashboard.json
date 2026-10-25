@@ -868,6 +868,113 @@
       ]
     },
     {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Store pool misses by pod",
+      "description": "Calls of the decision client that found no idle Redis connection and waited for a new one inside the check's deadline. Zero in a steady state; it grows at a start, after Redis or the network closed the pooled connections, and in a burst that takes every idle connection. A miss is not a dial: after a run of failed dials the client returns the last dial error at once.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pod) (rate(ratelimit_store_pool_misses_total{cluster=~\"$cluster\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Store pool connections",
+      "description": "Open and idle connections of the decision client's pools, summed over the service's pods. Each pod keeps 4 idle connections beside the ones its checks hold; a connection the pool opens in the background counts as idle from the start of its dial, so idle can briefly read above open.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ratelimit_store_pool_connections{cluster=~\"$cluster\", namespace=~\"$namespace\"})",
+          "legendFormat": "open"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(ratelimit_store_pool_idle_connections{cluster=~\"$cluster\", namespace=~\"$namespace\"})",
+          "legendFormat": "idle"
+        }
+      ]
+    },
+    {
       "id": 17,
       "type": "row",
       "title": "Configuration and capacity",
@@ -875,7 +982,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 47
       },
       "collapsed": false,
       "panels": []
@@ -889,7 +996,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 48
       },
       "datasource": {
         "type": "prometheus",
@@ -954,7 +1061,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 48
       },
       "datasource": {
         "type": "prometheus",
@@ -1011,7 +1118,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 56
       },
       "datasource": {
         "type": "prometheus",
@@ -1052,7 +1159,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 48
+        "y": 56
       },
       "datasource": {
         "type": "prometheus",
@@ -1112,7 +1219,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 48
+        "y": 56
       },
       "datasource": {
         "type": "prometheus",
@@ -1162,7 +1269,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "type": "prometheus",
@@ -1221,7 +1328,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "type": "prometheus",
@@ -1262,7 +1369,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 56
+        "y": 64
       },
       "datasource": {
         "type": "prometheus",
@@ -1303,7 +1410,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 64
+        "y": 72
       },
       "datasource": {
         "type": "prometheus",
@@ -1368,7 +1475,7 @@
         "h": 8,
         "w": 8,
         "x": 12,
-        "y": 64
+        "y": 72
       },
       "datasource": {
         "type": "prometheus",
@@ -1431,7 +1538,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 64
+        "y": 72
       },
       "datasource": {
         "type": "prometheus",
@@ -1485,7 +1592,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 72
+        "y": 80
       },
       "collapsed": true,
       "panels": [
@@ -1498,7 +1605,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 73
+            "y": 81
           },
           "datasource": {
             "type": "prometheus",
@@ -1549,7 +1656,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 73
+            "y": 81
           },
           "datasource": {
             "type": "prometheus",

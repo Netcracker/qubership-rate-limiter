@@ -90,8 +90,8 @@ type API struct {
 	// to pass the id by hand.
 	Log Logger
 
-	mu      sync.Mutex
-	basectx context.Context
+	mu       sync.Mutex
+	shutdown <-chan struct{}
 
 	verifier atomic.Pointer[Verifier]
 }
@@ -440,26 +440,42 @@ func (a *API) now() time.Time {
 	return time.Now()
 }
 
-// StartBackground gives the API the context an accepted sweep runs under: the
-// process's lifetime, not the request's. A client that disconnects changes
-// nothing for a command that was already accepted — it runs to a recorded
-// outcome either way — and only shutdown ends it early. It also starts
-// building the token verifier under that context, in the background, so a
-// cluster whose OIDC discovery does not answer delays the management API
-// alone.
+// StartBackground ties an accepted sweep to ctx, the process's lifetime, not
+// the request's. A client that disconnects changes nothing for a command that
+// was already accepted — it runs to a recorded outcome either way — and only
+// the end of ctx, at shutdown, ends it early. It also starts building the
+// token verifier under ctx, in the background, so a cluster whose OIDC
+// discovery does not answer delays the management API alone.
 func (a *API) StartBackground(ctx context.Context) {
 	a.mu.Lock()
-	a.basectx = ctx
+	a.shutdown = ctx.Done()
 	a.mu.Unlock()
 	go a.buildVerifier(ctx)
 }
 
-// backgroundContext is what an accepted sweep runs under.
-func (a *API) backgroundContext() context.Context {
+// cancelOnShutdown calls cancel, the cancel function of ctx, once the context
+// that StartBackground received has ended. When that context has already
+// ended, it calls cancel before it returns. Otherwise a goroutine waits for
+// either context to end, so the caller has to end ctx once the sweep is done.
+// Before StartBackground it never calls cancel.
+func (a *API) cancelOnShutdown(ctx context.Context, cancel context.CancelFunc) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.basectx == nil {
-		return context.Background()
+	shutdown := a.shutdown
+	a.mu.Unlock()
+	if shutdown == nil {
+		return
 	}
-	return a.basectx
+
+	select {
+	case <-shutdown:
+		cancel()
+	default:
+		go func() {
+			select {
+			case <-shutdown:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
 }

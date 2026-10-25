@@ -44,4 +44,4 @@ Counters live in a shared Redis, so a limit is a limit of the domain rather than
 
 The canonical specification is the OpenAPI document embedded in the binary,
 [`service/internal/management/openapi.yaml`](../service/internal/management/openapi.yaml), which the service serves at
-`GET /ratelimit/v1/openapi.yaml` to a token with the `viewer` role.
+`GET /ratelimit/v1/openapi.yaml` to a ServiceAccount listed in `management.callers`.
