@@ -160,8 +160,8 @@ func (s scope) lookup(block *compile.Block, name string) keyValues {
 		return keyValues{known: true, values: values}
 	}
 	if name == model.KeyPath || name == model.KeyMethod {
-		// Every request carries a path and a method; their values are the
-		// caller's route question, not their identity question.
+		// Every gateway request carries a path and a method; their values are
+		// the caller's route question, not their identity question.
 		return keyValues{nonEmpty: true}
 	}
 	if capturedByEveryRoute(block, name) {
@@ -295,7 +295,7 @@ func evaluateRule(block *compile.Block, rule *compile.Rule, sc scope) (state, []
 			// this rule counts by something this client can never produce.
 			return stateFailed, nil
 		case values.nonEmpty:
-			// A capture, or a built-in: any request reaching this block has it.
+			// A capture, or a built-in that every gateway request carries.
 		default:
 			// The axis stays open. A condition already reported on the same key
 			// stands for both, since deciding the condition decides the axis, so

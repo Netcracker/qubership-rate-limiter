@@ -117,7 +117,9 @@ decide against it; scalar keys take one value, and a repeat is 0400. The absent 
 (an empty set, which is exactly how the engine reads Exists/DoesNotExist; for a list-valued key that is the same as "an
 empty list"): DoesNotExist decides as satisfied, Exists as failed, and rules that count by such a key become never; a
 key both in `axis.*` and in absent is a contradiction, 0400, and absent on its own forms a scope: the annotations
-appear even without a single `axis.*`. Gates are minimal: missing_axis is not reported alongside
+appear even without a single `axis.*`. `path` and `method` count as present unless declared absent, since every gateway
+request carries them; a direct check that sends neither is `absent=path&absent=method`, under which the rules that
+count by them are never. Gates are minimal: missing_axis is not reported alongside
 undecided_condition on the same
 key; deciding the condition decides the axis too, and a single condition stands as the gate. The simulation remains the
 fact-finding tool (a real token, a real path); applicability is its static sibling.

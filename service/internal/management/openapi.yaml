@@ -195,7 +195,10 @@ paths:
           supplied via axis.<name> and declared absent is a contradiction (RLS-0400),
           and so is a capture declared absent that the route matched by path
           produces; an unknown name is refused likewise. absent alone forms an identity scope:
-          the applicability annotations appear even when no axis.<name> is supplied.'
+          the applicability annotations appear even when no axis.<name> is supplied.
+          path and method count as present unless declared here, since every gateway
+          request carries them; a direct check that sends neither is absent=path and
+          absent=method.'
         schema:
           type: array
           items:
