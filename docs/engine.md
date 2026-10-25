@@ -41,20 +41,24 @@ authored as the `RateLimitPolicy` of the namespace, one object per domain, and r
   [draft-ietf-httpapi-ratelimit-headers-11](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/11/),
   which name that rule as `<block>/<rule>`: `ratelimit-policy: "<block>/<rule>";q=<requests>;w=<periodSeconds>` and
   `ratelimit: "<block>/<rule>";r=<remaining>;t=<effectiveWindow>`. `q` and `r` are the numbers of `x-ratelimit-limit`
-  and `x-ratelimit-remaining`, and `w` is the period of the rule's binding window. `t` is the effective window of the
-  draft's section 4.1.2: the seconds until the window admits one request more than `r`. For a fixed window that is
-  `x-ratelimit-reset`, since the whole quota returns at the boundary; GCRA returns one request per emission interval, so
-  `t` is at most one interval while the counter is within the window's capacity, and `x-ratelimit-reset` keeps counting
-  to the empty bucket. At two requests per hour, a client that spent both reads `t=1800` and `x-ratelimit-reset: 3600`.
-  A policy change that lowers `burst` keeps the counter's depth, and `t` then counts until that depth drains to one
-  request below the new capacity: with `burst` lowered from 4 to 1 after four requests at two per hour, the next answer
-  carries `t=7200`, four intervals, and `retry-after` and `x-ratelimit-reset` the same 7200. On a refusal `t` is never
-  longer than `retry-after`. No `t` is sent for a window that holds its whole capacity: the window of a refusal that no
-  waiting cures, and the window a check at an explicit zero cost finds untouched or drained. Each field
-  carries one item, from the strictest bucket of this response, so the name in
-  `ratelimit-policy` changes when a different rule binds: it is not the stable list of every rule that applies. Neither
-  field carries `pk`, which would hand the client the identity its counter is keyed on, or `qu`, whose registry of
-  three units has none for the items a route's `cost` counts, so a client reads the unit from the policy. A request
+  and `x-ratelimit-remaining`, and `w` is the period of the rule's binding window. `q` is the rule's `requests`, and
+  `r` counts down from the window's capacity, which on GCRA is `burst`, so a `burst` above `requests` can send an `r`
+  above `q`: at two requests per hour with `burst: 4`, the first request reads `q=2` and `r=3`. `t` is the effective
+  window of the draft's section 4.1.2: the seconds until the window admits one request more than `r`. For a fixed window
+  that is `x-ratelimit-reset`, since the whole quota returns at the boundary; GCRA returns one request per emission
+  interval, so `t` is at most one interval while the counter is within the window's capacity, and `x-ratelimit-reset`
+  keeps counting to the empty bucket. At two requests per hour, a client that spent both reads `t=1800` and
+  `x-ratelimit-reset: 3600`. A policy change that lowers `burst` keeps the counter's depth, and `t` then counts until
+  that depth drains to one request below the new capacity: with `burst` lowered from 4 to 1 after four requests at two
+  per hour, the next answer carries `t=7200`, four intervals, and `retry-after` and `x-ratelimit-reset` the same 7200.
+  On a refusal `t` is never longer than `retry-after`. No `t` is sent for a window that holds its whole capacity, such
+  as the window a check at an explicit zero cost finds untouched or drained. A refusal that no waiting cures, a cost
+  greater than the window's capacity, carries no `retry-after`. It still carries `t` while its window holds less than
+  its whole capacity: that `t` counts until the window admits one request more than `r`, and no wait admits the refused
+  request. Each field carries one item, from the strictest bucket of this response, so the name in `ratelimit-policy`
+  changes when a different rule binds: it is not the stable list of every rule that applies. Neither field carries `pk`,
+  which would hand the client the identity its counter is keyed on, or `qu`, whose registry of three units has none for
+  the items a route's `cost` counts, so a client reads the unit from the policy. A request
   that matched no counting rule carries none of the six headers. The service chart's `responseHeaders.ietf: false`
   leaves the two fields out and keeps the other four, for clients that misread them or that must not learn the rule
   names. "Strictest" is deterministic: on an admission, the fewest further requests at
@@ -252,7 +256,8 @@ operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
   gathers more than 128 buckets with `ErrTooManyBuckets`, before the store is touched; that error reports a
   configuration violation, not unavailability, so an adapter maps it to a denial regardless of its fail-open policy, or
   a budget overflow would turn the widest paths into unlimited ones. In normal operation the error is unreachable. The
-  contract is pinned by adapter tests: `ErrTooManyBuckets` maps to `OVER_LIMIT` under every fallback setting, and a
+  contract is pinned by adapter tests: `ErrTooManyBuckets` maps to `OVER_LIMIT`, never to a gRPC error that the
+  gateway's failure mode would admit, and a
   check of two descriptors that each fill the budget is answered `OK`. Every bucket is one read and, on admit, one write
   inside a single atomic script, and an unbounded worst case would let one object monopolize the domain's shard. The
   origin of every number is in [limits](limits.md).
@@ -281,8 +286,8 @@ operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
 
 The full contract, the interfaces, and the implementations are in the [store contract](store-contract.md).
 
-- **Counters live in a shared store** (Redis or Valkey) so that correctness is independent of the replica count. The
-  engine itself is stateless.
+- **Counters live in a shared store** (Redis 5.0 or later, or Valkey, which CI does not test) so that correctness is
+  independent of the replica count. The engine itself is stateless.
 - **One network round trip per decision**, regardless of how many rules matched: one decision is one `EVALSHA` over all
   of its buckets, atomic across them. The descriptors of one call are decided one after another, each its own round
   trip. Read-modify-write races between replicas are impossible.
@@ -292,8 +297,8 @@ The full contract, the interfaces, and the implementations are in the [store con
   terminated, the last one included, so a bucket key is the prefix of its own subtree, which gives management scans and
   partial resets with no hand-built prefixes. The version segment allows counter resets by schema bump. The algorithm
   segment makes switching a live rule's algorithm safe: new buckets start fresh, old ones expire by TTL, and one
-  algorithm's state is never read by another's code — fixed window stores an integer counter, GCRA a timestamp — where
-  without this segment a switch would mean garbage decisions or Redis `WRONGTYPE` errors. The window segment is
+  algorithm's state is never read by another's code. A fixed window stores the window start and a count, GCRA a
+  timestamp, and without this segment a switch would make one algorithm read the other's state. The window segment is
   `periodSeconds`; it separates the buckets of one rule's `rates[]` entries and rules out divergent spellings of the
   same duration. The hash tag wraps the domain: a decision spans several buckets and commits as one atomic script, so
   every key of a domain shares one Redis Cluster slot. The tag matters only on a Cluster: the service connects to the
@@ -315,15 +320,32 @@ The full contract, the interfaces, and the implementations are in the [store con
   `OVER_LIMIT` whatever the setting, so a refusal never turns into unlimited traffic. A request to the management API
   in a domain listed in the service chart's `management.gatewayDomains` is not decided at all: its check reads
   no store, answers `OK`, and counts as `verdict="exempt"` ([chart](helm-chart.md), "Management API port").
-- **A store operation carries no deadline of the service's own.** The Redis client's timeouts bound it: 5 s for a read
-  and 5 s for a new connection. The gateway waits at most `filter.timeout`, 50 ms by default, and then applies its
-  failure mode; a direct gRPC consumer's deadline ends its own call and not the store operation behind it.
+- **A decision's store operation ends at the check's deadline.** The gateway waits at most `filter.timeout`, 50 ms by
+  default, and then applies its failure mode; the decision's call to Redis ends at that deadline too, as it ends at the
+  deadline of a direct gRPC consumer. A check that carries no deadline is bounded at 250 ms for each step: the dial, the
+  wait for a pooled connection, the write, and the read. A connection Redis closes while a check holds it, on a
+  restart for example, fails that check.
+- **A check takes a Redis connection that is already open.** Each replica keeps 4 idle connections to Redis beside
+  the ones its checks hold, and opens a replacement in the background whenever a check takes one or the service closes
+  one, as it closes the connection of a check that timed out. A check dials on its own path only when it finds no open
+  idle connection: before the spares first connect after a start, when a burst takes every spare before the
+  replacements connect, and after Redis or the network closed the idle ones, which a check discards, up to three,
+  before it dials. `ratelimit_store_pool_misses_total` counts the calls of the decision client that found no open
+  idle connection ([chart](helm-chart.md), "Metrics: the naming contract"). A check that carries several descriptors
+  makes a call for each one that reaches Redis, and after a run of failed dials the client returns the last dial error
+  without dialing, so the counter counts neither checks nor dials. The first check on a new connection runs the
+  connection handshake, `HELLO` and `CLIENT SETINFO`.
+  Idle connections do not expire on the service's side. Once a lookup of the database's host name has succeeded, a
+  dial goes to the address the last lookup returned and starts the next lookup in the background, so it does not wait
+  on DNS, and a lookup that fails keeps the last address.
 
 ## Token and identity
 
-- **The JWT payload is decoded without verifying the signature.** The trust model: the gateway's `jwt_authn` filter has
-  already verified it, and an `AuthorizationPolicy` requires a valid token, so the engine never receives an unverified
-  token from a gateway. The service authenticates no direct gRPC caller, and no chart renders a policy on the gRPC port
+- **The JWT payload is decoded without verifying the signature.** The engine trusts the token it receives, so the
+  installation must verify the signature before the rate limit filter, with a `jwt_authn` filter on the gateway and an
+  `AuthorizationPolicy` that requires a valid token. This delivery installs neither ([README](../README.md), "What is
+  not built"), and until the installation adds them, a rule keyed on `sub` or another claim counts whatever the token
+  claims. The service authenticates no direct gRPC caller, and no chart renders a policy on the gRPC port
   9000: an `AuthorizationPolicy` or a `NetworkPolicy` the installation adds must restrict who reaches that port
   ([chart](helm-chart.md), "What the charts do not install").
 - **Claim extraction is defined in `spec.mappings`** of the domain's policy, the single object of the domain
@@ -353,7 +375,10 @@ diagnostics with no mutations and no authentication.
 
 - Counters are reset on demand, by rule and by rule plus axis values (a specific client). A reset takes effect
   immediately on the shared store, without a restart.
-- The management endpoints are authenticated and never exposed through the gateways' data path.
+- The management endpoints are authenticated. No chart renders a route to their port, 8082; an installation that adds
+  one routes it through the private gateway, whose domain is the default of `management.gatewayDomains` and whose
+  ServiceAccount goes into `management.authorizationPolicy.allowedServiceAccounts`, never through the public gateway
+  ([management API port](helm-chart.md#management-api-port)).
 - Every management mutation is written to a structured audit journal: who called, which key they used, what they
   addressed, and what came of it.
 - The read endpoints cover the effective rule set per domain, current usage for a rule or a client, and the list of
@@ -366,10 +391,12 @@ diagnostics with no mutations and no authentication.
   because the caller controls the name, which instead goes to a sampled log; storage errors, a decision latency
   histogram, and a store round-trip latency histogram. The extraction metrics are
   `ratelimit_extraction_skips_total{domain, key, reason}`
-  (`decode_failed`, `bad_type`, `too_long`, `too_many_items`) and a per-domain, per-key success counter: together they
-  are the "key declared, tokens arriving, zero extractions" detector, the only way to catch a semantically broken claim
-  path. Every process also carries `ratelimit_build_info`, labelled with the component and the version it runs. The
-  full table of names and labels is in the [chart document](helm-chart.md).
+  (`decode_failed`, `bad_type`, `too_long`, `too_many_items`), `ratelimit_extractions_total{domain, key}`, and
+  `ratelimit_tokens_seen_total{domain}`. The "key declared, tokens arriving, zero extractions" detector, the only way
+  to catch a semantically broken claim path, compares the last two: a key whose extractions stay at zero while its
+  domain sees tokens. A claim that is absent is not a skip, so the skips diagnose a claim that is present but unusable
+  and stay at zero for a wrong claim path. Every process also carries `ratelimit_build_info`, labelled with the
+  component and the version it runs. The full table of names and labels is in the [chart document](helm-chart.md).
 - **Label cardinality is bounded by configuration**: domains and rule names only. There are no per-axis-value metrics,
   and no field in the schema asks for them.
 - **Structured logs with redaction**, at most one line per rejected request, sampled if volume requires.
@@ -384,7 +411,8 @@ diagnostics with no mutations and no authentication.
 
 - **Latency.** The gateway filter runs with a ~50 ms timeout and its failure mode, fail-open by default. The engine's
   budget within it is p99 ≤ 10 ms per decision with the store in the same availability zone, and p99 ≤ 1 ms for
-  decisions that need no store round trip (no matching rules, `behavior: Bypass`).
+  decisions that need no store round trip (no matching rules, `behavior: Bypass`), on a replica with the CPU that
+  "Throughput" below names.
 - **Horizontal scaling** by replica count, with no coordination on the decision path and no sticky routing; the store is
   the only shared state. The service has no leader: the operator writes the status and the ConfigMap, and its Lease
   covers its own rollout and has no effect on traffic serving.
@@ -395,7 +423,10 @@ diagnostics with no mutations and no authentication.
   request.
 - **Throughput.** A single replica sustains at least 5 000 decisions/s with a p99 of at most 10 ms. A load test in CI
   asserts both against a Redis container on the same runner, a shared machine with no CPU limit, so it catches a change
-  in the shape of the decision path, not a few percent of throughput.
+  in the shape of the decision path, not a few percent of throughput. The envelope assumes a replica that may use at
+  least one core, the `CPU_LIMIT: "1"` of the `prod` and `prod-nonha` resource profiles. The `dev` and `dev-ha`
+  profiles limit a replica to `500m`, and no test measures a replica at that limit, so the envelope makes no promise
+  for them.
 
 Measured reference points, non-normative, from microbenchmarks (a laptop-class core, Redis 8 on one core over loopback):
 the storeless engine path takes ~1.4 µs per authenticated decision with a warm token cache and ~3.3 µs cold, and ~20 ns
@@ -413,7 +444,8 @@ ceilings are the installation's, shared by every domain.
   never sees responses. The one case that matters, throttled requests not consuming quota, is guaranteed by the
   deny-never-charges invariant instead. Anything beyond that is `ext_proc` territory.
 - **Concurrency (in-flight) limiting**: the protocol has no release call to decrement on a response.
-- **Token signature verification, key management, JWKS**: the gateway's job.
+- **Token signature verification, key management, JWKS**: the gateway's job, through a `jwt_authn` filter the
+  installation adds; this delivery installs none.
 - **Billing-grade usage accounting**: counter state answers "may this request proceed", not "how many requests did this
   tenant make last month".
 - **Generating or mutating Envoy configuration**: the service chart owns the gateway filters.

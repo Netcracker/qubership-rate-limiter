@@ -91,8 +91,8 @@ type Runner struct {
 	Addr string
 	App  *fiber.App
 
-	// API is the mounted API, so an accepted sweep runs under this runner's
-	// context: a client that goes away does not stop it, and shutdown does.
+	// API is the mounted API. Start ties its accepted sweeps to this runner's
+	// context: a client that goes away does not stop them, and shutdown does.
 	API *API
 
 	Log Logger
@@ -149,6 +149,10 @@ func (r *Runner) Start(ctx context.Context) error {
 	if err := r.App.ShutdownWithTimeout(drainTimeout); err != nil {
 		r.Log.InfoC(ctx, "management API drain timed out, closing connections timeout=%v", drainTimeout)
 	}
+	// Shutdown closes only the listeners the server has registered, and the
+	// server registers this one when Serve starts, which can be after Shutdown
+	// has returned. Closing it here ends Serve in either order.
+	_ = listener.Close()
 	<-served
 	r.Log.InfoC(ctx, "management API stopped")
 	return nil

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,6 +23,28 @@ func gatheredNames(t *testing.T, registry *prometheus.Registry) []string {
 		names = append(names, family.GetName())
 	}
 	return names
+}
+
+// gatheredValues scrapes the registry and reads the value of each family,
+// every one of which holds a single counter or gauge series.
+func gatheredValues(t *testing.T, registry *prometheus.Registry) map[string]float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	values := make(map[string]float64, len(families))
+	for _, family := range families {
+		require.Len(t, family.GetMetric(), 1, "series of %s", family.GetName())
+		metric := family.GetMetric()[0]
+		switch family.GetType() {
+		case dto.MetricType_COUNTER:
+			values[family.GetName()] = metric.GetCounter().GetValue()
+		case dto.MetricType_GAUGE:
+			values[family.GetName()] = metric.GetGauge().GetValue()
+		default:
+			t.Fatalf("%s is a %v, not a counter or a gauge", family.GetName(), family.GetType())
+		}
+	}
+	return values
 }
 
 // gatheredBuildInfo reads the labels and the value of the one
@@ -132,14 +155,21 @@ func TestRegisterOperator_labelsTheBuildInfoWithTheOperatorAndItsVersion(t *test
 // tenant and holds the rule api/total.
 func compiledSnapshots(t *testing.T) map[string]*compile.Snapshot {
 	t.Helper()
-	snapshot, problems := compile.Compile("biz", "gateway.public", &model.Policy{
-		Domain:   "gateway.public",
+	return map[string]*compile.Snapshot{"gateway.public": compiledSnapshot(t, "gateway.public", "total")}
+}
+
+// compiledSnapshot compiles a domain that maps the key tenant and holds the
+// one rule api/<rule>.
+func compiledSnapshot(t *testing.T, domain, rule string) *compile.Snapshot {
+	t.Helper()
+	snapshot, problems := compile.Compile("biz", domain, &model.Policy{
+		Domain:   domain,
 		Mappings: []model.KeyMapping{{Key: "tenant", Claim: "org_id"}},
 		Blocks: []model.Block{{Name: "api", Rules: []model.Rule{{
-			Name: "total", Rates: []model.Rate{{Requests: 1, Period: time.Minute}}}}}},
+			Name: rule, Rates: []model.Rate{{Requests: 1, Period: time.Minute}}}}}},
 	})
 	require.Empty(t, problems)
-	return map[string]*compile.Snapshot{"gateway.public": snapshot}
+	return snapshot
 }
 
 // The keys of a domain are its effective keys: the built-in method, path, and
@@ -149,7 +179,7 @@ func TestActiveSetOf_listsTheLabelValuesTheSnapshotsCanProduce(t *testing.T) {
 
 	assert.Equal(t, &ActiveSet{
 		Domains: map[string]struct{}{"gateway.public": {}},
-		Rules:   map[string]struct{}{"api/total": {}},
+		Rules:   map[string]map[string]struct{}{"gateway.public": {"api/total": {}}},
 		Keys: map[string]map[string]struct{}{
 			"gateway.public": {"method": {}, "path": {}, "sub": {}, "tenant": {}},
 		},

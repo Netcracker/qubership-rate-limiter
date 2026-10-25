@@ -133,6 +133,9 @@ func Build(namespace string, options Options) (*Service, error) {
 		return nil, err
 	}
 	platform.Infof("counter store selected backend=%v", backend.Description)
+	if backend.PoolStats != nil {
+		metrics.RegisterStorePool(registry, backend.PoolStats)
+	}
 
 	cacheStats := &engine.CacheStats{}
 	metrics.RegisterCacheStats(registry, cacheStats)

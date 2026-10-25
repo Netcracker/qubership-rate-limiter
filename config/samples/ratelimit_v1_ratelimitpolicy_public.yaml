@@ -8,9 +8,10 @@ metadata:
     app.kubernetes.io/name: ratelimit
 spec:
   # Must equal the domain in the rate limit filter of the public gateway, which
-  # the Helm chart renders from .Values.gateways[].domain. Nothing validates the
-  # match; a typo shows up as an "unknown rate limit domain" line in the service
-  # log, which is why that line is written on every check.
+  # the Helm chart renders from .Values.gateways.public.domain. Nothing validates
+  # the match; a typo shows up in ratelimit_unknown_domain_checks_total (alert
+  # RatelimitUnknownDomain) and in a sampled "unknown rate limit domain" line of
+  # the service log that names the domain.
   domain: gateway.public
 
   # Which token claims become descriptor keys. sub is built in, the claim of

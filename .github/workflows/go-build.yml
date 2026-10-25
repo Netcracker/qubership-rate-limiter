@@ -51,9 +51,11 @@ jobs:
       # operator/internal/controller runs against a real API server through envtest.
       # Without this the suite fails on a missing control plane rather than skipping.
       install-envtest: true
-      # Matches k8s.io/api in go.mod, so the test control plane cannot drift from
-      # the client libraries the service is built against.
-      kube-version: '1.36.0'
+      # Matches k8s.io/api in go.mod, v0.37, so the test control plane cannot
+      # drift from the client libraries the service is built against. A bump of
+      # k8s.io/api bumps this, release.yaml's copy, and the version README.md
+      # names; make test derives its own from go.mod.
+      kube-version: '1.37.0'
       # Pull requests build a single native platform: the image is validation
       # only there, and the two cross-compilations otherwise contend for the
       # runner's cores. Pushes keep the full multi-arch config.
@@ -107,7 +109,7 @@ jobs:
     # the latency budget assumes.
     services:
       redis:
-        image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+        image: redis:8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
         ports:
           - 6379:6379
         options: >-
@@ -171,7 +173,7 @@ jobs:
     # on every PR.
     services:
       redis:
-        image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+        image: redis:8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
         ports:
           - 6379:6379
         options: >-
