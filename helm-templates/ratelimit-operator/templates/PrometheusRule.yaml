@@ -175,8 +175,10 @@ spec:
               {{ "{{" }} $labels.namespace {{ "}}" }} has failed its reconciles for
               {{ .Values.policyAlerts.reconcileFailingFor }} and completed none in
               {{ .Values.policyAlerts.reconcileErrorsWindow }}. The leader holds the Lease, so
-              no other alert names it: policy edits do not reach the replicas, and the policy status stays as
-              it was. The operator log names the error, often a permission the operator's Role lacks.
+              RatelimitNoOperatorLeader stays quiet.
+              {{ "{{" }} if eq $labels.controller "ratelimit-config" {{ "}}" }}Policy edits do not reach the
+              replicas.{{ "{{" }} else {{ "}}" }}The policy status stays as it was.{{ "{{" }} end {{ "}}" }}
+              The operator log names the error, often a permission the operator's Role lacks.
 
         - alert: RatelimitNoOperatorLeader
           expr: absent(ratelimit_leader{ {{- $sel -}} } == 1)

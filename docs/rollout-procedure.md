@@ -386,9 +386,7 @@ opposite order, the service first, then the operator.
 
 **A rename.** The block and rule names are in the counter key, so a renamed rule starts on fresh buckets: every
 identity gets a full budget once, the old buckets stay in the store until their TTL, and the metric series of the old
-name are dropped within seconds of the swap, unless another domain of the namespace has a rule with the same
-`block/rule` id: then the old name's `ratelimit_decisions_total` and `ratelimit_near_limit_total` series stay. On the
-stand, `exports-per-client-trial` renamed to `exports-per-client`:
+name are dropped within seconds of the swap. On the stand, `exports-per-client-trial` renamed to `exports-per-client`:
 
 ```bash
 api "$BASE/domains/$DOMAIN/counters?ruleId=api/exports-per-client-trial" | jq -c '{scanned, items}'
@@ -421,7 +419,7 @@ effect without the new name. Renaming a block renames every rule in it.
 | 4 | `enforced=0`, `enabled=0` at runtime, then removed | 9 | `200` under both; the service counts only under the first |
 | 4 | `runtime.enforcedPercent` 0 and back through Helm on the service release | 9 | `200`, then `429`; no pod restart |
 | 4 | the trial back to `Shadow` | 10 | `200`, same key and `remaining` |
-| 4 | the trial renamed | 11 | fresh bucket, old key left with its TTL, old series gone, since no other domain has the rule's id |
+| 4 | the trial renamed | 11 | fresh bucket, old key left with its TTL, old series gone |
 | end | the example policy again | 12 | `Ready: True`, 12 rules, the original rule set version |
 
 ## Appendix: observation to metric or status field

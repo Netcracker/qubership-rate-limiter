@@ -436,9 +436,7 @@ require a token; a gateway filter such as `jwt_authn` can, and this delivery ins
    `behavior: Shadow` counts but does not stop the cascade; `behavior: Bypass` ends the cascade with an allow;
    `replacedRules` is forbidden by validation.
 4. **A missing axis**: a rule whose `counters` axis is absent from the request (for example `sub` for an anonymous
-   caller) does not match; there is nothing to key the bucket with. `path` and `method` are never absent: a direct
-   check that omits one of them carries it as an empty value, a rule that counts by it still matches, and all such
-   checks share one bucket whose key has an empty segment in its place.
+   caller, or `path` for a direct check that sends none) does not match; there is nothing to key the bucket with.
 5. **The verdict**: `OVER_LIMIT` if at least one applied rule (of any block) is exceeded; the `x-ratelimit-*` headers
    come from the strictest matched rule, and `ratelimit-policy` and `ratelimit` carry its limit and remaining under
    that rule's name, `<block>/<rule>`, with the time until one more request is admitted ([engine](engine.md)).
@@ -455,8 +453,8 @@ require a token; a gateway filter such as `jwt_authn` can, and this delivery ins
    counters per its own verdict, the overall response is a refusal if at least one descriptor refuses, and the headers
    come from the strictest decision; per-descriptor verdicts (statuses) are not returned in v1: if you need a separate
    verdict, send separate checks. A request without descriptors is one decision over an empty request: the domain's
-   unconditional limits apply. An empty value of a descriptor entry means the key is absent, as in the identity layer,
-   except for `path` and `method`, which are never absent (item 4).
+   unconditional limits apply. An empty value of a descriptor entry means the key is absent, as in the identity layer;
+   this holds for `path` and `method` too (item 4).
    A check carries at most 16 descriptors: one with more is refused as `OVER_LIMIT` (`too_many_descriptors`) before
    any decision is made. The 128-bucket budget binds each descriptor's decision on its own.
 9. **A key is a set** (a scalar is a one-element set, an array is its elements, a missing key is the empty set);
@@ -564,9 +562,8 @@ measured ceilings are in [limits](limits.md).
 
 `requests` and `burst` are deliberately not part of the key: editing a limit reinterprets the live state rather than
 resetting it. Fixed window keeps the spent count (a quota raised in the middle of the day remembers what was consumed),
-and GCRA keeps the drain depth in time. Axis values and names are escaped when the key is assembled; an axis value is
-empty only for `path` or `method` on a direct check that omits them (any other missing axis means the rule did not
-match, see [Evaluation semantics](#evaluation-semantics)); the service's single builder constructs the keys,
+and GCRA keeps the drain depth in time. Axis values and names are escaped when the key is assembled; empty axis values
+do not exist by construction (no axis means the rule did not match); the service's single builder constructs the keys,
 so management and matching agree byte for byte; the raw token never gets into a key.
 
 ## Validity and last-good

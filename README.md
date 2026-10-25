@@ -185,7 +185,7 @@ Prerequisites, which the charts do not install:
   the counter store below);
 - the Prometheus Operator CRDs behind `PodMonitor` and `PrometheusRule`, when `MONITORING_ENABLED` is set.
 
-No chart declares a `kubeVersion`. CI runs the envtest suites against a Kubernetes 1.36 API server, and the e2e
+No chart declares a `kubeVersion`. CI runs the envtest suites against a Kubernetes 1.37 API server, and the e2e
 workflow installs on a kind cluster from `helm/kind-action` v1.15.1 with its default node image, Gateway API v1.4.0, and
 qubership-istio from its `main` branch. No workflow pins Helm: CI uses the Helm of the GitHub runner image. Adopting an
 existing CRD with `--take-ownership` needs Helm 3.17 or later ([the CRD chart](docs/helm-chart.md#the-crd-chart)).
@@ -419,9 +419,8 @@ make test-e2e-go E2E_NAMESPACE=core E2E_SATELLITE_NAMESPACE=core-sat
 ```
 
 The `redis` suite is the exception to "run everything": it asserts what only a
-shared counter store can do — that the service selected Redis, as its startup
-line `counter store selected backend=` names, that the counters carry the
-documented key, and that a spent budget survives the process that spent it. It
+shared counter store can do — that the counters carry the documented key, and
+that a spent budget survives the process that spent it. It
 reaches the store through the Secret `ratelimit-service-redis`, and skips in a
 namespace without one.
 
@@ -498,4 +497,5 @@ It does not run the engine tests, the linters, the chart checks, or e2e: those r
 it from a `main` whose checks have all passed, and start with a dry run, which builds the images without pushing them
 and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same version can be
 released again. A run that succeeds keeps its tag, and the workflow refuses a version whose tag exists, so it does not
-release a published version a second time while that tag stands.
+release a published version a second time while that tag stands. A published version is never released again or
+deleted: a defect in it is fixed in the next patch version.

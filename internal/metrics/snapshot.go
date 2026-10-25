@@ -10,7 +10,7 @@ import (
 func ActiveSetOf(snapshots map[string]*compile.Snapshot) *ActiveSet {
 	active := &ActiveSet{
 		Domains: make(map[string]struct{}, len(snapshots)),
-		Rules:   map[string]struct{}{},
+		Rules:   make(map[string]map[string]struct{}, len(snapshots)),
 		Keys:    make(map[string]map[string]struct{}, len(snapshots)),
 	}
 	for domain, snapshot := range snapshots {
@@ -20,12 +20,14 @@ func ActiveSetOf(snapshots map[string]*compile.Snapshot) *ActiveSet {
 			keys[key] = struct{}{}
 		}
 		active.Keys[domain] = keys
+		rules := map[string]struct{}{}
 		for i := range snapshot.Blocks {
 			block := &snapshot.Blocks[i]
 			for _, rule := range block.Rules {
-				active.Rules[RuleID(block.Name, rule.Name)] = struct{}{}
+				rules[RuleID(block.Name, rule.Name)] = struct{}{}
 			}
 		}
+		active.Rules[domain] = rules
 	}
 	return active
 }

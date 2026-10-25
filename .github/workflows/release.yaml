@@ -95,7 +95,7 @@ jobs:
       # would otherwise report coverage without the engine module's.
       go-module-dir: .
       install-envtest: true
-      kube-version: '1.36.0'
+      kube-version: '1.37.0'
       # The full multi-arch config: the operator, service, and load test images,
       # linux/amd64 and linux/arm64.
       docker-config-file: docker-dev-config.json
