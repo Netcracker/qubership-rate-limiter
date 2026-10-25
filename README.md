@@ -419,9 +419,8 @@ make test-e2e-go E2E_NAMESPACE=core E2E_SATELLITE_NAMESPACE=core-sat
 ```
 
 The `redis` suite is the exception to "run everything": it asserts what only a
-shared counter store can do — that the service selected Redis, as its startup
-line `counter store selected backend=` names, that the counters carry the
-documented key, and that a spent budget survives the process that spent it. It
+shared counter store can do — that the counters carry the documented key, and
+that a spent budget survives the process that spent it. It
 reaches the store through the Secret `ratelimit-service-redis`, and skips in a
 namespace without one.
 
