@@ -249,10 +249,13 @@ Where the platform routes it through the private gateway (an HTTPRoute to port 8
 `failClosed: true` on it: the service admits the checks of `/ratelimit/v1` in the domains of `management.gatewayDomains`
 of the service chart without reading the store, and counts them as `verdict="exempt"`. The endpoints that read no
 counters, `GET /status`, `/domains`, `/domains/{domain}/rules`, and `/openapi.yaml`, return `200` during the outage. A
-`503` from the API with no `RLS-` code in its body is the gateway's, and has three causes. The gateway has no route to
-the API: the charts render none (section 0), and on the stand such a call answered `503` with the body
-`no healthy upstream`. The gateway's domain is missing from `management.gatewayDomains`. Or the check itself got no
-answer within `filter.timeout`. The port-forward of section 0 reaches the API past the gateway in every case.
+`503` from the API with no `RLS-` code in its body is the gateway's, and has three causes. The gateway sent the call to
+an upstream with no ready endpoint and answered with the body `no healthy upstream`, `UH` in its access log: a route to
+the Service `ratelimit` on port 8082 exists and no service pod is ready, or no such route exists (the charts render
+none, section 0) and the mesh's catch-all fallback route took the call to a fallback service without endpoints, as on
+the stand. The gateway's domain is missing from `management.gatewayDomains`. Or the check itself got no answer within
+`filter.timeout`. A gateway without a fallback route answers a call it has no route for with `404`, `NR` in its access
+log, rather than a `503`. The port-forward of section 0 reaches the API past the gateway in every case.
 
 **Diagnose.**
 
@@ -767,11 +770,14 @@ Then the kubelet projected the rewritten object, the replicas applied generation
 `Ready: True` with `AllReplicas` followed 9 s later. In a real skew the rewrite is in the same unreadable format, so the
 condition stays until the versions match.
 
-**Act.** A failed read: the error after `read the manifest:` names the file and the cause. Delete the pod; the
-replacement mounts the ConfigMap, applies the current manifest, and joins the denominator once Ready. A blocked
-metrics port: admit the operator's ServiceAccount to the metrics port of the service pods; the probe is
-same-namespace traffic from the operator pod. On the stand, deleting the blocking policy brought `Ready: True` back
-within 6 s, and the stalled series went back to `reason="Progressing"` at `0`.
+**Act.** A failed read: the error after `read the manifest:` names the file and the cause, such as
+`permission denied`. Fix that cause and keep the pod: it serves its snapshot meanwhile, reads the directory again every
+10 s, and applies the current manifest on the first read that succeeds. Where the cause is in what every pod mounts,
+such as the volume's permissions, a replacement fails the same read before it has any snapshot and stays out of the
+Ready endpoints (`/readyz` answers `503`): one serving replica fewer. A blocked metrics port: admit the operator's
+ServiceAccount to the metrics port of the service pods; the probe is same-namespace traffic from the operator pod. On
+the stand, deleting the blocking policy brought `Ready: True` back within 6 s, and the stalled series went back to
+`reason="Progressing"` at `0`.
 `ReplicaFormatUnsupported`, and a domain held at its last-good generation because its spec does not compile in the
 replica's build: upgrade the service to the operator's version, or roll the operator back to the service's; section 5
 has the order. The replicas apply the next manifest they read, and the condition clears on the next probe.

@@ -975,5 +975,8 @@ what one replica enforces, for a human with a port-forward. The management role 
   management API. Where the callers come through a gateway, the installation adds the route, with a `backendRefs` entry
   for the Service `ratelimit` on port 8082, lists the gateway's ServiceAccount in
   `management.authorizationPolicy.allowedServiceAccounts`, and keeps the gateway's domain in
-  `management.gatewayDomains` (see "Management API port"). Without the route, a request through the gateway gets the
-  gateway's `503` with the body `no healthy upstream`, even where the AuthorizationPolicy admits the gateway.
+  `management.gatewayDomains` (see "Management API port"). Without the route, the gateway answers `404`, `NR` in its
+  access log, whatever the AuthorizationPolicy admits. Where the mesh installs a catch-all fallback route, as
+  Qubership's mesh configuration does, the call goes to the fallback route's service instead; where that service has
+  no endpoints, as on the e2e stand, the gateway answers `503` with the body `no healthy upstream`, `UH` in its access
+  log. The same `503` through the installation's route means that no pod of the Service `ratelimit` is ready.
