@@ -120,7 +120,10 @@ process's memory, so N replicas over it would give an N-fold limit, and the serv
 mirrors the server-side script formula for formula; expiry is lazy (stale state is discarded on touch and in `Scan`).
 
 **Redis** (`store/redis`) is one Lua script per decision: evaluate all buckets, commit only if no enforcing bucket
-refused. GCRA is ported from go-redis/redis_rate (BSD-2-Clause), and that library remains the
+refused. The server has to be Redis 5.0 or later: the script reads the clock with `TIME` before it writes
+with `SET` and does not call `redis.replicate_commands()`, so it needs script effects replication, the default from
+Redis 5.0, and an earlier server fails the script at its write. CI runs the suite against `redis:8-alpine` standalone
+and a `redis:7.2-alpine` Cluster. GCRA is ported from go-redis/redis_rate (BSD-2-Clause), and that library remains the
 single-bucket oracle; differential tests stitch the Lua to the in-memory reference. `Scan` is one `SCAN` per step: on
 a Cluster it reads the master that owns the prefix's hash tag, where every key of a domain lives, and every master in
 address order for a prefix without one; the cursor names its node, so a cursor from before a slot moved is refused

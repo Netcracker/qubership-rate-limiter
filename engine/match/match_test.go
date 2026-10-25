@@ -287,6 +287,41 @@ func TestARuleMatchesOnlyWhenEachCounterAxisHasOneValue(t *testing.T) {
 	}
 }
 
+// A direct check may omit the path or the method. The omitted one is an
+// absent axis, as an absent key is, so the rule counting by it skips the check
+// and the rest of the block still applies.
+func TestARuleCountingByThePathOrTheMethodSkipsACheckThatOmitsIt(t *testing.T) {
+	snap := mustCompile(t, model.Policy{
+		Domain: domain,
+		Blocks: []model.Block{{Name: "b",
+			Rules: []model.Rule{
+				{Name: "per-path", Counters: []string{model.KeyPath}, Rates: minuteRate()},
+				{Name: "per-method", Counters: []string{model.KeyMethod}, Rates: minuteRate()},
+				{Name: "total", Rates: minuteRate()},
+			}}},
+	})
+
+	cases := []struct {
+		name string
+		req  request
+		want []string
+	}{
+		{"path and method", request{Path: "/x", Method: "GET"}, []string{"per-path", "per-method", "total"}},
+		{"no path", request{Method: "GET"}, []string{"per-method", "total"}},
+		{"no method", request{Path: "/x"}, []string{"per-path", "total"}},
+		{"neither", request{}, []string{"total"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ruleNames(evaluate(snap, tc.req))
+
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("Evaluate(path %q, method %q) matched %v, want %v", tc.req.Path, tc.req.Method, got, tc.want)
+			}
+		})
+	}
+}
+
 // The override "enterprise" replaces "base" only for the requests it matches
 // itself.
 func TestUnderAllAMatchedRuleSuppressesTheRulesItReplaces(t *testing.T) {

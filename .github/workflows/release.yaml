@@ -1,8 +1,8 @@
 # Release Workflow
 #
-# Tags the commit, builds and tests it at that tag, publishes the operator and
-# service images, and creates the GitHub release with notes from Release
-# Drafter. Modeled on the manual release of qubership-dbaas: the same
+# Tags the commit, builds and tests it at that tag, publishes the operator,
+# service, and load test images, and creates the GitHub release with notes from
+# Release Drafter. Modeled on the manual release of qubership-dbaas: the same
 # generic-go-build.yaml the Build workflow calls, run against the new tag.
 # The run name, the concurrency group and the tag rollback follow
 # qubership-istio's release.
@@ -95,8 +95,9 @@ jobs:
       # would otherwise report coverage without the engine module's.
       go-module-dir: .
       install-envtest: true
-      kube-version: '1.36.0'
-      # The full multi-arch config: both images, linux/amd64 and linux/arm64.
+      kube-version: '1.37.0'
+      # The full multi-arch config: the operator, service, and load test images,
+      # linux/amd64 and linux/arm64.
       docker-config-file: docker-dev-config.json
     secrets:
       # Declared required by generic-go-build.yaml even when Sonar is skipped.

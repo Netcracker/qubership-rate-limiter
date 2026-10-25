@@ -7,9 +7,11 @@
 # 3 when JMeter itself failed and nothing was checked. The container then
 # stays up for LT_HOLD_SECONDS, or until a file named release appears in
 # RESULTS_DIR, so the results can be copied out with kubectl cp, and exits
-# with the same status.
+# with the same status. A run that stops before the plan, for want of tokens
+# or of a probe response, exits with 2 at once and writes no done file.
 #
-# The chart sets the LT_* variables; docs/load-testing.md describes each.
+# The chart sets the LT_* variables; "The generator's environment" in
+# docs/load-testing.md describes each.
 set -eu
 
 : "${LT_HOST:?LT_HOST names the gateway}"

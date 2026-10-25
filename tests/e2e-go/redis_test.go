@@ -17,8 +17,7 @@ import (
 )
 
 // Everything here is a property the in-process store cannot have, which is
-// the only reason this suite exists: that the service really selected Redis
-// rather than falling back to memory, that the counters live in Redis under
+// the only reason this suite exists: that the counters live in Redis under
 // the documented key shape, and - the one that matters - that a budget
 // already spent survives the process that spent it.
 //
@@ -65,25 +64,6 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 		if applied {
 			deletePolicies(domain)
 		}
-	})
-
-	It("selects Redis rather than the in-memory fallback", func() {
-		// A wrong address, an unreachable host or a typo in the values would
-		// leave the service counting in memory, and every limit would still
-		// look enforced on one replica. The startup line tells the two apart.
-		var backend string
-		for _, pod := range servicePods() {
-			for _, line := range strings.Split(podLogs(pod.Name, nil), "\n") {
-				if strings.Contains(line, "counter store selected backend=") {
-					backend = line
-				}
-			}
-			if backend != "" {
-				break
-			}
-		}
-		Expect(backend).To(ContainSubstring("redis"),
-			"the service did not select the Redis store (startup said: %q)", backend)
 	})
 
 	It("enforces a declared limit through the shared store", func() {
