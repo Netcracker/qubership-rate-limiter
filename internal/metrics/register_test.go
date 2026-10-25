@@ -155,14 +155,21 @@ func TestRegisterOperator_labelsTheBuildInfoWithTheOperatorAndItsVersion(t *test
 // tenant and holds the rule api/total.
 func compiledSnapshots(t *testing.T) map[string]*compile.Snapshot {
 	t.Helper()
-	snapshot, problems := compile.Compile("biz", "gateway.public", &model.Policy{
-		Domain:   "gateway.public",
+	return map[string]*compile.Snapshot{"gateway.public": compiledSnapshot(t, "gateway.public", "total")}
+}
+
+// compiledSnapshot compiles a domain that maps the key tenant and holds the
+// one rule api/<rule>.
+func compiledSnapshot(t *testing.T, domain, rule string) *compile.Snapshot {
+	t.Helper()
+	snapshot, problems := compile.Compile("biz", domain, &model.Policy{
+		Domain:   domain,
 		Mappings: []model.KeyMapping{{Key: "tenant", Claim: "org_id"}},
 		Blocks: []model.Block{{Name: "api", Rules: []model.Rule{{
-			Name: "total", Rates: []model.Rate{{Requests: 1, Period: time.Minute}}}}}},
+			Name: rule, Rates: []model.Rate{{Requests: 1, Period: time.Minute}}}}}},
 	})
 	require.Empty(t, problems)
-	return map[string]*compile.Snapshot{"gateway.public": snapshot}
+	return snapshot
 }
 
 // The keys of a domain are its effective keys: the built-in method, path, and
@@ -172,7 +179,7 @@ func TestActiveSetOf_listsTheLabelValuesTheSnapshotsCanProduce(t *testing.T) {
 
 	assert.Equal(t, &ActiveSet{
 		Domains: map[string]struct{}{"gateway.public": {}},
-		Rules:   map[string]struct{}{"api/total": {}},
+		Rules:   map[string]map[string]struct{}{"gateway.public": {"api/total": {}}},
 		Keys: map[string]map[string]struct{}{
 			"gateway.public": {"method": {}, "path": {}, "sub": {}, "tenant": {}},
 		},
