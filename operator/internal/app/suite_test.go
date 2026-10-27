@@ -46,9 +46,10 @@ func TestApp(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	// A plain go test runs without the binaries; make test sets REQUIRE_ENVTEST.
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" && getFirstFoundEnvTestBinaryDir() == "" {
-		if os.Getenv("REQUIRE_ENVTEST") == "true" {
+	// Without envtest binaries a plain go test skips the suite; make test sets
+	// REQUIRE_ENVTEST, which fails it instead.
+	if !envtestBinariesConfigured() {
+		if os.Getenv("REQUIRE_ENVTEST") != "" {
 			Fail("envtest binaries not found: set KUBEBUILDER_ASSETS or run make setup-envtest")
 		}
 		Skip("envtest binaries not found, skipping the envtest suite")
@@ -115,4 +116,19 @@ func getFirstFoundEnvTestBinaryDir() string {
 		}
 	}
 	return ""
+}
+
+// envtestBinariesConfigured reports whether any source envtest reads its binaries from is present.
+// A set variable counts even when its path is wrong, so a misconfiguration fails the suite instead of skipping it.
+func envtestBinariesConfigured() bool {
+	for _, env := range []string{"TEST_ASSET_KUBE_APISERVER", "TEST_ASSET_ETCD", "KUBEBUILDER_ASSETS"} {
+		if os.Getenv(env) != "" {
+			return true
+		}
+	}
+	if getFirstFoundEnvTestBinaryDir() != "" {
+		return true
+	}
+	_, err := os.Stat("/usr/local/kubebuilder/bin/kube-apiserver")
+	return err == nil
 }
