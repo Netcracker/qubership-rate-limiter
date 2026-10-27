@@ -5,7 +5,7 @@
 #
 # Triggers:
 #   - Push to main or an lts/** branch
-#   - Push of a v* release tag: publishes the images under that tag
+#   - Push of a vMAJOR.MINOR.PATCH release tag: publishes the images under that tag
 #   - Pull requests
 #
 # See generic-go-build.yaml for full documentation on build features and required secrets/vars.
@@ -27,7 +27,7 @@ on:
       - main
       - 'lts/**'
     tags:
-      - 'v*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     types: [opened, synchronize, reopened]
 
