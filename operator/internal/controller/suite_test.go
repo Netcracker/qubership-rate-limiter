@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 
 	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
 	"github.com/netcracker/qubership-ratelimit/internal/metrics"
+	"github.com/netcracker/qubership-ratelimit/operator/internal/envtestbin"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,14 +48,7 @@ func TestControllers(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	// Without envtest binaries a plain go test skips the suite; make test sets
-	// REQUIRE_ENVTEST, which fails it instead.
-	if !envtestBinariesConfigured() {
-		if os.Getenv("REQUIRE_ENVTEST") != "" {
-			Fail("envtest binaries not found: set KUBEBUILDER_ASSETS or run make setup-envtest")
-		}
-		Skip("envtest binaries not found, skipping the envtest suite")
-	}
+	envtestbin.SkipUnlessConfigured()
 
 	// The fleet series a spec scrapes below ride the manager's registry, as
 	// they do in the binaries.
@@ -76,7 +69,7 @@ var _ = BeforeSuite(func() {
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs
-	if dir := getFirstFoundEnvTestBinaryDir(); dir != "" {
+	if dir := envtestbin.Dir(); dir != "" {
 		testEnv.BinaryAssetsDirectory = dir
 	}
 
@@ -100,41 +93,3 @@ var _ = AfterSuite(func() {
 		return testEnv.Stop()
 	}, time.Minute, time.Second).Should(Succeed(), "stopping the API server and etcd of the test environment")
 })
-
-// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
-// ENVTEST-based tests depend on specific binaries, usually located in paths set by
-// controller-runtime. When running tests directly (e.g., via an IDE) without using
-// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
-//
-// This function streamlines the process by finding the required binaries, similar to
-// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
-// properly set up, run 'make setup-envtest' beforehand.
-func getFirstFoundEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		logf.Log.Error(err, "Failed to read directory", "path", basePath)
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
-		}
-	}
-	return ""
-}
-
-// envtestBinariesConfigured reports whether any source envtest reads its binaries from is present.
-// A set variable counts even when its path is wrong, so a misconfiguration fails the suite instead of skipping it.
-func envtestBinariesConfigured() bool {
-	for _, env := range []string{"TEST_ASSET_KUBE_APISERVER", "TEST_ASSET_ETCD", "KUBEBUILDER_ASSETS"} {
-		if os.Getenv(env) != "" {
-			return true
-		}
-	}
-	if getFirstFoundEnvTestBinaryDir() != "" {
-		return true
-	}
-	_, err := os.Stat("/usr/local/kubebuilder/bin/kube-apiserver")
-	return err == nil
-}
