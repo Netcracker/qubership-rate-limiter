@@ -334,6 +334,10 @@ func TestExtract_decodesAPayloadWithinTheShapeBounds(t *testing.T) {
 		{"nesting at MaxPayloadDepth", map[string]any{"sub": "alice", "deep": nested(MaxPayloadDepth - 1)}},
 		{"separators at MaxPayloadSeparators", wide(MaxPayloadSeparators)},
 		{"key syntax inside a string", map[string]any{"sub": "alice", "note": strings.Repeat(`{[,:]}`, 400)}},
+		// The payload object, two colons, and a comma leave the rest of the
+		// bound to the escapes.
+		{"string escapes at MaxPayloadSeparators",
+			map[string]any{"sub": "alice", "s": strings.Repeat(`"`, MaxPayloadSeparators-4)}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			keys, skips := Extract(plan(t), token(t, c.claims))
@@ -361,8 +365,10 @@ func TestExtract_refusesAPayloadPastAShapeBound(t *testing.T) {
 		// six brackets in each element.
 		{"empty objects and arrays past MaxPayloadSeparators",
 			map[string]any{"sub": "alice", "a": slices.Repeat([]any{nestedEmpty(MaxPayloadDepth - 2)}, 500)}},
-		// Three colons and two commas, and an escape for each quote.
-		{"string escapes past MaxPayloadSeparators", map[string]any{"sub": "alice", "s": strings.Repeat(`"`, 600)}},
+		// One escape past the bound: the payload object, two colons, a comma,
+		// and an escape for each quote.
+		{"string escapes one past MaxPayloadSeparators",
+			map[string]any{"sub": "alice", "s": strings.Repeat(`"`, MaxPayloadSeparators-3)}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			keys, skips := Extract(plan(t), token(t, c.claims))

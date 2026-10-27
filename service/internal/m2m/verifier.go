@@ -4,6 +4,7 @@
 package m2m
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -126,8 +127,9 @@ func NewVerifier(ctx context.Context, cfg Config) (tokenverifier.Verifier, error
 	// seventy ordinary tokens. The claims decode their numbers as json.Number,
 	// and the time claims alone are converted, one literal each. golang-jwt
 	// decodes the header with float64 conversion whatever the options, so
-	// boundedHeader refuses, before decoding it, a header longer than any an
-	// API server signs.
+	// strictHeader first bounds the header to the compact one an external
+	// signer may write, alg, typ, and a kid of up to 1024 bytes, and refuses
+	// any number in it.
 	parser := jwt.NewParser(
 		jwt.WithJSONNumber(),
 		jwt.WithValidMethods(signingMethods),
@@ -140,27 +142,66 @@ func NewVerifier(ctx context.Context, cfg Config) (tokenverifier.Verifier, error
 	if err != nil {
 		return nil, err
 	}
-	return boundedHeader{Verifier: verifier}, nil
+	return strictHeader{Verifier: verifier}, nil
 }
 
 // maxHeaderSegment is the longest header segment a caller's token may carry,
-// in bytes of base64url. An API server signs a ServiceAccount token under the
-// header {"alg":"RS256","kid":"<43 characters>"}, under 100 bytes encoded.
-const maxHeaderSegment = 256
+// in bytes of base64url. The API server's own signer writes
+// {"alg":"RS256","kid":"<43 characters>"}, under 100 bytes encoded. An
+// external signer may set alg, typ, and a kid of up to 1024 bytes, and the
+// longest such header written compactly, without spaces or escapes,
+// {"alg":"ES512","kid":"<1024 bytes>","typ":"JWT"}, is 1414 bytes encoded. A
+// signer that indents or escapes a header that long is refused.
+const maxHeaderSegment = 1414
 
-// boundedHeader is a verifier that refuses a token whose header segment is
-// longer than maxHeaderSegment with jwt.ErrTokenMalformed, before the wrapped
-// verifier decodes the header, and passes every other token to it.
-type boundedHeader struct {
+// joseHeader holds the fields an API server lets an external signer set in a
+// ServiceAccount token's header.
+type joseHeader struct {
+	Alg string `json:"alg"`
+	Kid string `json:"kid"`
+	Typ string `json:"typ"`
+}
+
+// strictHeader is a verifier that refuses, with jwt.ErrTokenMalformed and
+// before the wrapped verifier decodes the header, a token whose header
+// segment is longer than maxHeaderSegment or that checkHeader refuses, and
+// passes every other token to it. It bounds what golang-jwt decodes; whether
+// alg, kid, and typ hold values the API server signs under is the wrapped
+// verifier's to check.
+type strictHeader struct {
 	tokenverifier.Verifier
 }
 
 // Verify implements [tokenverifier.Verifier].
-func (b boundedHeader) Verify(ctx context.Context, raw string) (*jwt.Token, error) {
-	if header, _, _ := strings.Cut(raw, "."); len(header) > maxHeaderSegment {
+func (s strictHeader) Verify(ctx context.Context, raw string) (*jwt.Token, error) {
+	segment, _, _ := strings.Cut(raw, ".")
+	if len(segment) > maxHeaderSegment {
 		return nil, fmt.Errorf("%w: the header segment is longer than %d bytes", jwt.ErrTokenMalformed, maxHeaderSegment)
 	}
-	return b.Verifier.Verify(ctx, raw)
+	if err := checkHeader(segment); err != nil {
+		return nil, fmt.Errorf("%w: %w", jwt.ErrTokenMalformed, err)
+	}
+	return s.Verifier.Verify(ctx, raw)
+}
+
+// checkHeader decodes a header segment into joseHeader and refuses a field
+// other than alg, kid, and typ, matched as encoding/json matches them, without
+// regard to case, and a value that is neither a string nor null. Such a value
+// is refused without being converted, so no number of the header reaches
+// strconv. The errors name no part of the header: it is the caller's text, and
+// the refusal is logged.
+func checkHeader(segment string) error {
+	decoded, err := base64.RawURLEncoding.DecodeString(segment)
+	if err != nil {
+		return errors.New("the header segment is not base64url")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(decoded))
+	decoder.DisallowUnknownFields()
+	var header joseHeader
+	if err := decoder.Decode(&header); err != nil {
+		return errors.New("the header holds something other than the strings alg, kid, and typ")
+	}
+	return nil
 }
 
 // heldKeys is the key function the verifier looks keys up through. A token

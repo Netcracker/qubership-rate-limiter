@@ -100,35 +100,43 @@ func TestNewVerifier_decodesTheClaimsNumbersAsJSONNumbers(t *testing.T) {
 	assert.IsType(t, json.Number(""), claims["exp"], `claim "exp"`)
 }
 
-// A token whose header segment is longer than maxHeaderSegment is refused as
-// malformed before its header is decoded, although the cluster signed it; one
-// at the bound is verified. golang-jwt converts the number literals of a
-// header to float64 whatever its options, and the header is the caller's
-// choice until the signature is checked.
-func TestNewVerifier_refusesAHeaderSegmentPastItsBound(t *testing.T) {
+// A token's header is bounded to the compact one an external signer may
+// write: at most maxHeaderSegment bytes encoded, and no field but alg, kid,
+// and typ, none of them a number. A token the cluster signs under a kid of
+// 1024 bytes, which its key set publishes, is verified. A longer header, one
+// with another field, and one whose kid is a number are refused as malformed
+// before golang-jwt decodes them, although the cluster signed them: golang-jwt
+// converts the header's number literals to float64 whatever its options, and
+// the header is the caller's choice until the signature is checked.
+func TestNewVerifier_boundsTheHeaderBeforeDecodingIt(t *testing.T) {
 	c := newCluster(t)
+	longest := strings.Repeat("k", 1024)
+	c.alias.Store(longest)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	verifier, err := NewVerifier(ctx, Config{Audience: audience, Token: c.podToken})
 	require.NoError(t, err)
-
-	atBound, pastBound := "", ""
-	for pad := 0; pastBound == ""; pad++ {
-		token := c.signedWithHeader(t, jwt.SigningMethodRS256, c.key,
-			map[string]any{"kid": "cluster", "x": strings.Repeat("p", pad)}, nil)
-		header, _, _ := strings.Cut(token, ".")
-		switch {
-		case len(header) == maxHeaderSegment:
-			atBound = token
-		case len(header) > maxHeaderSegment:
-			pastBound = token
-		}
+	sign := func(header map[string]any) string {
+		return c.signedWithHeader(t, jwt.SigningMethodRS256, c.key, header, nil)
 	}
-	require.NotEmpty(t, atBound, "no padding gives a header segment of exactly %d bytes", maxHeaderSegment)
 
+	atBound := sign(map[string]any{"kid": longest})
+	header, _, _ := strings.Cut(atBound, ".")
+	require.Len(t, header, maxHeaderSegment, "the header segment under a kid of 1024 bytes")
 	_, err = verifier.Verify(ctx, atBound)
-	require.NoError(t, err, "Verify of a token whose header segment is %d bytes", maxHeaderSegment)
-	_, err = verifier.Verify(ctx, pastBound)
-	assert.ErrorIs(t, err, jwt.ErrTokenMalformed, "Verify of a token whose header segment is past %d bytes",
-		maxHeaderSegment)
+	require.NoError(t, err, "Verify of a token signed under a kid of 1024 bytes")
+
+	for _, refused := range []struct {
+		name   string
+		header map[string]any
+	}{
+		{"a kid of 1025 bytes, past maxHeaderSegment", map[string]any{"kid": longest + "k"}},
+		{"a field besides alg, kid, and typ", map[string]any{"kid": "cluster", "x": "y"}},
+		{"a kid that is a number", map[string]any{"kid": json.Number("0.247032822920623272088284e-300")}},
+	} {
+		t.Run(refused.name, func(t *testing.T) {
+			_, err := verifier.Verify(ctx, sign(refused.header))
+			assert.ErrorIs(t, err, jwt.ErrTokenMalformed)
+		})
+	}
 }

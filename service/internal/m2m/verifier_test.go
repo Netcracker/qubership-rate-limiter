@@ -29,6 +29,7 @@ type cluster struct {
 	key     *rsa.PrivateKey
 	podAuth atomic.Value // the Authorization header of the last discovery request
 	keysOut atomic.Bool  // the key set answers 503 while set
+	alias   atomic.Value // a second key id the key set publishes the key under, when set
 }
 
 func newCluster(t *testing.T) *cluster {
@@ -47,11 +48,19 @@ func newCluster(t *testing.T) *cluster {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]string{
-			"kty": "RSA", "kid": "cluster", "alg": "RS256", "use": "sig",
-			"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
-			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
-		}}})
+		kids := []string{"cluster"}
+		if alias, ok := c.alias.Load().(string); ok {
+			kids = append(kids, alias)
+		}
+		keys := make([]any, 0, len(kids))
+		for _, kid := range kids {
+			keys = append(keys, map[string]string{
+				"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig",
+				"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+				"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": keys})
 	})
 	c.server = httptest.NewServer(mux)
 	t.Cleanup(c.server.Close)
