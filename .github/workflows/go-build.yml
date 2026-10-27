@@ -92,7 +92,9 @@ jobs:
       # binary built by an older Go refuses to target this module's version -
       # so the job needs exactly the toolchain go.mod declares, not whatever
       # the runner has preinstalled.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Publishes nothing: the images come from generic-go-build.yaml's
+      # Docker build, so the cache-poisoning audit does not apply.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # Whole-module runs with the Makefile's pinned golangci-lint. This is
@@ -149,7 +151,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Publishes nothing: the images come from generic-go-build.yaml's
+      # Docker build, so the cache-poisoning audit does not apply.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # The depguard rule keeps client-go and controller-runtime out of the
@@ -283,7 +287,9 @@ jobs:
       # service chart and nothing from the operator chart; the CRD rendered by
       # the CRD chart alone. It skips without helm on PATH; here helm is on
       # PATH and the skip is a failure.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Publishes nothing: the images come from generic-go-build.yaml's
+      # Docker build, so the cache-poisoning audit does not apply.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # The alert rules each chart ships go through promtool check rules in
