@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	"github.com/netcracker/qubership-ratelimit/operator/internal/envtestbin"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -46,6 +46,10 @@ func TestConfig(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
+	// Retrieve the first found binary directory to allow running tests from IDEs
+	binDir := envtestbin.Dir()
+	envtestbin.SkipUnlessConfigured(binDir)
+
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
@@ -58,11 +62,7 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
-	}
-
-	// Retrieve the first found binary directory to allow running tests from IDEs
-	if dir := getFirstFoundEnvTestBinaryDir(); dir != "" {
-		testEnv.BinaryAssetsDirectory = dir
+		BinaryAssetsDirectory: binDir,
 	}
 
 	// cfg is defined in this file globally.
@@ -76,32 +76,12 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	if testEnv == nil {
+		return // skipped, or failed before the control plane was created
+	}
 	By("tearing down the test environment")
 	cancel()
 	Eventually(func() error {
 		return testEnv.Stop()
 	}, time.Minute, time.Second).Should(Succeed())
 })
-
-// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
-// ENVTEST-based tests depend on specific binaries, usually located in paths set by
-// controller-runtime. When running tests directly (e.g., via an IDE) without using
-// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
-//
-// This function streamlines the process by finding the required binaries, similar to
-// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
-// properly set up, run 'make setup-envtest' beforehand.
-func getFirstFoundEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		logf.Log.Error(err, "Failed to read directory", "path", basePath)
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
-		}
-	}
-	return ""
-}

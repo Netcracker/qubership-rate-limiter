@@ -48,8 +48,9 @@ jobs:
       # engine module instead and ships its coverage as a coverage-* artifact,
       # which the Sonar job picks up by glob.
       go-module-dir: .
-      # operator/internal/controller runs against a real API server through envtest.
-      # Without this the suite fails on a missing control plane rather than skipping.
+      # The envtest suites of operator/internal (app, config, controller) run
+      # against a real API server. Without this they skip and the job still
+      # passes: the generic workflow does not set REQUIRE_ENVTEST.
       install-envtest: true
       # Matches k8s.io/api in go.mod, v0.37, so the test control plane cannot
       # drift from the client libraries the service is built against. A bump of
