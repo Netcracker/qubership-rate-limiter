@@ -46,7 +46,9 @@ func TestConfig(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	envtestbin.SkipUnlessConfigured()
+	// Retrieve the first found binary directory to allow running tests from IDEs
+	binDir := envtestbin.Dir()
+	envtestbin.SkipUnlessConfigured(binDir)
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
@@ -60,11 +62,7 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
-	}
-
-	// Retrieve the first found binary directory to allow running tests from IDEs
-	if dir := envtestbin.Dir(); dir != "" {
-		testEnv.BinaryAssetsDirectory = dir
+		BinaryAssetsDirectory: binDir,
 	}
 
 	// cfg is defined in this file globally.
