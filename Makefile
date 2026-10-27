@@ -118,7 +118,7 @@ test-unit-race: ## Run the unit tests of test-unit under the race detector, the 
 .PHONY: test
 test: manifests generate fmt vet test-engine setup-envtest ## Run all tests, including the envtest controller suite. Needs internet on the first run to fetch the envtest binaries.
 	@echo "Running tests with KUBEBUILDER_ASSETS=$$("$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)"
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $(TEST_PKGS) -coverprofile cover.out
+	REQUIRE_ENVTEST=true KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $(TEST_PKGS) -coverprofile cover.out
 
 # The e2e suites (tests/e2e-go) drive real traffic through the gateways, so
 # they need a cluster with Istio ambient, the gateways, and this chart already

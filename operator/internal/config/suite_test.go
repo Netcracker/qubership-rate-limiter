@@ -46,6 +46,14 @@ func TestConfig(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
+	// A plain go test, runs without the binaries; make test sets REQUIRE_ENVTEST.
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" && getFirstFoundEnvTestBinaryDir() == "" {
+		if os.Getenv("REQUIRE_ENVTEST") == "true" {
+			Fail("envtest binaries not found: set KUBEBUILDER_ASSETS or run make setup-envtest")
+		}
+		Skip("envtest binaries not found, skipping the envtest suite")
+	}
+
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
@@ -76,6 +84,9 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	if testEnv == nil {
+		return // skipped, or failed before the control plane was created
+	}
 	By("tearing down the test environment")
 	cancel()
 	Eventually(func() error {
