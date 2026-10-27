@@ -447,10 +447,10 @@ the `load-results` artifact.
 and the status subresource actually exist — the fake client the other tests use validates nothing. The first run
 downloads the envtest binaries into `bin/`, so it needs internet. Both derive their Kubernetes version from `go.mod`,
 so the test control plane cannot drift from the client libraries the operator is built against. A plain
-`go test ./...` that finds no envtest binaries skips these suites; `make test` sets `REQUIRE_ENVTEST=1`, and any
-non-empty value makes missing binaries fail the run. `make test-unit` includes the engine's Redis suites, which run
-against `REDIS_ADDR` when it is set, otherwise against a `redis:8-alpine` container they start through Docker, and
-skip when neither is available.
+`go test ./...` that finds no envtest binaries skips these suites, unless `USE_EXISTING_CLUSTER=true` points envtest
+at an existing cluster; `make test` sets `REQUIRE_ENVTEST=1`, and any non-empty value makes missing binaries fail the
+run. `make test-unit` includes the engine's Redis suites, which run against `REDIS_ADDR` when it is set, otherwise
+against a `redis:8-alpine` container they start through Docker, and skip when neither is available.
 
 `helm-templates/ratelimit-crds/templates/crd-*.yaml` is generated. Edit the Go types and run `make sync-helm-crds`
 instead of editing them.

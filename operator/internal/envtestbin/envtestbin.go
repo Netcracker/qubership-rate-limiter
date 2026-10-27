@@ -1,18 +1,20 @@
 // Package envtestbin finds the binaries the envtest suites of the operator start
-// their control plane from, and skips a suite that has none.
+// their control plane from, and skips a suite that has neither them nor an
+// existing cluster.
 package envtestbin
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/onsi/ginkgo/v2"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// SkipUnlessConfigured skips the running suite when no envtest binaries are found,
-// or fails it when REQUIRE_ENVTEST is set to any value. binDir is the result of Dir.
-// Call it from BeforeSuite.
+// SkipUnlessConfigured skips the running suite when envtest has neither binaries nor
+// an existing cluster to use, or fails it instead when REQUIRE_ENVTEST is non-empty.
+// binDir is the result of Dir. Call it from BeforeSuite.
 func SkipUnlessConfigured(binDir string) {
 	if configured(binDir) {
 		return
@@ -40,9 +42,14 @@ func Dir() string {
 	return ""
 }
 
-// configured reports whether any source envtest reads its binaries from is present.
-// A set variable counts even when its path is wrong, so a misconfiguration fails the suite instead of skipping it.
+// configured reports whether envtest has a control plane to use: an existing cluster
+// when USE_EXISTING_CLUSTER is true, or binaries from any source envtest reads them
+// from. A set variable counts even when its path is wrong, so a misconfiguration fails
+// the suite instead of skipping it.
 func configured(binDir string) bool {
+	if strings.EqualFold(os.Getenv("USE_EXISTING_CLUSTER"), "true") {
+		return true
+	}
 	for _, env := range []string{"TEST_ASSET_KUBE_APISERVER", "TEST_ASSET_ETCD", "KUBEBUILDER_ASSETS"} {
 		if os.Getenv(env) != "" {
 			return true
