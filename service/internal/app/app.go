@@ -26,17 +26,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/service/internal/config"
-	"github.com/netcracker/qubership-ratelimit/service/internal/debug"
-	"github.com/netcracker/qubership-ratelimit/service/internal/m2m"
-	"github.com/netcracker/qubership-ratelimit/service/internal/management"
-	"github.com/netcracker/qubership-ratelimit/service/internal/redisconn"
-	"github.com/netcracker/qubership-ratelimit/service/internal/rls"
-	"github.com/netcracker/qubership-ratelimit/service/internal/settings"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/config"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/debug"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/m2m"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/management"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/redisconn"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/settings"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 // Logger is the platform logger as the gRPC server and the management API

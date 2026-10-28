@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 // Store implements store.Store and store.Inspector over one process-local map.

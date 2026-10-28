@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // The sub key is the sub claim in lower case, so traffic counts Alice under

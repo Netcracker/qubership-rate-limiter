@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/key"
-	"github.com/netcracker/qubership-ratelimit/service/internal/records"
+	"github.com/netcracker/qubership-rate-limiter/engine/key"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
 )
 
 // The bulk reset: everything the addressed DELETE refuses to do.

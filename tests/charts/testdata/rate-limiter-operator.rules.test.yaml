@@ -15,9 +15,9 @@ tests:
   - interval: 1m
     name: a stalled domain beside a progressing one
     input_series:
-      - series: 'ratelimit_policy_stalled{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason="ReplicaStale"}'
+      - series: 'ratelimit_policy_stalled{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason="ReplicaStale"}'
         values: "1x10"
-      - series: 'ratelimit_policy_stalled{namespace="biz", pod="ratelimit-operator-0", domain="gateway.private", reason="Progressing"}'
+      - series: 'ratelimit_policy_stalled{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.private", reason="Progressing"}'
         values: "0x10"
     alert_rule_test:
       - eval_time: 4m
@@ -45,9 +45,9 @@ tests:
   - interval: 1m
     name: a policy that turns Ready inside the hold
     input_series:
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason="Propagating"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason="Propagating"}'
         values: "0x20"
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason=""}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason=""}'
         values: "_x20 1x20"
     alert_rule_test:
       - eval_time: 25m
@@ -58,7 +58,7 @@ tests:
   - interval: 1m
     name: a policy that never reaches its latest generation
     input_series:
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason="ReplicaStale"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason="ReplicaStale"}'
         values: "0x40"
     alert_rule_test:
       - eval_time: 20m
@@ -84,9 +84,9 @@ tests:
   - interval: 1m
     name: blocking problems on the latest generation
     input_series:
-      - series: 'ratelimit_policy_rule_problems{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", severity="blocking"}'
+      - series: 'ratelimit_policy_rule_problems{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", severity="blocking"}'
         values: "2x10"
-      - series: 'ratelimit_policy_rule_problems{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", severity="info"}'
+      - series: 'ratelimit_policy_rule_problems{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", severity="info"}'
         values: "3x10"
     alert_rule_test:
       - eval_time: 8m
@@ -108,7 +108,7 @@ tests:
   - interval: 1m
     name: a write that fails once and succeeds on its retry
     input_series:
-      - series: 'ratelimit_config_write_failing{namespace="biz", pod="ratelimit-operator-0", reason="api"}'
+      - series: 'ratelimit_config_write_failing{namespace="biz", pod="rate-limiter-operator-0", reason="api"}'
         values: "0 1 0x20"
     alert_rule_test:
       - eval_time: 3m
@@ -123,7 +123,7 @@ tests:
   - interval: 1m
     name: writes that keep failing on the backoff
     input_series:
-      - series: 'ratelimit_config_write_failing{namespace="biz", pod="ratelimit-operator-0", reason="read"}'
+      - series: 'ratelimit_config_write_failing{namespace="biz", pod="rate-limiter-operator-0", reason="read"}'
         values: "0 1x39"
     alert_rule_test:
       - eval_time: 4m
@@ -139,7 +139,7 @@ tests:
             exp_annotations:
               summary: The operator cannot save the namespace's configuration
               description: >-
-                The operator in biz has failed to write the ratelimit-config ConfigMap for 5m, with reason
+                The operator in biz has failed to write the rate-limiter-config ConfigMap for 5m, with reason
                 read among the attempts since the last successful write. The replicas keep the previous
                 configuration and the last-good fallback a restart would need is not being saved, and a
                 replica behind follows as ReplicaStale. size is a state the object cannot hold, api an answer
@@ -152,15 +152,15 @@ tests:
   - interval: 1m
     name: a generation that does not compile, with and without last-good
     input_series:
-      - series: 'ratelimit_policy_stalled{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason="NotCompiled"}'
+      - series: 'ratelimit_policy_stalled{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason="NotCompiled"}'
         values: "1x10"
-      - series: 'ratelimit_policy_enforced{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public"}'
+      - series: 'ratelimit_policy_enforced{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public"}'
         values: "1x10"
-      - series: 'ratelimit_policy_enforced{namespace="biz", pod="ratelimit-operator-0", domain="gateway.private"}'
+      - series: 'ratelimit_policy_enforced{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.private"}'
         values: "0x10"
       # A second operator pod that last judged gateway.public before its
       # generation took over: the domain is enforced while any pod says so.
-      - series: 'ratelimit_policy_enforced{namespace="biz", pod="ratelimit-operator-1", domain="gateway.public"}'
+      - series: 'ratelimit_policy_enforced{namespace="biz", pod="rate-limiter-operator-1", domain="gateway.public"}'
         values: "0x10"
     alert_rule_test:
       - eval_time: 8m
@@ -190,17 +190,17 @@ tests:
   - interval: 1m
     name: a writer that fails every reconcile beside a policy controller and another operator
     input_series:
-      - series: 'ratelimit_leader{namespace="biz", pod="ratelimit-operator-0"}'
+      - series: 'ratelimit_leader{namespace="biz", pod="rate-limiter-operator-0"}'
         values: "1x40"
-      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimit-config"}'
+      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="rate-limiter-operator-0", controller="rate-limiter-config"}'
         values: "0+3x40"
-      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimit-config", result="success"}'
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="rate-limiter-operator-0", controller="rate-limiter-config", result="success"}'
         values: "0x40"
-      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy"}'
+      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="rate-limiter-operator-0", controller="ratelimitpolicy"}'
         values: "0x5 1x35"
-      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy", result="requeue_after"}'
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="rate-limiter-operator-0", controller="ratelimitpolicy", result="requeue_after"}'
         values: "0+4x40"
-      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy", result="success"}'
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="rate-limiter-operator-0", controller="ratelimitpolicy", result="success"}'
         values: "0x40"
       - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="core-operator-7f9", controller="deployment"}'
         values: "0+2x40"
@@ -210,12 +210,12 @@ tests:
         exp_alerts:
           - exp_labels:
               namespace: biz
-              controller: ratelimit-config
+              controller: rate-limiter-config
               severity: critical
             exp_annotations:
               summary: An operator controller fails every reconcile
               description: >-
-                Controller ratelimit-config of the ratelimit operator in biz has failed its reconciles for 5m
+                Controller rate-limiter-config of the rate-limiter operator in biz has failed its reconciles for 5m
                 and completed none in 30m. The leader holds the Lease, so RatelimitNoOperatorLeader stays
                 quiet. Policy edits do not reach the replicas. The operator log names the error, often a
                 permission the operator's Role lacks.
@@ -227,15 +227,15 @@ tests:
   - interval: 30s
     name: a writer failure its retry recovers from beside a policy controller that keeps failing
     input_series:
-      - series: 'ratelimit_leader{namespace="biz", pod="ratelimit-operator-0"}'
+      - series: 'ratelimit_leader{namespace="biz", pod="rate-limiter-operator-0"}'
         values: "1x130"
-      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimit-config"}'
+      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="rate-limiter-operator-0", controller="rate-limiter-config"}'
         values: "0x119 3x10"
-      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimit-config", result="success"}'
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="rate-limiter-operator-0", controller="rate-limiter-config", result="success"}'
         values: "1x120 2x9"
-      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy"}'
+      - series: 'controller_runtime_reconcile_errors_total{namespace="biz", pod="rate-limiter-operator-0", controller="ratelimitpolicy"}'
         values: "0+1x130"
-      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="ratelimit-operator-0", controller="ratelimitpolicy", result="requeue_after"}'
+      - series: 'controller_runtime_reconcile_total{namespace="biz", pod="rate-limiter-operator-0", controller="ratelimitpolicy", result="requeue_after"}'
         values: "0x130"
     alert_rule_test:
       - eval_time: 60m
@@ -248,7 +248,7 @@ tests:
             exp_annotations:
               summary: An operator controller fails every reconcile
               description: >-
-                Controller ratelimitpolicy of the ratelimit operator in biz has failed its reconciles for 5m
+                Controller ratelimitpolicy of the rate-limiter operator in biz has failed its reconciles for 5m
                 and completed none in 30m. The leader holds the Lease, so RatelimitNoOperatorLeader stays
                 quiet. The policy status stays as it was. The operator log names the error, often a
                 permission the operator's Role lacks.
@@ -258,9 +258,9 @@ tests:
   - interval: 1m
     name: the Lease handed over during a rollout
     input_series:
-      - series: 'ratelimit_leader{namespace="biz", pod="ratelimit-operator-0"}'
+      - series: 'ratelimit_leader{namespace="biz", pod="rate-limiter-operator-0"}'
         values: "1x4 0x10"
-      - series: 'ratelimit_leader{namespace="biz", pod="ratelimit-operator-1"}'
+      - series: 'ratelimit_leader{namespace="biz", pod="rate-limiter-operator-1"}'
         values: "_x5 1x10"
     alert_rule_test:
       - eval_time: 12m
@@ -271,7 +271,7 @@ tests:
   - interval: 1m
     name: no operator holds the Lease
     input_series:
-      - series: 'ratelimit_leader{namespace="biz", pod="ratelimit-operator-0"}'
+      - series: 'ratelimit_leader{namespace="biz", pod="rate-limiter-operator-0"}'
         values: "1x3 0x15"
     alert_rule_test:
       - eval_time: 6m
@@ -286,7 +286,7 @@ tests:
             exp_annotations:
               summary: No operator pod holds the Lease
               description: >-
-                No ratelimit operator pod in biz reports holding the Lease, so no policy is compiled, no
+                No rate-limiter operator pod in biz reports holding the Lease, so no policy is compiled, no
                 status is written, and the ConfigMap is not maintained; the service replicas keep enforcing
                 what they applied last. Check the operator Deployment and its scrape.
 
@@ -296,23 +296,23 @@ tests:
   - interval: 1m
     name: a domain without a ready replica beside one whose rollout recovers and one whose probe fails
     input_series:
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.private", reason="NoReplicas"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.private", reason="NoReplicas"}'
         values: "0x10"
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason="NoReplicas"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason="NoReplicas"}'
         values: "0x3"
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", reason=""}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", reason=""}'
         values: "_x3 1x7"
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.internal", reason="ProbeFailed"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.internal", reason="ProbeFailed"}'
         values: "0x10"
-      - series: 'ratelimit_policy_replicas{namespace="biz", pod="ratelimit-operator-0", domain="gateway.internal", state="total"}'
+      - series: 'ratelimit_policy_replicas{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.internal", state="total"}'
         values: "0x10"
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.broken", reason="NotCompiled"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.broken", reason="NotCompiled"}'
         values: "0x10"
-      - series: 'ratelimit_policy_replicas{namespace="biz", pod="ratelimit-operator-0", domain="gateway.broken", state="total"}'
+      - series: 'ratelimit_policy_replicas{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.broken", state="total"}'
         values: "0x10"
-      - series: 'ratelimit_policy_ready{namespace="biz", pod="ratelimit-operator-0", domain="gateway.edited", reason="NotCompiled"}'
+      - series: 'ratelimit_policy_ready{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.edited", reason="NotCompiled"}'
         values: "0x10"
-      - series: 'ratelimit_policy_replicas{namespace="biz", pod="ratelimit-operator-0", domain="gateway.edited", state="total"}'
+      - series: 'ratelimit_policy_replicas{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.edited", state="total"}'
         values: "2x10"
     alert_rule_test:
       - eval_time: 4m
@@ -330,7 +330,7 @@ tests:
               description: >-
                 Domain gateway.private in biz has no ready service replica, so every check of it is decided by
                 the gateway's failure mode: unlimited under fail-open, refused under fail-closed. Read the
-                ratelimit-service Deployment and its pods.
+                rate-limiter Deployment and its pods.
           # A rejected edit is judged before the fleet, and the fleet the last
           # probe saw still pages; a rejected edit with ready replicas does not.
           - exp_labels:
@@ -342,20 +342,20 @@ tests:
               description: >-
                 Domain gateway.broken in biz has no ready service replica, so every check of it is decided by
                 the gateway's failure mode: unlimited under fail-open, refused under fail-closed. Read the
-                ratelimit-service Deployment and its pods.
+                rate-limiter Deployment and its pods.
 
   # Checks that stop reaching an enforced domain fire once the window has seen
   # none for the hold; a domain whose checks keep arriving never does.
   - interval: 1m
     name: a domain whose checks stop beside one whose checks keep arriving
     input_series:
-      - series: 'ratelimit_policy_replicas{namespace="biz", pod="ratelimit-operator-0", domain="gateway.public", state="applied"}'
+      - series: 'ratelimit_policy_replicas{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.public", state="applied"}'
         values: "1x40"
-      - series: 'ratelimit_policy_replicas{namespace="biz", pod="ratelimit-operator-0", domain="gateway.private", state="applied"}'
+      - series: 'ratelimit_policy_replicas{namespace="biz", pod="rate-limiter-operator-0", domain="gateway.private", state="applied"}'
         values: "1x40"
-      - series: 'ratelimit_checks_total{namespace="biz", pod="ratelimit-service-0", domain="gateway.public", verdict="ok"}'
+      - series: 'ratelimit_checks_total{namespace="biz", pod="rate-limiter-0", domain="gateway.public", verdict="ok"}'
         values: "0+10x10 100x30"
-      - series: 'ratelimit_checks_total{namespace="biz", pod="ratelimit-service-0", domain="gateway.private", verdict="ok"}'
+      - series: 'ratelimit_checks_total{namespace="biz", pod="rate-limiter-0", domain="gateway.private", verdict="ok"}'
         values: "0+10x40"
     alert_rule_test:
       - eval_time: 30m

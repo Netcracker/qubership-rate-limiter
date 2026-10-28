@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/key"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/key"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
 )
 
 // scanBudget bounds the keys one call examines, exactly on a store whose step

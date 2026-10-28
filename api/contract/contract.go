@@ -16,7 +16,7 @@ const (
 	// called. Satellites compute the RLS address from it with nothing but the
 	// baseline's namespace to go on, and the operator reads its fleet through
 	// the same name.
-	ServiceName = "ratelimit"
+	ServiceName = "rate-limiter"
 
 	// GRPCPort is the port the Service publishes the rate limit endpoint on,
 	// and the port the gateway filters address. GRPCPortName is its name on
@@ -49,7 +49,7 @@ const (
 	// ConfigMapName is the one ConfigMap per namespace that the operator
 	// writes and the service mounts. The operator is its only writer; no
 	// chart renders it.
-	ConfigMapName = "ratelimit-config"
+	ConfigMapName = "rate-limiter-config"
 
 	// ManifestKey is the key under the ConfigMap's data that holds the
 	// manifest: plain JSON with the format version, the operator version, and

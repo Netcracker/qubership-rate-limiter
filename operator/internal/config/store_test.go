@@ -27,10 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 // The store's reading of an object somebody else wrote, or damaged. The
@@ -287,14 +287,14 @@ func TestSave_reportsAWriteThatFails(t *testing.T) {
 
 func TestAdoptDeployment_ownsTheObjectThroughTheDeployment(t *testing.T) {
 	c := fakeClient(t, &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Namespace: unitNamespace, Name: "ratelimit-operator", UID: "d-uid"}})
+		ObjectMeta: metav1.ObjectMeta{Namespace: unitNamespace, Name: "rate-limiter-operator", UID: "d-uid"}})
 	store := New(c, unitNamespace, nil, "0.0.0-unit", logr.Discard())
 
-	require.NoError(t, store.AdoptDeployment(t.Context(), c, "ratelimit-operator"))
+	require.NoError(t, store.AdoptDeployment(t.Context(), c, "rate-limiter-operator"))
 	require.NoError(t, store.Save(t.Context(), nil, policy.ConfigMapLimit))
 
 	assert.Equal(t, []metav1.OwnerReference{
-		{APIVersion: "apps/v1", Kind: "Deployment", Name: "ratelimit-operator", UID: "d-uid"},
+		{APIVersion: "apps/v1", Kind: "Deployment", Name: "rate-limiter-operator", UID: "d-uid"},
 	}, readConfigMap(t, c).OwnerReferences)
 }
 
@@ -305,7 +305,7 @@ func TestAdoptDeployment_leavesTheObjectUnownedWhenTheDeploymentIsMissing(t *tes
 	c := fakeClient(t)
 	store := New(c, unitNamespace, nil, "0.0.0-unit", logr.Discard())
 
-	err := store.AdoptDeployment(t.Context(), c, "ratelimit-operator")
+	err := store.AdoptDeployment(t.Context(), c, "rate-limiter-operator")
 	require.NoError(t, store.Save(t.Context(), nil, policy.ConfigMapLimit))
 
 	assert.ErrorContains(t, err, "written without an owner")
@@ -329,7 +329,7 @@ func TestCacheOptions_watchTheOneConfigMapByName(t *testing.T) {
 	require.Contains(t, entry.Namespaces, "biz", "ByObject[ConfigMap].Namespaces")
 	selector := entry.Namespaces["biz"].FieldSelector
 	require.NotNil(t, selector, "ByObject[ConfigMap].Namespaces[biz].FieldSelector")
-	assert.Equal(t, "metadata.name=ratelimit-config", selector.String(), "FieldSelector")
+	assert.Equal(t, "metadata.name=rate-limiter-config", selector.String(), "FieldSelector")
 	assert.True(t, options.ReaderFailOnMissingInformer, "ReaderFailOnMissingInformer")
 }
 
@@ -429,7 +429,7 @@ func TestWriteErrorReason_namesTheCause(t *testing.T) {
 	}{
 		{"a state the object cannot hold", fmt.Errorf("wrapped: %w", ErrTooLarge), "size"},
 		{"an answer of the API server", fmt.Errorf("update: %w",
-			apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, "ratelimit-config", errors.New("no"))),
+			apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, "rate-limiter-config", errors.New("no"))),
 			"api"},
 		{"a client that could not reach the API server", errors.New("connection refused"), "other"},
 	}

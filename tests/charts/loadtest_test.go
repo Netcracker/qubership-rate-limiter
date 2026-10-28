@@ -128,12 +128,12 @@ func TestLoadtestChart_pointsTheSamplerAtEveryGatewayAndServicePod(t *testing.T)
 	assert.Equal(t, "public-gateway", gateway.at("spec", "selector", "gateway.networking.k8s.io/gateway-name").str2(),
 		"pod selector of the gateway's Service")
 	assert.Equal(t, "None", service.at("spec", "clusterIP").str2(), "clusterIP of the service's Service")
-	assert.Equal(t, "ratelimit-service", service.at("spec", "selector", "name").str2(),
+	assert.Equal(t, "rate-limiter", service.at("spec", "selector", "name").str2(),
 		"pod selector of the service's Service")
 
 	env := generatorEnv(t, objects)
 	assert.Equal(t, "t-loadtest-gateway-stats.edge.svc.cluster.local:15090", env["LT_METRICS_GATEWAY"])
-	assert.Equal(t, "outbound|9000||ratelimit.load.svc.cluster.local", env["LT_METRICS_CLUSTER"])
+	assert.Equal(t, "outbound|9000||rate-limiter.load.svc.cluster.local", env["LT_METRICS_CLUSTER"])
 	assert.Equal(t, "t-loadtest-service-metrics.load.svc.cluster.local:8080", env["LT_METRICS_SERVICE"])
 	assert.Equal(t, "gateway.public", env["LT_METRICS_DOMAIN"])
 	assert.Equal(t, "5s", env["LT_METRICS_INTERVAL"])

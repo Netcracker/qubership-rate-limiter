@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/key"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/key"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 // orderCounterKeys returns count keys of orders/per-client, one per client,

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/identity"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/identity"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // TestTokenCacheNeverExceedsCapacity pins the retention contract for every

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/identity"
-	"github.com/netcracker/qubership-ratelimit/engine/match"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/identity"
+	"github.com/netcracker/qubership-rate-limiter/engine/match"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
 )
 
 const domain = "gateway.public"

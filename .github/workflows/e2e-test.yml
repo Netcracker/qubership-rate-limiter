@@ -175,7 +175,7 @@ jobs:
           # The CRD first, once for the cluster, by the one release that owns
           # it: the namespace charts carry no copy of it, and the baseline and
           # the satellite below both rely on this install.
-          helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds \
+          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds \
             --namespace "${E2E_NAMESPACE}" --wait --timeout 2m
 
           # A profile is mandatory: values.yaml carries no resource keys, so a
@@ -185,14 +185,14 @@ jobs:
           # the service waits NotReady until the operator writes, and the
           # service chart's EnvoyFilters are live from its install. Neither release is named after
           # its chart. The Service has a fixed name that satellites compute
-          # their RLS address from, and with the release named ratelimit the
+          # their RLS address from, and with the release named rate-limiter the
           # two coincide and nothing in the suite can tell a fixed name from a
           # derived one.
-          helm upgrade --install ratelimit-operator-baseline helm-templates/ratelimit-operator \
+          helm upgrade --install ratelimit-operator-baseline helm-templates/rate-limiter-operator \
             --namespace "${E2E_NAMESPACE}" \
             --set NAMESPACE="${E2E_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
             --set LOG_LEVEL=debug \
             --set IMAGE_REPOSITORY=ratelimit-operator \
             --set TAG=e2e \
@@ -205,11 +205,11 @@ jobs:
           # value would refuse every token the suite sends. The suite reaches
           # the API through the private gateway, so the policy admits the
           # gateway's workload rather than the caller's.
-          helm upgrade --install ratelimit-service-baseline helm-templates/ratelimit-service \
+          helm upgrade --install ratelimit-service-baseline helm-templates/rate-limiter \
             --namespace "${E2E_NAMESPACE}" \
             --set NAMESPACE="${E2E_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/ratelimit-service/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
             --set LOG_LEVEL=debug \
             --set IMAGE_REPOSITORY=ratelimit-service \
             --set TAG=e2e \
@@ -218,12 +218,12 @@ jobs:
             --set 'management.callers={e2e-management-caller}' \
             --set management.m2m.audience=ratelimit-e2e \
             --set 'management.authorizationPolicy.allowedServiceAccounts={private-gateway-istio}'
-          kubectl get service ratelimit -n "${E2E_NAMESPACE}" >/dev/null
+          kubectl get service rate-limiter -n "${E2E_NAMESPACE}" >/dev/null
 
       # The workflow then does what dbaas-operator does for the chart's
       # DatabaseSecretClaim, and in the same order: the release is installed
       # first, and its pods wait in ContainerCreating until the Secret
-      # ratelimit-service-redis exists. ContainerCreating alone proves nothing,
+      # rate-limiter-redis exists. ContainerCreating alone proves nothing,
       # since it is the first status of every container; the kubelet's
       # FailedMount event for the Secret is what marks the wait, so the step
       # writes the Secret only after one. The Secret has the format
@@ -238,7 +238,7 @@ jobs:
           for _ in $(seq 1 30); do
             if kubectl get events -n "${E2E_NAMESPACE}" --field-selector reason=FailedMount \
                 -o jsonpath='{range .items[*]}{.message}{"\n"}{end}' \
-                | grep -F 'secret "ratelimit-service-redis" not found'; then
+                | grep -F 'secret "rate-limiter-redis" not found'; then
               waited=yes
               break
             fi
@@ -252,12 +252,12 @@ jobs:
             '{host: $host, port: 6379, url: ("redis://" + $host + ":6379"), password: $password,
               role: "admin", service: "e2e-redis"}')"
           metadata="$(jq -cn --arg namespace "${E2E_NAMESPACE}" \
-            '{classifier: {microserviceName: "ratelimit-service", namespace: $namespace, scope: "service"},
+            '{classifier: {microserviceName: "rate-limiter", namespace: $namespace, scope: "service"},
               type: "redis", name: "e2e-redis", namespace: $namespace}')"
-          kubectl create secret generic ratelimit-service-redis -n "${E2E_NAMESPACE}" \
+          kubectl create secret generic rate-limiter-redis -n "${E2E_NAMESPACE}" \
             --from-file=connectionProperties.json=<(printf '%s' "${connection}") \
             --from-file=metadata.json=<(printf '%s' "${metadata}")
-          kubectl rollout status deployment/ratelimit-service -n "${E2E_NAMESPACE}" --timeout=5m
+          kubectl rollout status deployment/rate-limiter -n "${E2E_NAMESPACE}" --timeout=5m
 
       - name: Deploy the probe backend
         run: |
@@ -294,20 +294,20 @@ jobs:
           # the gateway filters and the operator chart's into nothing. No
           # store, no image: there is no Deployment for either to matter to,
           # and TAG is set only because both schemas require it.
-          helm upgrade --install ratelimit-operator-satellite helm-templates/ratelimit-operator \
+          helm upgrade --install ratelimit-operator-satellite helm-templates/rate-limiter-operator \
             --namespace "${E2E_SATELLITE_NAMESPACE}" \
             --set NAMESPACE="${E2E_SATELLITE_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
             --set TAG=e2e \
-            -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
             --set BASELINE_ORIGIN="${E2E_NAMESPACE}" \
             --wait --timeout 2m
-          helm upgrade --install ratelimit-service-satellite helm-templates/ratelimit-service \
+          helm upgrade --install ratelimit-service-satellite helm-templates/rate-limiter \
             --namespace "${E2E_SATELLITE_NAMESPACE}" \
             --set NAMESPACE="${E2E_SATELLITE_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
             --set TAG=e2e \
-            -f helm-templates/ratelimit-service/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
             --set BASELINE_ORIGIN="${E2E_NAMESPACE}" \
             --wait --timeout 2m
 
@@ -381,9 +381,9 @@ jobs:
           kubectl get all,ratelimitpolicies,envoyfilters,gateways.gateway.networking.k8s.io,httproutes \
             -n "${E2E_NAMESPACE}" -o wide || true
           kubectl describe pods -n "${E2E_NAMESPACE}" || true
-          kubectl get configmap ratelimit-config -n "${E2E_NAMESPACE}" -o yaml || true
-          kubectl logs -n "${E2E_NAMESPACE}" -l app.kubernetes.io/name=ratelimit-operator --tail=200 || true
-          kubectl logs -n "${E2E_NAMESPACE}" -l app.kubernetes.io/name=ratelimit-service --tail=200 || true
+          kubectl get configmap rate-limiter-config -n "${E2E_NAMESPACE}" -o yaml || true
+          kubectl logs -n "${E2E_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter-operator --tail=200 || true
+          kubectl logs -n "${E2E_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter --tail=200 || true
           kubectl get all,envoyfilters,gateways.gateway.networking.k8s.io,httproutes \
             -n "${E2E_SATELLITE_NAMESPACE}" -o wide || true
           kubectl get pods -n "${E2E_REDIS_NAMESPACE}" -o wide || true

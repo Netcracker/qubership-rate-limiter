@@ -21,10 +21,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	enginestore "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/service/internal/redisconn"
-	"github.com/netcracker/qubership-ratelimit/service/internal/rls"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	enginestore "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/redisconn"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
 )
 
 // readEnvironment points configloader at the environment alone, where the
@@ -44,7 +44,7 @@ func (w *warnings) warn(format string, args ...any) { *w = append(*w, fmt.Sprint
 func TestCounterStore_countsInTheDatabaseTheSecretNames(t *testing.T) {
 	source, err := redisconn.Open(context.Background(), fixedResolver{
 		"host": "ratelimit-redis.core", "port": float64(6379), "password": "p", "role": "admin",
-	}, redisconn.Classifier("ratelimit-service", "core"), logr.Discard())
+	}, redisconn.Classifier("rate-limiter", "core"), logr.Discard())
 	require.NoError(t, err)
 
 	backend := CounterStore(source)
@@ -64,7 +64,7 @@ func TestCounterStore_readsThePoolOfTheDecisionClient(t *testing.T) {
 	host, port, err := net.SplitHostPort(closedAddr(t))
 	require.NoError(t, err)
 	source, err := redisconn.Open(context.Background(), fixedResolver{"host": host, "port": port, "password": "p"},
-		redisconn.Classifier("ratelimit-service", "core"), logr.Discard())
+		redisconn.Classifier("rate-limiter", "core"), logr.Discard())
 	require.NoError(t, err)
 	backend := CounterStore(source)
 	t.Cleanup(func() { _ = backend.Closer.Close() })

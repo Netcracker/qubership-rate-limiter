@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 // Memory keeps records in this process, beside an in-process counter store,

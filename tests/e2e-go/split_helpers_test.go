@@ -15,9 +15,9 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	"github.com/netcracker/qubership-ratelimit/api/manifest"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/api/manifest"
 )
 
 // The channel between the two halves: the ConfigMap the operator writes and
@@ -90,8 +90,8 @@ func debugRequest(pod corev1.Pod, path string) (int, []byte) {
 	return resp.StatusCode, body
 }
 
-// readyServiceEndpoints counts the ready endpoints of the Service ratelimit,
-// the set the gateways route to and the operator probes.
+// readyServiceEndpoints counts the ready endpoints of the Service
+// rate-limiter, the set the gateways route to and the operator probes.
 func readyServiceEndpoints() int {
 	var slices discoveryv1.EndpointSliceList
 	if err := k8s.List(ctx, &slices, client.InNamespace(namespace),

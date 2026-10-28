@@ -21,11 +21,11 @@ import (
 	"github.com/netcracker/qubership-core-lib-go/v3/security"
 	"github.com/netcracker/qubership-core-lib-go/v3/serviceloader"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	"github.com/netcracker/qubership-ratelimit/internal/process"
-	"github.com/netcracker/qubership-ratelimit/service/internal/app"
-	"github.com/netcracker/qubership-ratelimit/service/internal/config"
-	"github.com/netcracker/qubership-ratelimit/service/internal/rls"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/internal/process"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/app"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/config"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
 )
 
 // loggerName prefixes every log line this process writes. Sub-loggers are

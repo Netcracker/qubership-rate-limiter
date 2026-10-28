@@ -6,7 +6,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/netcracker/qubership-ratelimit/api/manifest"
+	"github.com/netcracker/qubership-rate-limiter/api/manifest"
 )
 
 // ConfigMapLimit is what one ConfigMap holds: the API server refuses an

@@ -141,7 +141,7 @@ type counterStore struct {
 
 // redisSecretName is the Secret the service chart mounts: <SERVICE_NAME>-redis,
 // and the suites install the chart with the default SERVICE_NAME.
-const redisSecretName = "ratelimit-service-redis"
+const redisSecretName = "rate-limiter-redis"
 
 // releaseCounterStore reads where the release counts. false means the release
 // carries no connection this suite can reach.

@@ -10,7 +10,7 @@ The API is off by default: `management.enabled=true` in the service chart turns 
 Service ([Management API port](helm-chart.md#management-api-port)).
 
 ```bash
-kubectl port-forward -n core svc/ratelimit 8082:8082 &
+kubectl port-forward -n core svc/rate-limiter 8082:8082 &
 BASE=http://127.0.0.1:8082/ratelimit/v1
 
 # The API takes the token of a ServiceAccount the release lists in

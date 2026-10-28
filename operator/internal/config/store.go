@@ -1,5 +1,5 @@
 // Package config writes the configuration of the namespace: one ConfigMap,
-// ratelimit-config, that the operator owns and the service mounts.
+// rate-limiter-config, that the operator owns and the service mounts.
 //
 // The object is the whole channel between the two halves of the split and
 // the last-good state of the namespace at once: under binaryData
@@ -28,11 +28,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	"github.com/netcracker/qubership-ratelimit/api/manifest"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/controller"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/api/manifest"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/controller"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 // Store reads and writes the namespace's ConfigMap.

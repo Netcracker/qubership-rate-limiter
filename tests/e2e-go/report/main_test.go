@@ -239,12 +239,12 @@ func TestBuildDetailsAFailureByTheOnePartItCarries(t *testing.T) {
 func TestBuildCarriesTheReasonOfASkippedSpec(t *testing.T) {
 	rep := buildRun(t, suiteOf(`
 		<testcase name="[It] shadow rules count a refused request [shadow]" time="0">
-			<skipped message="skipped - the namespace carries no ratelimit-service-redis Secret"/>
+			<skipped message="skipped - the namespace carries no rate-limiter-redis Secret"/>
 		</testcase>`))
 
 	skipped := specNamed(t, groupLabeled(t, rep, "shadow"), "shadow rules count a refused request")
 	assert.Equal(t, stateSkip, skipped.State, "the state of the skipped spec")
-	assert.Equal(t, "skipped - the namespace carries no ratelimit-service-redis Secret", skipped.Detail,
+	assert.Equal(t, "skipped - the namespace carries no rate-limiter-redis Secret", skipped.Detail,
 		"the detail of the skipped spec")
 }
 
