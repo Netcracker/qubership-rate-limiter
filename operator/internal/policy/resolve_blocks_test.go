@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // Block presets: a block of spec.limits takes a body of target, mode, and

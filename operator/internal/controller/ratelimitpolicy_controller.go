@@ -2,11 +2,11 @@
 //
 // The one operator pod that holds the Lease writes it, from the compile it
 // shares with the ConfigMap writer (operator/internal/config) and the fleet
-// it probes: the service replicas of the Service ratelimit, each asked which
-// generation it enforces. A reconciler therefore never decides anything the
-// service depends on; it reads the same pure compilation the writer reads and
-// reports what it says, plus the one thing only the operator can see: whether
-// every replica agrees.
+// it probes: the service replicas of the Service rate-limiter, each asked
+// which generation it enforces. A reconciler therefore never decides anything
+// the service depends on; it reads the same pure compilation the writer reads
+// and reports what it says, plus the one thing only the operator can see:
+// whether every replica agrees.
 package controller
 
 import (
@@ -26,10 +26,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 // ProbeInterval is how often the leader re-reads the fleet. It runs on every

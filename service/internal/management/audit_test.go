@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // Every mutation is audited, and the journal is the primary carrier: who

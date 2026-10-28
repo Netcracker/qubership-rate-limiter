@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	"github.com/netcracker/qubership-ratelimit/service/internal/debug"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/debug"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 const (

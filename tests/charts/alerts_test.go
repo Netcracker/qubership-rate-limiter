@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
 )
 
 // alertsOf lists the alerts each chart ships behind MONITORING_ENABLED.

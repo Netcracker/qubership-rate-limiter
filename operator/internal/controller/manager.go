@@ -5,7 +5,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 // CacheOptions is what the manager caches, and it is shared with the tests

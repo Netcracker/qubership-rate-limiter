@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // MaxResolvedSize bounds the serialized size of a resolved policy: 1.5 MiB

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/netcracker/qubership-ratelimit/engine/key"
+	"github.com/netcracker/qubership-rate-limiter/engine/key"
 )
 
 // The counter key layout belongs to the engine's key package, which builds

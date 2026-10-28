@@ -25,11 +25,11 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 // Summary is the body of a GET on contract.SnapshotPath: one row per domain

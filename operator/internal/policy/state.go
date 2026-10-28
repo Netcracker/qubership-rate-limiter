@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // ErrBundleOverflow reports a bundle too large to persist. Callers use it to

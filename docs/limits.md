@@ -15,7 +15,7 @@ no list needs `maxItems`.
 | | object size | ~256 KiB under client-side `apply`, 1.5 MiB in etcd | the `last-applied-configuration` annotation, `--max-request-bytes` | the API server |
 | | the resolved policy, presets written into the blocks and rules that take them | ≤ 1.5 MiB (1572864 bytes) serialized, estimated from the sizes of the spec as written and of the presets before any preset is written into a block or a rule | the same wall as an authored object | the compiler, `ResolvedPolicyTooLarge`; last-good stays enforced |
 | | blocks, rules, groups, group values, mapping keys | unbounded | object size only; the number of blocks is an observed metric | — |
-| **Namespace** | the compressed configuration of all domains, the ConfigMap `ratelimit-config` | ≤ 1 MiB compressed total | the Kubernetes object size limit of a ConfigMap | the operator before the write, `ConfigMapTooLarge`; last-good stays enforced |
+| **Namespace** | the compressed configuration of all domains, the ConfigMap `rate-limiter-config` | ≤ 1 MiB compressed total | the Kubernetes object size limit of a ConfigMap | the operator before the write, `ConfigMapTooLarge`; last-good stays enforced |
 | **Call** | descriptors of one gRPC check | ≤ 16 | every descriptor is its own decision and its own store trip; a gateway sends one | the adapter, `too_many_descriptors` → `OVER_LIMIT` |
 | | cost of one descriptor (`hits_addend`) | ≤ 1 000 000 000, not negative | Envoy's own ceiling; the engine gives no budget back | the adapter, `invalid_cost` → `OVER_LIMIT` |
 | | cost of the whole check, summed over its descriptors | ≤ 1 000 000 000 | spreading the largest cost over descriptors would multiply it | the adapter, `invalid_cost` → `OVER_LIMIT` |
@@ -76,7 +76,7 @@ has resolved and compiled it. The wall keeps that payload bound above any spec t
 
 ### The compressed configuration of a namespace
 
-The operator writes the validated spec of every domain of the namespace into one ConfigMap, `ratelimit-config`, as a
+The operator writes the validated spec of every domain of the namespace into one ConfigMap, `rate-limiter-config`, as a
 gzip-compressed `<domain>.json.gz` key per domain next to a plain `manifest` key. A ConfigMap holds at most 1 MiB
 (1048576 bytes) across its values, so the compressed total of all domains of the namespace, with the manifest, is
 bounded by 1 MiB. The wall is per namespace, not per policy, and compression decides how far away it is. Rules compress

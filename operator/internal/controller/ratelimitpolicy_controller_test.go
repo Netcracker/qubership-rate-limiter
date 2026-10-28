@@ -21,10 +21,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	ratelimitv1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 const (
@@ -901,9 +901,9 @@ func TestPoliciesBehind_mapsOnlyTheFleetsOwnSliceToEveryPolicy(t *testing.T) {
 		sliceService string
 		want         []reconcile.Request
 	}{
-		{"a slice of the fleet's Service", "ratelimit", "ratelimit", []reconcile.Request{testRequest()}},
-		{"a slice of another Service", "ratelimit", "some-other-service", nil},
-		{"a slice of the fleet, with no Service configured", "", "ratelimit", nil},
+		{"a slice of the fleet's Service", "rate-limiter", "rate-limiter", []reconcile.Request{testRequest()}},
+		{"a slice of another Service", "rate-limiter", "some-other-service", nil},
+		{"a slice of the fleet, with no Service configured", "", "rate-limiter", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

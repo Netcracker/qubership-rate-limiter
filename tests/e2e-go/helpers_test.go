@@ -23,8 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // apply is the kubectl-apply of the suite: server-side, forcing ownership so a

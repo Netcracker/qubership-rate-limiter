@@ -6,10 +6,10 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/match"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/match"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
 )
 
 // Applicability answers the question an operator actually has when a client

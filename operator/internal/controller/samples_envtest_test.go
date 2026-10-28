@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	ratelimitv1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // samplesDir holds the sample policies the documentation points at.

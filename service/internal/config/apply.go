@@ -10,16 +10,16 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/manifest"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	enginecompile "github.com/netcracker/qubership-ratelimit/engine/compile"
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/internal/convert"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/manifest"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	enginecompile "github.com/netcracker/qubership-rate-limiter/engine/compile"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/internal/convert"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 // Applier turns a reading into the rule set the gRPC server decides with,

@@ -22,10 +22,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/config"
-	operatorpolicy "github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/config"
+	operatorpolicy "github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 const testNamespace = "ratelimit-app-envtest"
@@ -96,7 +96,7 @@ var _ = Describe("the operator, built without a Deployment to adopt", Ordered, C
 
 		GinkgoT().Setenv("POD_NAME", "")
 		mgr, err = Build(cfg, scheme.Scheme, testNamespace, Options{
-			ProbeAddr: probeAddr, MetricsAddr: "0", Deployment: "ratelimit-operator", Version: "0.0.0-test",
+			ProbeAddr: probeAddr, MetricsAddr: "0", Deployment: "rate-limiter-operator", Version: "0.0.0-test",
 			LeaderElection: true,
 			Log:            logf.Log,
 			Warn: func(format string, args ...any) {

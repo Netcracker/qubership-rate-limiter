@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	ratelimitv1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // A message past the CRD's bound makes the API server refuse the whole

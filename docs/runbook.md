@@ -1,10 +1,10 @@
 # Operations runbook
 
 How to read what the rate limit components report and what to do about it. Written against the one-object architecture
-with two components per namespace: the operator Deployment `ratelimit-operator`, which reads the policies, writes their
-status, and writes the ConfigMap `ratelimit-config`; and the service Deployment `ratelimit-service`, which mounts that
-ConfigMap and serves the decisions. One `RateLimitPolicy` per domain; the ConfigMap is the last-good state. The design
-is in the [topology](deployment-topology.md), the [resource specification](ratelimitpolicy-cr-spec.md), the
+with two components per namespace: the operator Deployment `rate-limiter-operator`, which reads the policies, writes
+their status, and writes the ConfigMap `rate-limiter-config`; and the service Deployment `rate-limiter`, which mounts
+that ConfigMap and serves the decisions. One `RateLimitPolicy` per domain; the ConfigMap is the last-good state. The
+design is in the [topology](deployment-topology.md), the [resource specification](ratelimitpolicy-cr-spec.md), the
 [management API](management-api.md) with its [cookbook](management-api-cookbook.md), and the [charts](helm-chart.md),
 which hold the metric names.
 
@@ -25,7 +25,7 @@ the `kubectl` and `/debug/*` commands do not.
 ```bash
 NS=ratelimit-e2e             # the namespace of the installation
 DOMAIN=gateway.public        # the policy is named after its domain
-kubectl port-forward -n "$NS" svc/ratelimit 8082:8082 &
+kubectl port-forward -n "$NS" svc/rate-limiter 8082:8082 &
 BASE=http://127.0.0.1:8082/ratelimit/v1
 CALLER=<a ServiceAccount listed in management.callers>
 CALLER_NS=<its namespace>    # "$NS" for an entry <name>, <namespace> for an entry <namespace>/<name>
@@ -44,26 +44,26 @@ The service verifies the token either way, so a port-forward skips the mesh poli
 token still has to belong to a listed caller.
 
 The installation is two Deployments in the namespace. The operator pod reads the policies, writes their status, and
-writes the ConfigMap `ratelimit-config`; the service pods mount that ConfigMap and serve the decisions and the
+writes the ConfigMap `rate-limiter-config`; the service pods mount that ConfigMap and serve the decisions and the
 management API. A service pod turns Ready only after it applies its first manifest, without a timeout. A service pod
 that stays NotReady has no manifest yet: the operator has not written the ConfigMap, the kubelet has not projected it
 into the pod, or the replica refuses it (section 5).
 
 ```bash
-kubectl get deploy -n "$NS" ratelimit-operator ratelimit-service
-kubectl get pods -n "$NS" -l 'app.kubernetes.io/name in (ratelimit-operator, ratelimit-service)'
+kubectl get deploy -n "$NS" rate-limiter-operator rate-limiter
+kubectl get pods -n "$NS" -l 'app.kubernetes.io/name in (rate-limiter-operator, rate-limiter)'
 ```
 
 Two logs: the operator's carries the reconciles, the status writes, and the probes of the replicas; the service's
 carries the decision path and the management API.
 
 ```bash
-kubectl logs -n "$NS" deploy/ratelimit-operator --since=10m | tail
-kubectl logs -n "$NS" deploy/ratelimit-service --since=10m | tail
+kubectl logs -n "$NS" deploy/rate-limiter-operator --since=10m | tail
+kubectl logs -n "$NS" deploy/rate-limiter --since=10m | tail
 ```
 
 An operator pod that restarts at start, never turns Ready, and logs a line with
-`no matches for ratelimit.netcracker.com/v1` runs in a cluster without the CRD: the cluster chart `ratelimit-crds` is
+`no matches for ratelimit.netcracker.com/v1` runs in a cluster without the CRD: the cluster chart `rate-limiter-crds` is
 not installed, or was installed after the operator and the pod has not restarted since. `kubectl get rlp` fails the
 same way, with `the server doesn't have a resource type "rlp"`.
 
@@ -77,7 +77,7 @@ Install the CRD release; the operator starts on its next restart, see
 [the CRD chart](helm-chart.md#the-crd-chart):
 
 ```bash
-helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds --namespace <platform-namespace>
+helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds --namespace <platform-namespace>
 ```
 
 The one command to start with:
@@ -107,7 +107,7 @@ ones kept first when the list is cut. Anything other than `True`, `n/n`, and a b
 | `Ready: False`, reason `NoReplicas` | no ready service replica; the pod state shows whether it is the Secret (1) or the manifest (9) | 4 |
 | `Ready: Unknown`, reason `ProbeFailed` | the operator cannot read the service replicas | 4 |
 | `Accepted: False`, reason `CompilationFailed` | the same as `NotCompiled`, seen from the object's side | 3 or 5 |
-| `Ready: False`, reason `Reconciling`, then `ReplicaStale` after 90 s, with `ratelimit_config_write_errors_total` growing | the operator cannot write `ratelimit-config` | 9 |
+| `Ready: False`, reason `Reconciling`, then `ReplicaStale` after 90 s, with `ratelimit_config_write_errors_total` growing | the operator cannot write `rate-limiter-config` | 9 |
 | a fresh service pod NotReady with no other symptom | no ConfigMap in its volume yet | 9 |
 
 An alert of the two charts' PrometheusRules ([Alerts](helm-chart.md#alerts)) lands in the same sections. The hold is
@@ -121,7 +121,7 @@ the chart value named, with its default:
 | `RatelimitNoReplicas` | critical | `Ready: False` with reason `NoReplicas`, or a `NotCompiled` domain whose fleet had no ready replica on its last successful probe | `policyAlerts.noReplicasFor`, 5m | 4 |
 | `RatelimitChecksStopped` | warning | ready replicas enforce the domain and no check of it arrived in `policyAlerts.checksStoppedWindow`, 10m | `policyAlerts.checksStoppedFor`, 15m | 10 |
 | `RatelimitRuleProblems` | warning | a blocking problem on the latest generation | `policyAlerts.ruleProblemsFor`, 5m | 3, or 5 for an unknown field |
-| `RatelimitConfigWriteErrors` | critical | a write of `ratelimit-config` failed and none has succeeded since | `policyAlerts.configWriteFailingFor`, 5m | 9 |
+| `RatelimitConfigWriteErrors` | critical | a write of `rate-limiter-config` failed and none has succeeded since | `policyAlerts.configWriteFailingFor`, 5m | 9 |
 | `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader failed every reconcile within `policyAlerts.reconcileErrorsWindow`, 30m | `policyAlerts.reconcileFailingFor`, 5m | 9 |
 | `RatelimitNoOperatorLeader` | critical | no scrape of the namespace reports `ratelimit_leader 1` | `policyAlerts.noLeaderFor`, 5m | 10 |
 | `RatelimitUnknownDomain` | warning | a check for a domain no policy claims within 5m | `alerts.unknownDomainFor`, 5m | 2, or 3 for a policy that enforces no generation |
@@ -159,7 +159,7 @@ The service's own view, per replica, through the management API:
 
 ```bash
 api "$BASE/status" | jq
-# {"replica": "ratelimit-service-686d7856bf-jbccp", "snapshotSwappedAt": "2026-09-21T13:20:59Z",
+# {"replica": "rate-limiter-686d7856bf-jbccp", "snapshotSwappedAt": "2026-09-21T13:20:59Z",
 #  "ruleSetVersions": {"gateway.private": "957f8204794e", "gateway.public": "5ff0f5a9e94d"},
 #  "counterStore": {"backend": "redis at e2e-redis:6379"}}
 api "$BASE/domains" | jq
@@ -167,24 +167,24 @@ api "$BASE/domains" | jq
 #             "effectiveKeys": ["method", "path", "plan", "roles", "sub"], "listValuedKeys": ["roles"]}, ...]}
 ```
 
-The channel between the two Deployments is the ConfigMap `ratelimit-config`, one per namespace. The operator writes it
-as a whole on every reconcile, even when the namespace holds no policy, and no chart renders it. Under `binaryData` it
-holds one `<domain>.json.gz` key per domain, the validated spec of the domain gzip-compressed. Under `data` its
+The channel between the two Deployments is the ConfigMap `rate-limiter-config`, one per namespace. The operator writes
+it as a whole on every reconcile, even when the namespace holds no policy, and no chart renders it. Under `binaryData`
+it holds one `<domain>.json.gz` key per domain, the validated spec of the domain gzip-compressed. Under `data` its
 `manifest` key is plain JSON with the integer `formatVersion`, the `operatorVersion`, and the `generation`, `uid`, and
 `hash` of every domain. It is the last-good state: the `generation` of a domain in the manifest is the one
 `activeGeneration` reports.
 
 ```bash
-kubectl get cm -n "$NS" ratelimit-config -o json | jq -c '.binaryData | keys'
+kubectl get cm -n "$NS" rate-limiter-config -o json | jq -c '.binaryData | keys'
 # ["gateway.private.json.gz","gateway.public.json.gz"]
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.data.manifest}' | jq -c
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.data.manifest}' | jq -c
 # {"formatVersion": 1, "operatorVersion": "20b5501", "domains": {
 #   "gateway.private": {"generation": 3, "uid": "274ac015-...", "hash": "sha256:66aa18f6..."},
 #   "gateway.public": {"generation": 1, "uid": "fb3aa99c-...", "hash": "sha256:0f30f38e..."}}}
-kubectl get cm -n "$NS" ratelimit-config -o json \
+kubectl get cm -n "$NS" rate-limiter-config -o json \
   | jq -r '.binaryData["gateway.public.json.gz"]' | base64 -d | gunzip | jq
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}{"\n"}'
-# Deployment/ratelimit-operator
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}{"\n"}'
+# Deployment/rate-limiter-operator
 ```
 
 `/debug/applied` on the metrics port of a service pod, 8080, reports what the replica applied: the
@@ -193,7 +193,7 @@ reason, and `"configAbsent": true` while the mounted directory holds no manifest
 same endpoint once per probe cycle, and the `REPLICAS` column counts what it read.
 
 ```bash
-kubectl get pods -n "$NS" -l app.kubernetes.io/name=ratelimit-service -o name
+kubectl get pods -n "$NS" -l app.kubernetes.io/name=rate-limiter -o name
 kubectl port-forward -n "$NS" pod/<a service pod> 8080:8080 &
 curl -s http://127.0.0.1:8080/debug/applied | jq -c
 # {"domains": {"gateway.private": {"generation": 3, "uid": "274ac015-...", "appliedAt": "2026-09-21T13:20:59Z"},
@@ -251,7 +251,7 @@ of the service chart without reading the store, and counts them as `verdict="exe
 counters, `GET /status`, `/domains`, `/domains/{domain}/rules`, and `/openapi.yaml`, return `200` during the outage. A
 `503` from the API with no `RLS-` code in its body is the gateway's, and has three causes. The gateway sent the call to
 an upstream with no ready endpoint and answered with the body `no healthy upstream`, `UH` in its access log: a route to
-the Service `ratelimit` on port 8082 exists and no service pod is ready, or no such route exists (the charts render
+the Service `rate-limiter` on port 8082 exists and no service pod is ready, or no such route exists (the charts render
 none, section 0) and the mesh's catch-all fallback route took the call to a fallback service without endpoints, as on
 the stand. The gateway's domain is missing from `management.gatewayDomains`. Or the check itself got no answer within
 `filter.timeout`. A gateway without a fallback route answers a call it has no route for with `404`, `NR` in its access
@@ -261,12 +261,12 @@ log, rather than a `503`. The port-forward of section 0 reaches the API past the
 
 ```bash
 # where the store lives: the host of the Secret the service mounts, <database>.<adapter namespace>
-kubectl get secret -n "$NS" ratelimit-service-redis -o jsonpath='{.data.connectionProperties\.json}' \
+kubectl get secret -n "$NS" rate-limiter-redis -o jsonpath='{.data.connectionProperties\.json}' \
   | base64 -d | jq -r '.host'
 kubectl get pods -n <adapter namespace> -l app=<database>
 api "$BASE/domains/$DOMAIN/counters?limited=true" | jq -c '{code, message}'
 # {"code": "RLS-0503", "message": "the counter store did not answer the scan"}
-kubectl logs -n "$NS" deploy/ratelimit-service --since=10m | grep -E 'store error|failed to scan' | tail
+kubectl logs -n "$NS" deploy/rate-limiter --since=10m | grep -E 'store error|failed to scan' | tail
 # [ERROR] ... [class=ratelimit] rate limit store error domain=gateway.public path=/api/v1/exports/1
 #   error=redis: decision script: context canceled suppressed=0
 # [ERROR] ... [class=ratelimit] failed to scan counter keys domain=gateway.public error=redis: scan: EOF
@@ -298,14 +298,14 @@ no `domain` label:
 sum by (pod) (rate(ratelimit_store_pool_misses_total[5m]))
 ```
 
-A replica that does not start at all, stuck in `ContainerCreating` with `secret "ratelimit-service-redis" not found`,
+A replica that does not start at all, stuck in `ContainerCreating` with `secret "rate-limiter-redis" not found`,
 is waiting for DBaaS rather than for Redis: the Secret is written by dbaas-operator once the database exists. For a
 Secret that was never written, the claim's status says why; for one that was written and then lost, it reads
 `Ready=True`, as described below:
 
 ```bash
 kubectl get databasesecretclaim,internaldatabase -n "$NS"
-kubectl get databasesecretclaim -n "$NS" ratelimit-service-redis \
+kubectl get databasesecretclaim -n "$NS" rate-limiter-redis \
   -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}'
 ```
 
@@ -321,7 +321,7 @@ the operator write Secrets in the namespace, and silence is an `operatorNamespac
 it with the `API_DBAAS_ADDRESS` the release was installed with.
 
 ```bash
-kubectl logs -n <dbaas namespace> deploy/dbaas-operator --since=10m | grep -E 'ratelimit-service-redis|forbidden'
+kubectl logs -n <dbaas namespace> deploy/dbaas-operator --since=10m | grep -E 'rate-limiter-redis|forbidden'
 ```
 
 An `InternalDatabase` whose provisioning failed, for example with no Redis adapter registered, stays in
@@ -335,9 +335,9 @@ does not bring the Secret back either. A new value of the annotation makes the o
 the same content; the pods waiting in `ContainerCreating` start on the kubelet's next mount attempt:
 
 ```bash
-kubectl annotate databasesecretclaim -n "$NS" ratelimit-service-redis --overwrite \
+kubectl annotate databasesecretclaim -n "$NS" rate-limiter-redis --overwrite \
   dbaas.netcracker.com/rotation-trigger="manual-$(date -u +%Y%m%dT%H%M%SZ)"
-kubectl get secret -n "$NS" ratelimit-service-redis
+kubectl get secret -n "$NS" rate-limiter-redis
 ```
 
 The annotation is the one dbaas-operator's rotation poller stamps when credentials change, and a value written by
@@ -550,7 +550,7 @@ kubectl get rlp -n "$NS" "$DOMAIN" -o jsonpath='{.status.conditions}' | jq -c '.
 #  "message": "generation 2 does not compile; generation 1 remains enforced"}
 # {"type": "Stalled", "status": "True", "reason": "NotCompiled"}
 kubectl get rlp -n "$NS" "$DOMAIN" -o jsonpath='{.status.ruleProblems}' | jq
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.data.manifest}' | jq '.domains["gateway.public"].generation'
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.data.manifest}' | jq '.domains["gateway.public"].generation'
 # 1      -> the ConfigMap never carries a generation that does not compile
 ```
 
@@ -601,7 +601,7 @@ the event after its `--event-ttl`, one hour by default; for an older loss, searc
 
 ```bash
 kubectl get events -n "$NS" --field-selector reason=LastGoodLost
-kubectl logs -n "$NS" -l name=ratelimit-operator --prefix | grep 'dropped a saved last-good generation'
+kubectl logs -n "$NS" -l name=rate-limiter-operator --prefix | grep 'dropped a saved last-good generation'
 ```
 
 **Act.** Fix the spec at the address and apply it. The compiler judges the whole generation, so fix every listed problem
@@ -641,11 +641,11 @@ kubectl get rlp -n "$NS" "$DOMAIN" \
 ## 4. `Stalled: True` with `ReplicaStale`
 
 The operator reads `/debug/applied` from every ready service replica once per probe cycle, 10 s, in one round shared by
-every domain of the namespace. It finds the replicas by pod IP in the EndpointSlice of the Service `ratelimit` and takes
-the port number from the slice by the port name `metrics`. A replica that reports another generation for longer than
-90 s, or does not respond at all, turns `Ready` to `ReplicaStale` and `Stalled` to `True`, and the message names it. The
-threshold sits above the kubelet sync period, one minute by default, so an update the kubelet has not projected yet
-reports as `Propagating`, not as a stall.
+every domain of the namespace. It finds the replicas by pod IP in the EndpointSlice of the Service `rate-limiter` and
+takes the port number from the slice by the port name `metrics`. A replica that reports another generation for longer
+than 90 s, or does not respond at all, turns `Ready` to `ReplicaStale` and `Stalled` to `True`, and the message names
+it. The threshold sits above the kubelet sync period, one minute by default, so an update the kubelet has not projected
+yet reports as `Propagating`, not as a stall.
 
 **Signal.** On the stand, three service replicas, two of them behind a `DENY` on the metrics port, and the operator pod
 replaced so that it connects afresh:
@@ -656,7 +656,7 @@ kubectl get rlp -n "$NS"
 # gateway.private   False   1/3        1                  84m
 # gateway.public    False   1/3        12                 84m
 kubectl get rlp -n "$NS" "$DOMAIN" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}{"\n"}'
-# 1 of 3 replicas enforce generation 5; ratelimit-service-686d7856bf-2p2kg, ratelimit-service-686d7856bf-bpqwd did not answer
+# 1 of 3 replicas enforce generation 5; rate-limiter-686d7856bf-2p2kg, rate-limiter-686d7856bf-bpqwd did not answer
 kubectl get rlp -n "$NS" "$DOMAIN" -o jsonpath='{.status.replicas}' | jq -c
 # {"applied": 1, "lastCheckTime": "2026-09-21T13:36:21Z", "summary": "1/3", "total": 3}
 kubectl get rlp -n "$NS" "$DOMAIN" -o jsonpath='{.status.conditions}' | jq -c '.[] | {type, status, reason}'
@@ -705,9 +705,9 @@ has never applied has nothing to keep; it enforces nothing, at generation 0. A r
 separate reason `ReplicaFormatUnsupported`, below.
 
 ```bash
-kubectl get pods -n "$NS" -l app.kubernetes.io/name=ratelimit-service \
+kubectl get pods -n "$NS" -l app.kubernetes.io/name=rate-limiter \
   -o custom-columns='NAME:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready'
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.data.manifest}' | jq
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.data.manifest}' | jq
 kubectl port-forward -n "$NS" pod/<the pod the message names> 8080:8080 &
 curl -s http://127.0.0.1:8080/debug/applied | jq
 kubectl logs -n "$NS" <the pod the message names> --since=15m | grep -E 'configuration|compile|refused' | tail -20
@@ -730,7 +730,7 @@ answering HTTP.
 ```bash
 kubectl get networkpolicies,authorizationpolicies -n "$NS"
 # NAME                                                                 ACTION   AGE
-# authorizationpolicy.security.istio.io/ratelimit-service-management   DENY     2d23h
+# authorizationpolicy.security.istio.io/rate-limiter-management        DENY     2d23h
 # authorizationpolicy.security.istio.io/runbook-block-metrics          DENY     2m
 kubectl port-forward -n "$NS" pod/<the pod the message names> 8080:8080 &
 curl -s --max-time 5 http://127.0.0.1:8080/debug/applied   # answers here but not to the operator: the path is blocked
@@ -748,16 +748,16 @@ pods, so a `DENY` on the metrics port blocks every replica alike; the operator n
 When no replica answers, the condition is `Ready: Unknown` with reason `ProbeFailed` instead: the operator reports that
 it cannot read the fleet rather than a count it does not have.
 
-**Diagnose, `NoReplicas`.** The EndpointSlice of the Service `ratelimit` has no ready endpoint, so nothing enforces
+**Diagnose, `NoReplicas`.** The EndpointSlice of the Service `rate-limiter` has no ready endpoint, so nothing enforces
 the policy and every check is decided by the gateway's failure mode (section 1); the alert is `RatelimitNoReplicas`.
 The pod state shows which of three cases it is:
 
 ```bash
-kubectl get pods -n "$NS" -l app.kubernetes.io/name=ratelimit-service
+kubectl get pods -n "$NS" -l app.kubernetes.io/name=rate-limiter
 kubectl describe pod -n "$NS" <a service pod> | grep -A5 '^Events'
 ```
 
-A pod in `ContainerCreating` with `secret "ratelimit-service-redis" not found` in its events waits for the Secret:
+A pod in `ContainerCreating` with `secret "rate-limiter-redis" not found` in its events waits for the Secret:
 the store's volume is not optional, so the pod does not start before dbaas-operator writes it (section 1). A pod
 `Running` with `0/1` ready has started and waits for its first manifest: `/readyz` answers `503` until the replica
 applies one, and the ConfigMap volume is optional, so the pod exists before the operator writes (section 9); a pod
@@ -774,9 +774,9 @@ upgraded before the service. On the stand the manifest was rewritten by hand wit
 operator was scaled to zero:
 
 ```bash
-kubectl get deploy -n "$NS" ratelimit-operator ratelimit-service \
+kubectl get deploy -n "$NS" rate-limiter-operator rate-limiter \
   -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image'
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.data.manifest}' | jq '{formatVersion, operatorVersion}'
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.data.manifest}' | jq '{formatVersion, operatorVersion}'
 curl -s http://127.0.0.1:8080/debug/applied | jq -c '{gen: .domains["gateway.public"].generation, formatVersions, refusal}'
 # {"gen": 5, "formatVersions": [1],
 #  "refusal": {"formatVersion": 101, "reason": "manifest: unsupported format version: 101 (this reader accepts [1])"}}
@@ -790,8 +790,8 @@ in its own format, and judged the replicas from their reports: `Ready: False` wi
 `Stalled: True` 21 s after the operator's start, at once and without a deadline, with the message:
 
 ```text
-0 of 3 ready replicas enforce generation 6; ratelimit-service-686d7856bf-2p2kg, ratelimit-service-686d7856bf-bpqwd,
-ratelimit-service-686d7856bf-jbccp refused the manifest's format and keep an earlier snapshot: upgrade the service
+0 of 3 ready replicas enforce generation 6; rate-limiter-686d7856bf-2p2kg, rate-limiter-686d7856bf-bpqwd,
+rate-limiter-686d7856bf-jbccp refused the manifest's format and keep an earlier snapshot: upgrade the service
 before the operator
 ```
 
@@ -819,7 +819,7 @@ Two versions can skew after a partial upgrade. The CRD is one per cluster, the o
 applications upgrade on their own releases, so a namespace can run an operator older than the schema an object was
 written for. The operator does not enforce such an object partially: it decodes the spec strictly, reports every field
 it does not define as an `InvalidSpec` problem with the field path, and keeps last-good. The second skew is between the
-two Deployments of one namespace: the manifest in `ratelimit-config` carries an integer `formatVersion`, the operator
+two Deployments of one namespace: the manifest in `rate-limiter-config` carries an integer `formatVersion`, the operator
 writes the current version N, and the service reads N and N-1. Any change of what the operator writes, a field added to
 the spec included, increments the version. On the stand the CRD was patched to define a field `spec.futureField` the
 image does not know, and the field was added to the reference policy.
@@ -859,14 +859,14 @@ of the refusal on `/debug/applied`.
 versions a replica reads:
 
 ```bash
-kubectl get deploy -n "$NS" ratelimit-operator ratelimit-service \
+kubectl get deploy -n "$NS" rate-limiter-operator rate-limiter \
   -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image'
-# NAME                 IMAGE
-# ratelimit-operator   ratelimit-operator:20b5501
-# ratelimit-service    ratelimit-service:20b5501
+# NAME                    IMAGE
+# rate-limiter-operator   ghcr.io/netcracker/qubership-rate-limiter-operator:20b5501
+# rate-limiter            ghcr.io/netcracker/qubership-rate-limiter:20b5501
 kubectl get crd ratelimitpolicies.ratelimit.netcracker.com -o jsonpath='{.spec.versions[*].name}{"\n"}'
 # v1
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.data.manifest}' | jq -c '{formatVersion, operatorVersion}'
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.data.manifest}' | jq -c '{formatVersion, operatorVersion}'
 # {"formatVersion": 1, "operatorVersion": "20b5501"}
 curl -s http://127.0.0.1:8080/debug/applied | jq      # through the port-forward of section 4
 ```
@@ -889,7 +889,7 @@ refuses a manifest stays Ready on the last configuration it applied. A replica t
 snapshot to keep, so it stays NotReady and out of Endpoints until a manifest it reads arrives.
 
 **Act.** The CRD skew: either upgrade the operator in that namespace to the version the schema belongs to, or take the
-new field out of the object until the upgrade. Do not downgrade the CRD, the `ratelimit-crds` release: schema changes
+new field out of the object until the upgrade. Do not downgrade the CRD, the `rate-limiter-crds` release: schema changes
 are additive, and an older CRD would refuse every object that already uses the field. The manifest skew: bring the two
 Deployments to one version, in the order the format versions allow. An upgrade installs the service first, then the
 operator. The new service reads N and N-1, so it reads what the old operator writes and the new operator's N once it
@@ -1050,7 +1050,7 @@ logs the outcome, the bulk form logs the acceptance with the hash of the selecti
 ServiceAccount as `system:serviceaccount:<namespace>:<name>`:
 
 ```bash
-kubectl logs -n "$NS" deploy/ratelimit-service --since=24h | grep 'management mutation'
+kubectl logs -n "$NS" deploy/rate-limiter --since=24h | grep 'management mutation'
 # management mutation subject=system:serviceaccount:ratelimit-e2e:e2e-management-caller idempotencyKey=CE81F29B-...
 #   domain=gateway.public endpoint=counters ruleId=api/per-client axes={"sub":"alice"} dryRun=false outcome=reset count=1
 # management mutation subject=system:serviceaccount:ratelimit-e2e:e2e-management-caller idempotencyKey=69DA3B84-...
@@ -1089,18 +1089,18 @@ Degraded on `ReplicaFormatUnsupported` is the version skew of section 5, a matte
 
 ## 9. The ConfigMap channel
 
-Everything the service knows travels through `ratelimit-config`, so the three things that can happen to the object have
-a scenario each. All three ran on the stand.
+Everything the service knows travels through `rate-limiter-config`, so the three things that can happen to the object
+have a scenario each. All three ran on the stand.
 
 **A deleted object.** The operator owns it and watches it, and recreates it whole on the next reconcile; the replicas
 keep the snapshot they applied and never notice.
 
 ```bash
-kubectl delete cm -n "$NS" ratelimit-config
+kubectl delete cm -n "$NS" rate-limiter-config
 # recreated 139 ms later under a new uid, with every domain at its active generation
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.data.manifest}' | jq -c '.domains | map_values(.generation)'
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.data.manifest}' | jq -c '.domains | map_values(.generation)'
 # {"gateway.private": 5, "gateway.public": 11}
-kubectl logs -n "$NS" deploy/ratelimit-operator --since=1m | grep 'configuration written'
+kubectl logs -n "$NS" deploy/rate-limiter-operator --since=1m | grep 'configuration written'
 # configuration written domains=2 created=true
 ```
 
@@ -1118,10 +1118,10 @@ keeps reporting the previous generation as enforced, and the counter names the r
 Role lost `update` on the object and a policy was edited:
 
 ```bash
-kubectl logs -n "$NS" deploy/ratelimit-operator --since=2m \
+kubectl logs -n "$NS" deploy/rate-limiter-operator --since=2m \
   | grep -E 'failed to write the configuration|failed to read the policies|failed to read the configuration'
-# failed to write the configuration controller=ratelimit-config ... update ratelimit-config: ... is forbidden ...
-kubectl get cm -n "$NS" ratelimit-config -o jsonpath='{.metadata.resourceVersion}'   # unchanged
+# failed to write the configuration controller=rate-limiter-config ... update rate-limiter-config: ... is forbidden ...
+kubectl get cm -n "$NS" rate-limiter-config -o jsonpath='{.metadata.resourceVersion}'  # unchanged
 kubectl get rlp -n "$NS" gateway.private \
   -o jsonpath='{.metadata.generation} {.status.observedGeneration} {.status.activeGeneration}{"\n"}'
 # 6 6 6      -> the operator compiled and accepted generation 6; the replicas still hold the previous one
@@ -1147,13 +1147,13 @@ generation change reached `Ready: True` 11 s later.
 operator's leader failed its reconciles, by `controller_runtime_reconcile_errors_total`, and completed none within
 `policyAlerts.reconcileErrorsWindow`, 30m, held for `policyAlerts.reconcileFailingFor`, 5m. The leader still holds the
 Lease, so `RatelimitNoOperatorLeader` stays quiet. The `controller` label names one of two controllers.
-`ratelimit-config` is the writer above, with its log line and `ratelimit_config_write_errors_total`. `ratelimitpolicy`
-compiles each policy and writes its status: while it fails, the status stays as it was and `lastCheckTime` ages
-(section 0). Its errors are controller-runtime's lines, and a permission the Role lacks, such as `update` on
-`ratelimitpolicies/status`, shows there as `forbidden`:
+`rate-limiter-config` is the writer above, with its log line and `ratelimit_config_write_errors_total`.
+`ratelimitpolicy` compiles each policy and writes its status: while it fails, the status stays as it was and
+`lastCheckTime` ages (section 0). Its errors are controller-runtime's lines, and a permission the Role lacks, such as
+`update` on `ratelimitpolicies/status`, shows there as `forbidden`:
 
 ```bash
-kubectl logs -n "$NS" deploy/ratelimit-operator --since=10m | grep 'Reconciler error controller=ratelimitpolicy'
+kubectl logs -n "$NS" deploy/rate-limiter-operator --since=10m | grep 'Reconciler error controller=ratelimitpolicy'
 ```
 
 **A replica born without the object.** With no operator running and no ConfigMap, a fresh service pod mounts an empty
@@ -1161,14 +1161,14 @@ directory and stays NotReady, without a timeout, and out of the Endpoints; the r
 serving.
 
 ```bash
-kubectl get pods -n "$NS" -l app.kubernetes.io/name=ratelimit-service \
+kubectl get pods -n "$NS" -l app.kubernetes.io/name=rate-limiter \
   -o custom-columns='NAME:.metadata.name,READY:.status.containerStatuses[0].ready'
 # NAME                                 READY
-# ratelimit-service-566dcc4db8-plxjx   true
-# ratelimit-service-6b7bb4858f-vkpqv   false
-kubectl logs -n "$NS" ratelimit-service-6b7bb4858f-vkpqv | grep NotReady
+# rate-limiter-566dcc4db8-plxjx        true
+# rate-limiter-6b7bb4858f-vkpqv        false
+kubectl logs -n "$NS" rate-limiter-6b7bb4858f-vkpqv | grep NotReady
 # no configuration in the mounted directory yet, the replica stays NotReady dir=/etc/ratelimit/config
-kubectl get endpointslice -n "$NS" -l kubernetes.io/service-name=ratelimit \
+kubectl get endpointslice -n "$NS" -l kubernetes.io/service-name=rate-limiter \
   -o jsonpath='{.items[0].endpoints[*].conditions.ready}{"\n"}'
 # true false
 ```
@@ -1187,7 +1187,7 @@ after `alerts.configAbsentFor`, 5 minutes by default, past the kubelet's project
 
 ```bash
 curl -s http://127.0.0.1:8080/debug/applied | jq '.configAbsent'   # through the port-forward of section 0
-kubectl get cm -n "$NS" ratelimit-config -o name
+kubectl get cm -n "$NS" rate-limiter-config -o name
 ```
 
 ## 10. Alerts the status does not show
@@ -1200,28 +1200,28 @@ zero, and `ratelimit_checks_total` of the domain did not move within `policyAler
 gateway sends no checks, so its traffic passes unlimited. Five causes: the filter is off, `runtime.enabledPercent: 0`
 or a runtime override of `ratelimit.<gateway>.enabled` ([rollout procedure](rollout-procedure.md), section 4); its
 `EnvoyFilter` is gone; its domain differs from the policy's, and then `ratelimit_unknown_domain_checks_total` grows
-(section 2); the path from the gateway to the Service `ratelimit` is broken; or the service pods are not scraped, the
-service chart's PodMonitor `ratelimit-service-pod-monitor` is missing or its scrape fails, and with no
+(section 2); the path from the gateway to the Service `rate-limiter` is broken; or the service pods are not scraped, the
+service chart's PodMonitor `rate-limiter-pod-monitor` is missing or its scrape fails, and with no
 `ratelimit_checks_total` series at all the alert fires for every enforced domain. A gateway that carries no traffic at
 all fires the same way, so a domain idle for long stretches needs a wider window.
 
 ```bash
 kubectl get envoyfilter -n "$NS"
-kubectl get endpointslice -n "$NS" -l kubernetes.io/service-name=ratelimit
+kubectl get endpointslice -n "$NS" -l kubernetes.io/service-name=rate-limiter
 kubectl get podmonitor -n "$NS"
 ```
 
 **`RatelimitNoOperatorLeader`.** No scrape of the namespace reports `ratelimit_leader 1` for `policyAlerts.noLeaderFor`,
 5m: no operator pod holds the Lease `ratelimit.netcracker.com`, so no policy is compiled, no status is written, and
-`ratelimit-config` is not maintained; the replicas keep enforcing what they applied, and `lastCheckTime` ages
+`rate-limiter-config` is not maintained; the replicas keep enforcing what they applied, and `lastCheckTime` ages
 (section 0). The gauge is set once a pod is elected and the process ends when it loses the Lease, so the alert is an
 operator pod that is not running, not elected, or not scraped: the Deployment, the Lease's holder, the log, and the
 operator chart's PodMonitor, in that order. A pod that restarts without turning Ready is the missing CRD of section 0.
 
 ```bash
-kubectl get deploy -n "$NS" ratelimit-operator
+kubectl get deploy -n "$NS" rate-limiter-operator
 kubectl get lease -n "$NS" ratelimit.netcracker.com -o jsonpath='{.spec.holderIdentity} {.spec.renewTime}{"\n"}'
-kubectl logs -n "$NS" deploy/ratelimit-operator --since=10m | tail
+kubectl logs -n "$NS" deploy/rate-limiter-operator --since=10m | tail
 ```
 
 **`RatelimitDecisionLatencyHigh`.** The p99 of `ratelimit_check_duration_seconds`, the whole gRPC check as the gateway
@@ -1253,7 +1253,7 @@ verified and its ServiceAccount is not a listed caller.
 call that failed, and the callers and the audience at start:
 
 ```bash
-kubectl logs -n "$NS" deploy/ratelimit-service | grep -E 'token verifier|management API callers'
+kubectl logs -n "$NS" deploy/rate-limiter | grep -E 'token verifier|management API callers'
 ```
 
 ```text
@@ -1268,7 +1268,7 @@ call from the API server's side shows whether the endpoint answers:
 ```bash
 kubectl get --raw /.well-known/openid-configuration | jq .issuer
 kubectl auth can-i get /.well-known/openid-configuration \
-  --as="system:serviceaccount:$NS:ratelimit-service" --as-group=system:serviceaccounts
+  --as="system:serviceaccount:$NS:rate-limiter" --as-group=system:serviceaccounts
 ```
 
 **Act.** A discovery error that names a certificate (`x509: certificate signed by unknown authority`) is a base image
@@ -1318,5 +1318,5 @@ of section 7.
 | `ratelimit_policy_applied_generation{domain}` | service pods | per pod: the generation each replica enforces (section 4) |
 | `ratelimit_domain_decision_buckets{domain}` | service pods | headroom before `DomainBudgetExceeded`, against 128 |
 | `ratelimit_config_absent` | service pods | `1` while the pod's mounted directory holds no manifest: a pod that has not received one yet, or one that lost it (section 9) |
-| `ratelimit_config_write_errors_total{reason}` | operator pod | the write of `ratelimit-config` failed (`size`, `api`, `read`, `other`; section 9); the replicas keep the configuration they mounted and `ReplicaStale` follows in 90 s |
+| `ratelimit_config_write_errors_total{reason}` | operator pod | the write of `rate-limiter-config` failed (`size`, `api`, `read`, `other`; section 9); the replicas keep the configuration they mounted and `ReplicaStale` follows in 90 s |
 | `ratelimit_config_write_failing{reason}` | operator pod | `1` under each reason a write failed with since the last successful write; `RatelimitConfigWriteErrors` fires on it (section 9) |

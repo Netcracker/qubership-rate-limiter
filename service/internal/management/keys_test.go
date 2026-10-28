@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/key"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/key"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // The decoder here and the builder in the key package are two implementations

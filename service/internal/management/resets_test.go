@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	"github.com/netcracker/qubership-ratelimit/service/internal/records"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
 )
 
 // The bulk action is the destructive one: it scans instead of computing, so

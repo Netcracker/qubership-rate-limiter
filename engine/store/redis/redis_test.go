@@ -17,11 +17,11 @@ import (
 	"github.com/go-redis/redis_rate/v10"
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	redisstore "github.com/netcracker/qubership-ratelimit/engine/store/redis"
-	"github.com/netcracker/qubership-ratelimit/engine/store/storetest"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	redisstore "github.com/netcracker/qubership-rate-limiter/engine/store/redis"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/storetest"
 )
 
 // tolerance absorbs the clock difference between this process and the store

@@ -1,6 +1,6 @@
-name: qubership-ratelimit
+name: qubership-rate-limiter
 version: 1.0.0
-description: APM project for qubership-ratelimit
+description: APM project for qubership-rate-limiter
 author: Qubership
 # Which agent platforms to deploy to.
 # Resolution order: --target flag > this field > auto-detect from filesystem.

@@ -352,8 +352,8 @@ not touched either way.
 For an emergency from the command line, carry the release's values into the upgrade:
 
 ```bash
-helm upgrade ratelimit-service <service chart> -n "$NS" --reset-then-reuse-values --set runtime.enforcedPercent=0
-kubectl get envoyfilter -n "$NS" ratelimit-service-public-gateway -o json \
+helm upgrade rate-limiter <service chart> -n "$NS" --reset-then-reuse-values --set runtime.enforcedPercent=0
+kubectl get envoyfilter -n "$NS" rate-limiter-public-gateway -o json \
   | jq -c '[.. | objects | select(has("runtime_key")) | {runtime_key, numerator: .default_value.numerator}]'
 # [{"runtime_key": "ratelimit.public-gateway.enabled", "numerator": 100},
 #  {"runtime_key": "ratelimit.public-gateway.enforced", "numerator": 0}]
@@ -368,7 +368,7 @@ While a brake is on, every upgrade of the service release has to carry it in its
 survived:
 
 ```bash
-helm get values ratelimit-service -n "$NS" | grep -E 'enforcedPercent|enabledPercent'
+helm get values rate-limiter -n "$NS" | grep -E 'enforcedPercent|enabledPercent'
 #   enforcedPercent: 0
 # no line, or 100: the brake is off and the gateway enforces again
 ```

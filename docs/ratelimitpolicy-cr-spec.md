@@ -3,7 +3,7 @@
 `RateLimitPolicy` is a namespace-scoped custom resource in the `ratelimit.netcracker.com` group, version `v1`,
 and the only resource of the service. **One object per domain**: it holds the rate-limiting rules, the extraction of
 identity keys from the JWT, and the named groups. The operator of the same namespace validates it and
-writes it into the ConfigMap `ratelimit-config`; the service of the same namespace enforces it and serves the Istio
+writes it into the ConfigMap `rate-limiter-config`; the service of the same namespace enforces it and serves the Istio
 ambient gateways (and any other consumers) over the Envoy RLS protocol (`envoy.service.ratelimit.v3`).
 
 ## How the resource takes effect
@@ -13,8 +13,8 @@ ambient gateways (and any other consumers) over the Envoy RLS protocol (`envoy.s
    `metadata.name == spec.domain`. Everything that relates fields to each other (references, windows, budgets) is
    checked by the operator's compiler, which reports through the status.
 2. The operator keeps an informer on the `RateLimitPolicy` of its own namespace: an event, a compilation, a write of
-   the ConfigMap `ratelimit-config`. That ConfigMap is the one object of the namespace that holds the validated spec of
-   every domain, gzip-compressed under `binaryData` as `<domain>.json.gz`. Its `manifest` key carries the generation,
+   the ConfigMap `rate-limiter-config`. That ConfigMap is the one object of the namespace that holds the validated spec
+   of every domain, gzip-compressed under `binaryData` as `<domain>.json.gz`. Its `manifest` key carries the generation,
    UID, and hash of each domain. The operator writes the object's status; the ConfigMap is the last-good state.
 3. Every replica of the service mounts the ConfigMap as a directory and watches it. The kubelet projects a change
    within its sync period, one minute by default. On the swap the replica decodes the manifest, compiles every domain
@@ -802,12 +802,12 @@ An unknown enum value (a new `behavior`, `algorithm`, or `operator`) is also an 
 objects under a newer schema need nothing: additive fields take their defaults.
 
 **3. Last-good survives a restart.** The operator persists the enforced generation of every domain of the namespace
-(its validated spec, its number, and the object's UID) in the one ConfigMap `ratelimit-config`. It writes the whole
+(its validated spec, its number, and the object's UID) in the one ConfigMap `rate-limiter-config`. It writes the whole
 object on every reconcile, even when the namespace holds no policy, and creates it with an `ownerReference` to the
 operator Deployment; no chart renders it.
 
 ```text
-ConfigMap ratelimit-config             owner: the operator Deployment; the operator writes, every service replica mounts it
+ConfigMap rate-limiter-config          owner: the operator Deployment; the operator writes, every service replica mounts it
 ├── binaryData.<domain>.json.gz        the validated spec with presets resolved, in the resource's own format, gzip-compressed; one key per domain
 └── data.manifest                      plain JSON: an integer formatVersion, operatorVersion, and per domain generation, uid, hash
 ```
@@ -852,10 +852,10 @@ forces list bounds for its own sake and a second copy of the compiler's rules ([
 
 **The operator's RBAC** is a namespace-scoped Role, the only Role of the delivery: `ratelimitpolicies` get/list/watch,
 `ratelimitpolicies/status` update, Lease get/create/update (the Lease covers the overlap of two operator pods during a
-rollout), EndpointSlices get/list/watch across the namespace (the operator reads the one of the Service `ratelimit`),
-ConfigMaps create, the ConfigMap `ratelimit-config` by name get/list/watch/update, its own Deployment by name get (the
-ConfigMap's owner), `events` create/patch in the core and `events.k8s.io` groups. There is no ClusterRole; the CRD
-comes from the cluster chart `ratelimit-crds`. The service pod carries no Role and mounts no ServiceAccount token
+rollout), EndpointSlices get/list/watch across the namespace (the operator reads the one of the Service `rate-limiter`),
+ConfigMaps create, the ConfigMap `rate-limiter-config` by name get/list/watch/update, its own Deployment by name get
+(the ConfigMap's owner), `events` create/patch in the core and `events.k8s.io` groups. There is no ClusterRole; the CRD
+comes from the cluster chart `rate-limiter-crds`. The service pod carries no Role and mounts no ServiceAccount token
 (`automountServiceAccountToken: false`) unless `management.enabled` is set: then it mounts its own token to verify the
 management API's callers, and without a Role that token reads only the OIDC discovery and the key set.
 
@@ -878,7 +878,7 @@ status:
   observedGeneration: 7
   activeGeneration: 7                  # the latest generation is enforced
   effectiveKeys: [method, path, plan, roles, sub]   # domain-wide keys of activeGeneration; captures are not listed
-  replicas:                            # what the operator sees through the EndpointSlice of the Service ratelimit
+  replicas:                            # what the operator sees through the EndpointSlice of the Service rate-limiter
     total: 3                           # ready replicas at the time of the probe
     applied: 2                         # of them, enforcing activeGeneration
     summary: "2/3"                     # applied/total as one string: the REPLICAS printer column reads it
@@ -892,7 +892,7 @@ status:
   - type: Ready                        # ALL ready replicas enforce the latest generation
     status: "False"                    # in progress: Stalled below says this is not a breakage
     reason: Propagating
-    message: '2 of 3 replicas enforce generation 7; ratelimit-service-7c9d-x2k1 report another'
+    message: '2 of 3 replicas enforce generation 7; rate-limiter-7c9d-x2k1 report another'
     lastTransitionTime: "2026-09-02T12:00:05Z"
     observedGeneration: 7
   - type: Stalled                      # stuck; under an alert
@@ -929,7 +929,7 @@ pod that comes back after `NoReplicas` starts its own clock. The API conventions
 change; the departure is deliberate, and the condition's own `observedGeneration` is what gives the stamp its
 per-generation meaning.
 
-The replica probe: the operator discovers the ready replicas through the EndpointSlice of the Service `ratelimit` and
+The replica probe: the operator discovers the ready replicas through the EndpointSlice of the Service `rate-limiter` and
 takes the port number from the EndpointSlice by the port name `metrics`. It reads from every ready replica the JSON
 endpoint `/debug/applied` on that port. The payload reports the applied generation and UID per domain, the format
 versions the replica reads, and a refusal with its reason. One round of answers serves every domain of a cycle: the
@@ -954,7 +954,7 @@ in the wrong order is the only case where `Ready` leaves `True` without an edit 
 the operator's point of view, and a replica that refuses the format version the operator writes lands in
 `ReplicaFormatUnsupported` by name until the service rollout completes.
 
-A start on last-good (generation 8 in etcd does not compile, the manifest of `ratelimit-config` holds 7 with the same
+A start on last-good (generation 8 in etcd does not compile, the manifest of `rate-limiter-config` holds 7 with the same
 UID):
 `observedGeneration: 8`, `activeGeneration: 7`, `replicas: {total: 3, applied: 3}`, everyone unanimously enforcing 7,
 but `Ready: False / NotCompiled`, `Stalled: True`, `Accepted: False / CompilationFailed` with a summary `message`, and

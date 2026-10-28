@@ -29,13 +29,13 @@ import (
 )
 
 // The two charts of the split label their pods with the chart name under
-// app.kubernetes.io/name: ratelimit-operator on the one operator pod,
-// ratelimit-service on the service replicas. Releases can be called
-// anything, and CI names them after the chart plus a suffix so that the
+// app.kubernetes.io/name: rate-limiter-operator on the one operator pod,
+// rate-limiter on the service replicas. Releases can be called
+// anything, and CI gives them names other than the charts' so that the
 // suite cannot mistake a name derived from the release for a fixed one.
 const (
-	operatorChart = "ratelimit-operator"
-	serviceChart  = "ratelimit-service"
+	operatorChart = "rate-limiter-operator"
+	serviceChart  = "rate-limiter"
 )
 
 // chartDeployment resolves the one Deployment of a chart by its label.

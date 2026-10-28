@@ -1,4 +1,4 @@
-# ratelimit
+# rate-limiter
 
 Rate limiting for an Istio ambient mesh with two ingress gateways. The gateways call this service over the Envoy rate
 limit service (RLS) protocol; the rules arrive as `RateLimitPolicy` custom resources.
@@ -35,19 +35,19 @@ as `token`, and `x-request-id` as `request_id`. Those are the inputs the schema 
 identity read out of the token, and on the path and method through the routes of its block.
 
 The delivery is two components in one namespace, joined by one ConfigMap. The operator, one active replica, watches the
-policies of its namespace, compiles them, and writes `ratelimit-config`: a manifest with the generation, UID, and
+policies of its namespace, compiles them, and writes `rate-limiter-config`: a manifest with the generation, UID, and
 content hash of every domain, and one compressed payload per domain. The service replicas mount that ConfigMap as a
 volume, are bound to no Role and read no API server object, apply what the kubelet projects, and answer checks from it.
 The operator also reads `/debug/applied` on every ready replica through the Service and writes the policy status from
 what it finds. The operator's Lease covers the overlap of two pods during its own rollout; it signs the lease with its
 pod name, which the chart passes as `POD_NAME` through the Downward API.
 
-| Component            | Runs in               | Does                                                             |
-|----------------------|-----------------------|------------------------------------------------------------------|
-| Configuration writer | the operator          | compiles the namespace, writes `ratelimit-config` on every event |
-| Status reconciler    | the operator          | probes the replicas; writes `Accepted`, `Ready`, `Stalled`       |
-| Configuration reader | every service replica | applies the mounted ConfigMap on the kubelet's swap of it        |
-| gRPC RLS server      | every service replica | answers a check                                                  |
+| Component            | Runs in               | Does                                                                |
+|----------------------|-----------------------|---------------------------------------------------------------------|
+| Configuration writer | the operator          | compiles the namespace, writes `rate-limiter-config` on every event |
+| Status reconciler    | the operator          | probes the replicas; writes `Accepted`, `Ready`, `Stalled`          |
+| Configuration reader | every service replica | applies the mounted ConfigMap on the kubelet's swap of it           |
+| gRPC RLS server      | every service replica | answers a check                                                     |
 
 The split is a security requirement as much as an operational one: the process that parses tokens from the internet
 reaches no API server object, and the operator and the service roll out, restart, and scale on their own.
@@ -133,7 +133,7 @@ gateway.private   True    3/3        2                  5d
 Reading it: the latest generation of `gateway.public` does not compile, an earlier one is still serving its five rules,
 and `Accepted` carries the summary while `ruleProblems` carries the address of the rule at fault.
 
-Last-good specs are what `ratelimit-config` carries: one gzipped payload per domain, the validated spec of the
+Last-good specs are what `rate-limiter-config` carries: one gzipped payload per domain, the validated spec of the
 generation in effect, beside a manifest with its generation, UID, and hash. etcd holds only the latest generation of
 the policy, which may be the rejected one; the ConfigMap is the copy that lets a service replica born after the edit
 enforce the good spec, and lets the operator restart without forgetting what is running. The operator writes it whole
@@ -195,7 +195,7 @@ workflow installs on a kind cluster from `helm/kind-action` v1.15.1 with its def
 qubership-istio from its `main` branch. No workflow pins Helm: CI uses the Helm of the GitHub runner image. Adopting an
 existing CRD with `--take-ownership` needs Helm 3.17 or later ([the CRD chart](docs/helm-chart.md#the-crd-chart)).
 
-The images are `ghcr.io/netcracker/qubership-ratelimit-operator` and `ghcr.io/netcracker/qubership-ratelimit-service`.
+The images are `ghcr.io/netcracker/qubership-rate-limiter-operator` and `ghcr.io/netcracker/qubership-rate-limiter`.
 A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. A push to
 `main` whose build completes also publishes them tagged `main-<sha>`, the first seven characters of the commit, for an
 unreleased build. These tags do not cover every commit and do not last: when two pushes land within minutes of each
@@ -205,12 +205,12 @@ tag.
 The pages under [`docs/`](docs/README.md) carry the detail behind this section: the chart reference, the resource
 specification, the runbook, and the management API.
 
-The delivery is three charts under `helm-templates/`. `ratelimit-crds` holds the `RateLimitPolicy` CRD; the platform
+The delivery is three charts under `helm-templates/`. `rate-limiter-crds` holds the `RateLimitPolicy` CRD; the platform
 installs it once per cluster, before any namespace, and application pipelines do not. The other two are installed into
 each namespace, the operator chart before the service chart:
 
 ```bash
-helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds --namespace <platform-namespace>
+helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds --namespace <platform-namespace>
 ```
 
 The order is a requirement: an operator installed before the CRD exits at start with
@@ -219,15 +219,15 @@ of its install times out. The release's name and namespace stay fixed for the cl
 [the CRD chart](docs/helm-chart.md#the-crd-chart).
 
 ```bash
-helm upgrade --install ratelimit-operator helm-templates/ratelimit-operator \
+helm upgrade --install rate-limiter-operator helm-templates/rate-limiter-operator \
   --namespace <business-namespace> \
-  -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+  -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
   --set NAMESPACE=<business-namespace> \
   --set-string DEPLOYMENT_SESSION_ID=<session> \
   --set TAG=<tag>
-helm upgrade --install ratelimit-service helm-templates/ratelimit-service \
+helm upgrade --install rate-limiter helm-templates/rate-limiter \
   --namespace <business-namespace> \
-  -f helm-templates/ratelimit-service/resource-profiles/dev.yaml \
+  -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
   --set NAMESPACE=<business-namespace> \
   --set-string DEPLOYMENT_SESSION_ID=<session> \
   --set TAG=<tag>
@@ -255,16 +255,16 @@ Lease holder and a standby.
 `MEMORY_LIMIT` is not only a cgroup ceiling: the platform's `memlimit` package derives `GOMEMLIMIT` from it at startup,
 so it governs when the Go heap starts collecting.
 
-`ratelimit-operator` renders the operator replicas with the only `Role` of the delivery, a `PodMonitor`, and a
+`rate-limiter-operator` renders the operator replicas with the only `Role` of the delivery, a `PodMonitor`, and a
 `PrometheusRule`. Its values are `policyAlerts.*` and the resource sizes with `REPLICAS`, 2 in the `-ha` and `prod`
 profiles. It installs no `ClusterRole` and no `ClusterRoleBinding`; the `Role` reads and updates the ConfigMap
-`ratelimit-config` and reads the operator's own Deployment by name, may create a ConfigMap of any name (the one verb
+`rate-limiter-config` and reads the operator's own Deployment by name, may create a ConfigMap of any name (the one verb
 RBAC cannot narrow by name), and reaches nothing else in the namespace beyond the policies, the Lease, the Events, and
 the EndpointSlices.
 
-`ratelimit-service` renders `REPLICAS` service replicas that mount the `ratelimit-config` ConfigMap at
+`rate-limiter` renders `REPLICAS` service replicas that mount the `rate-limiter-config` ConfigMap at
 `/etc/ratelimit/config` with `optional: true`, are bound to no `Role` and mount their ServiceAccount token only with
-`management.enabled`, the `Service` `ratelimit` with the ports `grpc`, `metrics`, and `management`, the management
+`management.enabled`, the `Service` `rate-limiter` with the ports `grpc`, `metrics`, and `management`, the management
 `AuthorizationPolicy`, a `HorizontalPodAutoscaler`, a `PodDisruptionBudget` when the service runs more than one replica
 (`REPLICAS`, or `HPA_MIN_REPLICAS` with `HPA_ENABLED`), a `PodMonitor`, a `PrometheusRule`, the dashboard, and one
 `EnvoyFilter` per enabled gateway. Its values are `redis.*`, `metrics.*`, `management.*`, `alerts.*`, the filter's
@@ -287,10 +287,10 @@ rationale beside it in `values.yaml`; `enabled: false` in either block keeps the
 `tests/charts` renders both rule sets and runs `promtool check rules` over them (`make promtool` fetches the binary from
 the Prometheus release the Makefile pins).
 
-The `Service` is named `ratelimit` whatever the release is called, and `SERVICE_NAME` does not rename it. A
+The `Service` is named `rate-limiter` whatever the release is called, and `SERVICE_NAME` does not rename it. A
 satellite computes the RLS address from that name and the baseline's namespace, so the name cannot depend on how the
-baseline was installed. The CI install names its releases after the charts with a suffix, so a name derived from the
-release would show.
+baseline was installed. The CI install gives its releases names other than those of the charts and the Service, so a
+name derived from the release would show.
 
 The management port, when `management.enabled` is set, is exposed on the same `Service` rather than on one of its own.
 The `AuthorizationPolicy` that keeps the port reachable from its callers alone is enforced at the pod, so a dedicated
@@ -305,7 +305,7 @@ gateway that fails closed while the counter store is down; the details are in
 
 The counter store is a Redis database from DBaaS. The service chart renders an `InternalDatabase` of type `redis`
 and a `DatabaseSecretClaim` for the release; dbaas-operator provisions the database through the DBaaS Redis adapter
-and writes its connection properties into the Secret `ratelimit-service-redis`, which every replica mounts. A replica
+and writes its connection properties into the Secret `rate-limiter-redis`, which every replica mounts. A replica
 does not start until the Secret exists, and a password changed in the Secret reaches it without a restart. Both
 objects name the dbaas-operator beside the aggregator in `API_DBAAS_ADDRESS` as their `spec.operatorNamespace`. The
 prerequisites: dbaas-operator installed and enabled, a `Role` in the namespace that lets it write Secrets, and the
@@ -316,7 +316,7 @@ policy evicts counters and management records under memory pressure. On a cluste
 platform's Go DBaaS client, `qubership-core-lib-go-dbaas-base-client`, from `/etc/secrets/dbaas-secrets`. The
 [Helm chart reference](docs/helm-chart.md#the-counter-store-from-dbaas) has the details.
 
-The service stays `NotReady` until the operator writes `ratelimit-config`, and its `EnvoyFilter`s are live from the
+The service stays `NotReady` until the operator writes `rate-limiter-config`, and its `EnvoyFilter`s are live from the
 moment the service chart is installed, so a first installation with `--wait` installs the CRD chart, then the operator
 chart, then the service chart. An upgrade installs the service before the operator and a rollback reverses the order,
 because the service reads the current and the previous manifest format version and the operator writes the current
@@ -337,10 +337,10 @@ baseline alone, and a satellite gets the gateway filters and nothing else.
 
 Both charts read `BASELINE_ORIGIN`, the platform's composite variable that `core-operator` renders by:
 
-| `BASELINE_ORIGIN` | Operator chart renders | Service chart renders          | Filters send checks to             |
-|-------------------|------------------------|--------------------------------|------------------------------------|
-| empty             | everything             | everything                     | `ratelimit.<own namespace>:9000`   |
-| set               | nothing                | the `EnvoyFilter` objects only | `ratelimit.<BASELINE_ORIGIN>:9000` |
+| `BASELINE_ORIGIN` | Operator chart renders | Service chart renders          | Filters send checks to                |
+|-------------------|------------------------|--------------------------------|---------------------------------------|
+| empty             | everything             | everything                     | `rate-limiter.<own namespace>:9000`   |
+| set               | nothing                | the `EnvoyFilter` objects only | `rate-limiter.<BASELINE_ORIGIN>:9000` |
 
 The service chart also reads `BASELINE_CONTROLLER`, for parity with `control-plane`, which resolves the baseline the
 same way; when set in a satellite, it takes precedence over `BASELINE_ORIGIN` as the target namespace. On this platform
@@ -379,7 +379,7 @@ has to follow the gateway.
 ### The CRD has one owner
 
 `ratelimitpolicies.ratelimit.netcracker.com` is cluster-scoped, and every namespace installation shares that one
-object, so it ships in a chart of its own, `ratelimit-crds`, which the platform installs as one release per cluster.
+object, so it ships in a chart of its own, `rate-limiter-crds`, which the platform installs as one release per cluster.
 Application pipelines do not install it, and the namespace charts carry no copy: with one, every namespace's operator
 release would contend for the object's ownership, and an upgrade of an older namespace would put its older schema back
 for the whole cluster. Upgrade the CRD release first, to the newest
@@ -392,11 +392,11 @@ namespace's policies with it.
 `make help` lists every target; these are the ones the daily loop uses:
 
 ```bash
-make build              # compile both binaries, bin/ratelimit-operator and bin/ratelimit-service
+make build              # compile both binaries, bin/rate-limiter-operator and bin/rate-limiter
 make test-unit          # unit tests only; no envtest, no cluster; the Redis suites skip without Docker or REDIS_ADDR
 make test               # everything, including the envtest controller suite
 make manifests generate # regenerate the CRD, the RBAC, and the DeepCopy methods
-make sync-helm-crds     # copy the generated CRD into the ratelimit-crds chart (alias: make helm-crd)
+make sync-helm-crds     # copy the generated CRD into the rate-limiter-crds chart (alias: make helm-crd)
 make lint               # golangci-lint
 make helm-lint          # helm lint of every chart against its values.schema.json
 ```
@@ -426,12 +426,12 @@ make test-e2e-go E2E_NAMESPACE=core E2E_SATELLITE_NAMESPACE=core-sat
 The `redis` suite is the exception to "run everything": it asserts what only a
 shared counter store can do â€” that the counters carry the documented key, and
 that a spent budget survives the process that spent it. It
-reaches the store through the Secret `ratelimit-service-redis`, and skips in a
+reaches the store through the Secret `rate-limiter-redis`, and skips in a
 namespace without one.
 
 It covers what no unit test can: that the installed CRD is the one carrying the current validation, that a policy
 change reaches every service replica through the ConfigMap, that an earlier generation keeps running while an edit is
-rejected and the last-good state stays in `ratelimit-config`, that a replica reports what it enforces on
+rejected and the last-good state stays in `rate-limiter-config`, that a replica reports what it enforces on
 `/debug/snapshot`, that the gateway is configured with this release's Service and the agreed descriptors, that the
 stub refuses traffic over its limit with 429 and allows it again when the window reopens, that the two gateways count
 independently, and that a check logs its domain and path and request id while never logging the `Authorization`
@@ -457,7 +457,7 @@ at an existing cluster; `make test` sets `REQUIRE_ENVTEST=1`, and any non-empty 
 run. `make test-unit` includes the engine's Redis suites, which run against `REDIS_ADDR` when it is set, otherwise
 against a `redis:8-alpine` container they start through Docker, and skip when neither is available.
 
-`helm-templates/ratelimit-crds/templates/crd-*.yaml` is generated. Edit the Go types and run `make sync-helm-crds`
+`helm-templates/rate-limiter-crds/templates/crd-*.yaml` is generated. Edit the Go types and run `make sync-helm-crds`
 instead of editing them.
 
 The CRD carries CEL rules, and the cost estimator budgets each one against the declared `MaxLength` and `MaxItems`. Two
@@ -466,7 +466,8 @@ structural checks the estimator would not accept live in the compiler instead â€
 exactly as the API server would have rejected it.
 
 Run the pair from your host. The operator talks to the cluster of your current kubeconfig; the service talks to a
-directory and to Redis, and `make service-config` fills the directory from the live `ratelimit-config` of the namespace:
+directory and to Redis, and `make service-config` fills the directory from the live `rate-limiter-config` of the
+namespace:
 
 ```bash
 CLOUD_NAMESPACE=<ns> make service-config   # export the ConfigMap into bin/config
@@ -475,7 +476,7 @@ CLOUD_NAMESPACE=<ns> make run-operator     # or one at a time
 CLOUD_NAMESPACE=<ns> make run-service
 ```
 
-The operator is told its Deployment's name as the chart tells it (`OPERATOR_DEPLOYMENT`, `ratelimit-operator` by
+The operator is told its Deployment's name as the chart tells it (`OPERATOR_DEPLOYMENT`, `rate-limiter-operator` by
 default); off cluster it warns that there is no Deployment to adopt and writes the ConfigMap without an owner. It probes
 the service replicas at their pod IPs, so from a host that cannot reach the pod network, kind included, every policy
 reads `Ready: Unknown` with `ProbeFailed`; the status is right, the host is not a peer of the pods. The targets that
@@ -501,7 +502,8 @@ A release goes through the Go bulk release of core services in
 [qubership-core-infra](https://github.com/Netcracker/qubership-core-infra). It tags the released commit as
 `v<version>`, and the engine module as `engine/v<version>`, and creates the GitHub release. The `v<version>` tag starts
 the Build workflow, which runs all of its jobs except the Sonar analysis and publishes three images as `v<version>`:
-the operator, the service, and the load test kit (`ghcr.io/netcracker/qubership-ratelimit-loadtest`). The bulk release
-runs `go test ./...` without envtest binaries, so the envtest suites skip there and run only in that build. E2E and
-Super-Linter do not run on the tag. If the Build run of the tag fails, the GitHub release has no images until a re-run
-passes. A published version is never released again or deleted: a defect in it is fixed in the next patch version.
+the operator, the service, and the load test kit (`ghcr.io/netcracker/qubership-rate-limiter-loadtest`). The bulk
+release runs `go test ./...` without envtest binaries, so the envtest suites skip there and run only in that build. E2E
+and Super-Linter do not run on the tag. If the Build run of the tag fails, the GitHub release has no images until a
+re-run passes. A published version is never released again or deleted: a defect in it is fixed in the next patch
+version.

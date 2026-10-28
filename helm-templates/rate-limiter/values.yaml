@@ -6,10 +6,10 @@
 #
 # The name of the Deployment and the ServiceAccount, the app.kubernetes.io/name
 # and name labels, and the microserviceName of the counter store's DBaaS
-# classifier. The Service keeps its fixed name, ratelimit: a satellite's
+# classifier. The Service keeps its fixed name, rate-limiter: a satellite's
 # filters compute the RLS address from it and cannot know how the baseline was
 # named.
-SERVICE_NAME: ratelimit-service
+SERVICE_NAME: rate-limiter
 # The namespace every object lands in. Required, with no default: the platform
 # sets it to the namespace it installs into, and a manual helm install sets it
 # to the namespace it passes as -n.
@@ -17,13 +17,13 @@ NAMESPACE: ""
 # The image. TAG is required, with no default. A floating tag such as "latest"
 # moves under a running workload, so two pods of one rollout can end up on
 # different builds.
-IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-ratelimit-service
+IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-rate-limiter
 TAG: ""
 # Labels: app.kubernetes.io/part-of, app.kubernetes.io/managed-by,
 # app.kubernetes.io/version (empty renders an empty label), and
 # deployment.netcracker.com/sessionId (required, with no default: the platform
 # sets it to the deployment session).
-APPLICATION_NAME: ratelimit
+APPLICATION_NAME: rate-limiter
 MANAGED_BY: Helm
 ARTIFACT_DESCRIPTOR_VERSION: ""
 DEPLOYMENT_SESSION_ID: ""
@@ -136,7 +136,7 @@ responseHeaders:
 # keeps the port to the callers' workloads as well, so a token alone does not
 # open it.
 #
-# The port is exposed on the component's own Service, ratelimit, not on a
+# The port is exposed on the component's own Service, rate-limiter, not on a
 # Service of its own. What limits who reaches the port is the
 # AuthorizationPolicy, and that is enforced by ztunnel at the pod: a second
 # Service would change nothing about who can reach the port, and would add a
@@ -315,7 +315,7 @@ ISTIO_PRIVATE_GATEWAY_NAME: private-gateway
 # BASELINE_ORIGIN empty is a standalone installation or the baseline of a
 # composite: the whole chart renders. BASELINE_ORIGIN set is a satellite: only
 # the gateway filters render, and they send checks to the baseline's Service at
-# ratelimit.<baseline namespace>:9000, which is why that Service has a fixed
+# rate-limiter.<baseline namespace>:9000, which is why that Service has a fixed
 # name. The platform installs the same pair of charts in every namespace, and
 # rendering no service there is what keeps a satellite from waiting NotReady
 # for an operator that never comes. BASELINE_CONTROLLER is read for parity with

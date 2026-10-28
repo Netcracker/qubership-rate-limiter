@@ -18,9 +18,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	enginecompile "github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/internal/convert"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	enginecompile "github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/internal/convert"
 )
 
 // Input is the set of objects one compilation reads, plus the last-good state of

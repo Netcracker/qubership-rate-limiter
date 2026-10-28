@@ -28,14 +28,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	"github.com/netcracker/qubership-ratelimit/api/manifest"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/service/internal/records"
-	"github.com/netcracker/qubership-ratelimit/service/internal/settings"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/api/manifest"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/settings"
 )
 
 func freeAddr(t *testing.T) string {
@@ -370,12 +370,12 @@ func TestService_refusesToStartWithoutItsCounterStoreConnection(t *testing.T) {
 
 	_, err := Build("biz", Options{
 		ProbeAddr: "0", MetricsAddr: "0", ManagementAddr: "0", RLSAddr: freeAddr(t),
-		ConfigDir: t.TempDir(), RedisMicroservice: "ratelimit-service",
+		ConfigDir: t.TempDir(), RedisMicroservice: "rate-limiter",
 		RedisResolver: failingResolver{},
 		Log:           logr.Discard(), Platform: logging.GetLogger("test"),
 	})
 
-	assert.ErrorContains(t, err, "ratelimit-service")
+	assert.ErrorContains(t, err, "rate-limiter")
 	assert.ErrorContains(t, err, "biz")
 }
 
@@ -428,7 +428,7 @@ func optionsOverRedisAt(t *testing.T, url string) (Options, *warningLog) {
 	options := listeningOptions(t, dir)
 	options.ProbeAddr, options.MetricsAddr, options.ManagementAddr = "0", "0", "0"
 	options.counters = nil
-	options.RedisMicroservice = "ratelimit-service"
+	options.RedisMicroservice = "rate-limiter"
 	options.RedisResolver = fixedResolver{url: url}
 	platform := &warningLog{Logger: logging.GetLogger("test")}
 	options.Platform = platform
@@ -593,7 +593,7 @@ func TestBuild_refusesAnythingButOneCounterStore(t *testing.T) {
 	configloader.InitWithSourcesArray([]*configloader.PropertySource{configloader.EnvPropertySource()})
 	for name, options := range map[string]Options{
 		"none": {},
-		"two":  {RedisMicroservice: "ratelimit-service", RedisAddr: "127.0.0.1:6379"},
+		"two":  {RedisMicroservice: "rate-limiter", RedisAddr: "127.0.0.1:6379"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			options.ProbeAddr, options.MetricsAddr, options.ManagementAddr = "0", "0", "0"

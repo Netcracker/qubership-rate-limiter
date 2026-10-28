@@ -15,8 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	enginecompile "github.com/netcracker/qubership-ratelimit/engine/compile"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	enginecompile "github.com/netcracker/qubership-rate-limiter/engine/compile"
 )
 
 // What the engine decides — which rules compile, which references resolve, what a

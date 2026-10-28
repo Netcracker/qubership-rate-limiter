@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	"github.com/netcracker/qubership-ratelimit/internal/convert"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	"github.com/netcracker/qubership-rate-limiter/internal/convert"
 )
 
 // policySpec is the spec of one domain, as the service reads it off its

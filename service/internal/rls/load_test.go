@@ -19,13 +19,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	redisstore "github.com/netcracker/qubership-ratelimit/engine/store/redis"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	redisstore "github.com/netcracker/qubership-rate-limiter/engine/store/redis"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 // The throughput floor one replica has to clear, and the decision budget it has

@@ -13,9 +13,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // The CR contract: what the API server accepts, what the reconciler writes

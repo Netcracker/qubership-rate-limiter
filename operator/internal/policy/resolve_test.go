@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/api/manifest"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/api/manifest"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // The resolution of presets is the operator's own step in front of the

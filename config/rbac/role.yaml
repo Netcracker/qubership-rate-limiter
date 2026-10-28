@@ -14,7 +14,7 @@ rules:
 - apiGroups:
   - ""
   resourceNames:
-  - ratelimit-config
+  - rate-limiter-config
   resources:
   - configmaps
   verbs:

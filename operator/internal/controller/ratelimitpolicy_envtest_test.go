@@ -29,8 +29,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	ratelimitv1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 const envtestNamespace = "ratelimit-envtest"
@@ -942,7 +942,7 @@ var _ = Describe("the manager's cache", Ordered, func() {
 		// controller on it would fail these reads for a reason the binary
 		// does not have.
 		Expect((&RateLimitPolicyReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Service: "ratelimit",
+			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Service: "rate-limiter",
 		}).SetupWithManager(mgr)).To(Succeed())
 
 		started, stop := context.WithCancel(context.Background())
@@ -998,13 +998,13 @@ var _ = Describe("the manager's cache", Ordered, func() {
 		reconciler := &RateLimitPolicyReconciler{
 			Client:  managerUnderTest.GetClient(),
 			Scheme:  managerUnderTest.GetScheme(),
-			Service: "ratelimit",
+			Service: "rate-limiter",
 		}
 		slice := &discoveryv1.EndpointSlice{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: envtestNamespace,
-				Name:      "ratelimit-abcde",
-				Labels:    map[string]string{discoveryv1.LabelServiceName: "ratelimit"},
+				Name:      "rate-limiter-abcde",
+				Labels:    map[string]string{discoveryv1.LabelServiceName: "rate-limiter"},
 			},
 		}
 

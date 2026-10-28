@@ -10,7 +10,7 @@ informer, the status, last-good), the resource schema, and the Helm wiring are i
 The engine is the component's own, not `envoyproxy/ratelimit`: gateways send one descriptor of four entries (`path`,
 `method`, `token`, `request_id`) per request, and the engine, not Envoy, composes the counting axes from it. Rules are
 authored as the `RateLimitPolicy` of the namespace, one object per domain, and reach the engine through the ConfigMap
-`ratelimit-config` that the operator writes and the service mounts.
+`rate-limiter-config` that the operator writes and the service mounts.
 
 ## Protocol and integration
 
@@ -80,16 +80,16 @@ authored as the `RateLimitPolicy` of the namespace, one object per domain, and r
 One ConfigMap per namespace carries the configuration from the operator to the service. The status semantics of the
 operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
 
-- **The channel** is the ConfigMap `ratelimit-config`, exactly one per namespace, and the operator is its only writer.
-  It writes the whole object on every reconcile, creates it with an ownerReference to its own Deployment, and writes it
-  even when the namespace holds no policy; no chart renders it. Under `binaryData` the object holds one
+- **The channel** is the ConfigMap `rate-limiter-config`, exactly one per namespace, and the operator is its only
+  writer. It writes the whole object on every reconcile, creates it with an ownerReference to its own Deployment, and
+  writes it even when the namespace holds no policy; no chart renders it. Under `binaryData` the object holds one
   `<domain>.json.gz` key per domain: the validated spec in the resource's own format, gzip-compressed. Under `data` it
   holds the key `manifest`: plain JSON with an integer `formatVersion`, the `operatorVersion`, and per domain the
   `generation`, the `uid`, and the `hash`. The ConfigMap is the last-good state of the namespace. Before the write the
   operator checks the compressed total against the 1 MiB limit of a ConfigMap; a generation that does not fit is
   reported with reason `ConfigMapTooLarge` (`Ready: False`, `Stalled: True`), distinct from `NotCompiled`, and the
-  last-good state stays enforced. Rules compress about 20 to 40 times and a group of UUIDs about 1.8 times, so
-  about 45000 UUIDs fill the object.
+  last-good state stays enforced. Rules compress about 20 to 40 times and a group of UUIDs about 1.8 times, so about
+  45000 UUIDs fill the object.
 - **The read side.** The service mounts the ConfigMap as a whole directory at `/etc/ratelimit/config` with
   `optional: true` and watches the `..data` symlink for the kubelet's swap. On a swap it decodes the manifest, compiles
   every domain with the engine module, and swaps its snapshot atomically: a request is evaluated against the old
@@ -111,9 +111,9 @@ operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
   keeps its snapshot in memory and stays Ready when the files vanish or a later manifest is refused.
 - **`/debug/applied`** on the metrics port reports the applied generation and UID per domain, the format versions the
   replica reads, and a refusal with its reason. The operator discovers the replicas through the EndpointSlice of the
-  Service `ratelimit`, takes the port number from the EndpointSlice by the port name `metrics`, and reads the endpoint
-  once per probe cycle (10 s). The port stays open inside the cluster, read-only and without authentication. The
-  `ReplicaStale` threshold that separates a stale replica from `Propagating` is 90 s, above the kubelet sync period.
+  Service `rate-limiter`, takes the port number from the EndpointSlice by the port name `metrics`, and reads the
+  endpoint once per probe cycle (10 s). The port stays open inside the cluster, read-only and without authentication.
+  The `ReplicaStale` threshold that separates a stale replica from `Propagating` is 90 s, above the kubelet sync period.
   The same port answers `/debug/snapshot` and `/debug/snapshot/{domain}`, which render what this replica enforces for a
   human with a port-forward; nothing in the delivery reads them.
 - **The service reads no API server object**: its pod is bound to no Role, sets `automountServiceAccountToken: false`,
@@ -123,14 +123,14 @@ operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
   depguard rule forbids client-go and controller-runtime under `service/`; CI reads the build information of the service
   binary and fails when client-go is present.
 - **The contract between the two components** is constants in one Go package under `api/` that both binaries import: the
-  Service `ratelimit`, its gRPC port 9000 named `grpc`, the probe port published on the Service under the name `metrics`
-  (the service's metrics port, 8080), and the ConfigMap `ratelimit-config`. The operator and service charts each carry
-  the mode rule in their `_helpers.tpl` and render into one namespace. The mode rule: satellite if and only if
-  `BASELINE_ORIGIN` is non-empty, otherwise the whole stack; `BASELINE_CONTROLLER`, when set in a satellite, replaces
-  `BASELINE_ORIGIN` as the namespace half of the RLS address `ratelimit.<namespace>.svc.cluster.local:9000`; in a
+  Service `rate-limiter`, its gRPC port 9000 named `grpc`, the probe port published on the Service under the name
+  `metrics` (the service's metrics port, 8080), and the ConfigMap `rate-limiter-config`. The operator and service charts
+  each carry the mode rule in their `_helpers.tpl` and render into one namespace. The mode rule: satellite if and only
+  if `BASELINE_ORIGIN` is non-empty, otherwise the whole stack; `BASELINE_CONTROLLER`, when set in a satellite, replaces
+  `BASELINE_ORIGIN` as the namespace half of the RLS address `rate-limiter.<namespace>.svc.cluster.local:9000`; in a
   satellite the service chart renders the EnvoyFilters only and the operator chart renders nothing. A CI test renders
-  the operator and service charts and compares the rendered names and ports with the constants, the
-  [chart document](helm-chart.md) lists the contract, and `rls.port` exists in neither chart.
+  the operator and service charts and compares the rendered names and ports with the constants, the [chart
+  document](helm-chart.md) lists the contract, and `rls.port` exists in neither chart.
 
 ## Rule model and matching
 
@@ -239,9 +239,9 @@ operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
   editing them is the same generation as editing rules, applied atomically with it, and the compiler checks the
   references from rules to keys and groups inside the one object. There are no cross-object transactions or gates.
 - **Last-good survives restarts.** The operator writes the enforced state of every domain, the good spec with its
-  generation and the object UID, into the ConfigMap `ratelimit-config` (gzip in `binaryData`, the generation and the UID
-  in the manifest). A generation that compiles replaces the domain's entry; a generation that does not compile is not
-  written, and the entry stays as it is if the UID matches, so a recreated policy of the same name inherits nobody's
+  generation and the object UID, into the ConfigMap `rate-limiter-config` (gzip in `binaryData`, the generation and the
+  UID in the manifest). A generation that compiles replaces the domain's entry; a generation that does not compile is
+  not written, and the entry stays as it is if the UID matches, so a recreated policy of the same name inherits nobody's
   good spec; otherwise the domain is empty. A replica that starts enforces what the ConfigMap holds, whether the object
   in etcd compiles or not. A write failure is a `ratelimit_config_write_errors_total` increment by reason and a log
   line; the replicas keep the configuration they mounted, and the status reports `ReplicaStale` 90 s later.
