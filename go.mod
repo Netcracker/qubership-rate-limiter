@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.8.3
 	github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.5
-	github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.3
+	github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.4
 	github.com/netcracker/qubership-core-lib-go/v3 v3.15.3
 	github.com/netcracker/qubership-rate-limiter/engine v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.33.1
@@ -77,7 +77,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/influxdata/tdigest v0.0.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/knadh/koanf/maps v0.1.3 // indirect
 	github.com/knadh/koanf/parsers/yaml v1.1.1 // indirect
 	github.com/knadh/koanf/providers/env/v2 v2.0.2 // indirect
@@ -92,9 +92,9 @@ require (
 	github.com/moby/spdystream v0.5.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
-	github.com/molecule-man/go-brrr v1.1.1 // indirect
+	github.com/molecule-man/go-brrr v1.3.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/netcracker/qubership-core-lib-go-actuator-common/v2 v2.12.3 // indirect
+	github.com/netcracker/qubership-core-lib-go-actuator-common/v2 v2.12.4 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/openzipkin/zipkin-go v0.4.3 // indirect
@@ -107,7 +107,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.75.0 // indirect
+	github.com/valyala/fasthttp v1.77.0 // indirect
 	github.com/vibrantbyte/go-antpath v1.1.1 // indirect
 	github.com/viney-shih/go-lock v1.1.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
