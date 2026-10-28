@@ -154,7 +154,7 @@
       "type": "string",
       "title": "The IMAGE_REPOSITORY schema",
       "minLength": 1,
-      "default": "ghcr.io/netcracker/qubership-ratelimit-operator",
+      "default": "ghcr.io/netcracker/qubership-rate-limiter-operator",
       "internal": true
     },
     "TAG": {

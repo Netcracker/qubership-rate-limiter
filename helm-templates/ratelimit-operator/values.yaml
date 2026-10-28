@@ -15,7 +15,7 @@ NAMESPACE: ""
 # The image. TAG is required, with no default. A floating tag such as "latest"
 # moves under a running workload, so two pods of one rollout can end up on
 # different builds.
-IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-ratelimit-operator
+IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-rate-limiter-operator
 TAG: ""
 # Labels: app.kubernetes.io/part-of, app.kubernetes.io/managed-by,
 # app.kubernetes.io/version (empty renders an empty label), and

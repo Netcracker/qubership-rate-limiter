@@ -3,7 +3,7 @@
 
 image:
   # The image built from tests/load/Dockerfile.
-  repository: ghcr.io/netcracker/qubership-ratelimit-loadtest
+  repository: ghcr.io/netcracker/qubership-rate-limiter-loadtest
   # Required.
   tag: ""
   pullPolicy: IfNotPresent

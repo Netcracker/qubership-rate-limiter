@@ -190,7 +190,7 @@ workflow installs on a kind cluster from `helm/kind-action` v1.15.1 with its def
 qubership-istio from its `main` branch. No workflow pins Helm: CI uses the Helm of the GitHub runner image. Adopting an
 existing CRD with `--take-ownership` needs Helm 3.17 or later ([the CRD chart](docs/helm-chart.md#the-crd-chart)).
 
-The images are `ghcr.io/netcracker/qubership-ratelimit-operator` and `ghcr.io/netcracker/qubership-ratelimit-service`.
+The images are `ghcr.io/netcracker/qubership-rate-limiter-operator` and `ghcr.io/netcracker/qubership-rate-limiter`.
 A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. A push to
 `main` whose build completes also publishes them tagged `main-<sha>`, the first seven characters of the commit, for an
 unreleased build. These tags do not cover every commit and do not last: when two pushes land within minutes of each
@@ -496,7 +496,8 @@ A release goes through the Go bulk release of core services in
 [qubership-core-infra](https://github.com/Netcracker/qubership-core-infra). It tags the released commit as
 `v<version>`, and the engine module as `engine/v<version>`, and creates the GitHub release. The `v<version>` tag starts
 the Build workflow, which runs all of its jobs except the Sonar analysis and publishes three images as `v<version>`:
-the operator, the service, and the load test kit (`ghcr.io/netcracker/qubership-ratelimit-loadtest`). The bulk release
-runs `go test ./...` without envtest binaries, so the envtest suites skip there and run only in that build. E2E and
-Super-Linter do not run on the tag. If the Build run of the tag fails, the GitHub release has no images until a re-run
-passes. A published version is never released again or deleted: a defect in it is fixed in the next patch version.
+the operator, the service, and the load test kit (`ghcr.io/netcracker/qubership-rate-limiter-loadtest`). The bulk
+release runs `go test ./...` without envtest binaries, so the envtest suites skip there and run only in that build. E2E
+and Super-Linter do not run on the tag. If the Build run of the tag fails, the GitHub release has no images until a
+re-run passes. A published version is never released again or deleted: a defect in it is fixed in the next patch
+version.

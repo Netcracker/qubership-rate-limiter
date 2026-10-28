@@ -976,8 +976,8 @@ func TestCharts_refuseAnUndeclaredKeyOfTheirOwnBlockBesideTheOtherChartsValues(t
 // manager, and rolls out keeping every pod until its replacement is Ready.
 func TestCharts_defaultTheOptionalPlatformParameters(t *testing.T) {
 	for _, c := range []struct{ chart, image string }{
-		{operatorChart, "ghcr.io/netcracker/qubership-ratelimit-operator:test"},
-		{serviceChart, "ghcr.io/netcracker/qubership-ratelimit-service:test"},
+		{operatorChart, "ghcr.io/netcracker/qubership-rate-limiter-operator:test"},
+		{serviceChart, "ghcr.io/netcracker/qubership-rate-limiter:test"},
 	} {
 		t.Run(c.chart, func(t *testing.T) {
 			objects := render(t, c.chart, "biz")

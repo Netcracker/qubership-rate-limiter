@@ -9,7 +9,7 @@ checks its own results. It installs as one Helm chart beside the rate limit char
 - a Job of JMeter generators. Each one sends READ, LIST, and SEARCH requests of test users at the rates of the load
   steps, builds the JMeter HTML report, and checks the results with `loadkit verify`.
 
-The image, `ghcr.io/netcracker/qubership-ratelimit-loadtest`, carries JMeter, the plan
+The image, `ghcr.io/netcracker/qubership-rate-limiter-loadtest`, carries JMeter, the plan
 [`ratelimit-load.jmx`](../tests/load/jmeter/ratelimit-load.jmx) with its script `pick.groovy`, and `loadkit`. Its
 tags follow the operator and service images built from the same commit. The
 [load test workflow](../.github/workflows/load-test.yml) runs the whole kit on kind for every pull request that
@@ -71,7 +71,7 @@ incomplete profile. Rerunning the command resets the password of a user that exi
 
 ```bash
 docker run --rm --user "$(id -u)" --entrypoint loadkit -v "$PWD/secrets:/secrets:ro" \
-  ghcr.io/netcracker/qubership-ratelimit-loadtest:<tag> keycloak-users \
+  ghcr.io/netcracker/qubership-rate-limiter-loadtest:<tag> keycloak-users \
   -keycloak-url https://keycloak.example.com -realm <realm> \
   -admin-user <admin> -admin-password-file /secrets/admin-password \
   -users 2000 -password-file /secrets/users-password

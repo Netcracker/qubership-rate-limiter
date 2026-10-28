@@ -5,8 +5,8 @@ The delivery is **one application** of **three charts** and **two images** ([top
 cluster chart and two namespace charts. The cluster chart, `ratelimit-crds` under `helm-templates/ratelimit-crds`,
 holds the cluster-scoped `RateLimitPolicy` CRD and is installed once per cluster, see "The CRD chart". The namespace
 charts are `ratelimit-operator` under `helm-templates/ratelimit-operator` with the image
-`qubership-ratelimit-operator`, and `ratelimit-service` under `helm-templates/ratelimit-service` with the image
-`qubership-ratelimit-service`. The platform installs the same pair in every namespace of an application. The set of
+`qubership-rate-limiter-operator`, and `ratelimit-service` under `helm-templates/ratelimit-service` with the image
+`qubership-rate-limiter`. The platform installs the same pair in every namespace of an application. The set of
 objects each namespace chart renders is derived from the platform's `BASELINE_ORIGIN`: the whole stack where a domain
 lives, the gateway filters alone in a satellite.
 
@@ -221,7 +221,7 @@ The operator chart, `helm-templates/ratelimit-operator/values.yaml`:
 ```yaml
 SERVICE_NAME: ratelimit-operator     # every template: the platform's parameters, see "Platform parameters"
 NAMESPACE: ""                         # every template; required, the schema refuses it empty
-IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-ratelimit-operator   # Deployment.yaml
+IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-rate-limiter-operator   # Deployment.yaml
 TAG: ""                              # required, the schema refuses it empty; do not use floating tags
 APPLICATION_NAME: ratelimit          # every template's labels; an empty ARTIFACT_DESCRIPTOR_VERSION
 MANAGED_BY: Helm                     #   renders an empty version label
@@ -267,7 +267,7 @@ The service chart, `helm-templates/ratelimit-service/values.yaml`:
 ```yaml
 SERVICE_NAME: ratelimit-service      # every template; also the DBaaS classifier's microserviceName
 NAMESPACE: ""                         # every template; required, the schema refuses it empty
-IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-ratelimit-service    # Deployment.yaml
+IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-rate-limiter   # Deployment.yaml
 TAG: ""                              # required, the schema refuses it empty; do not use floating tags
 APPLICATION_NAME: ratelimit          # every template's labels, as in the operator chart
 MANAGED_BY: Helm

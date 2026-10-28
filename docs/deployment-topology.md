@@ -235,7 +235,7 @@ age past 5 minutes and a probe cycle means that no operator is writing. Details 
 ## Delivery: monorepo, one application
 
 The code lives in a monorepo; the delivery is **one application**, `ratelimit`, made of **three charts** and **two
-images**, `qubership-ratelimit-operator` and `qubership-ratelimit-service`: one cluster chart, `ratelimit-crds`, for the
+images**, `qubership-rate-limiter-operator` and `qubership-rate-limiter`: one cluster chart, `ratelimit-crds`, for the
 CRD (see below), and two namespace charts. The namespace charts live under `helm-templates/ratelimit-operator` and
 `helm-templates/ratelimit-service`, the platform installs the same pair in every namespace, and both derive their
 contents from `BASELINE_ORIGIN`:
