@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
 )
 
 const (

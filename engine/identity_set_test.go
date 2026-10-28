@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // A key is a set: a value a direct consumer sends twice, or in two spellings

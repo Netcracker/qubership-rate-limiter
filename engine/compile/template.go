@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // compileRoutes validates a block's routes and collects its template

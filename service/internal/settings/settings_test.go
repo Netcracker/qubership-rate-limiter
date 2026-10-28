@@ -21,10 +21,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	enginestore "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/service/internal/redisconn"
-	"github.com/netcracker/qubership-ratelimit/service/internal/rls"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	enginestore "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/redisconn"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
 )
 
 // readEnvironment points configloader at the environment alone, where the

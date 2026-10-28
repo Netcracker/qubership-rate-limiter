@@ -9,8 +9,8 @@ package convert
 import (
 	"time"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // The enums are string-typed on both sides and carry the same values, which makes

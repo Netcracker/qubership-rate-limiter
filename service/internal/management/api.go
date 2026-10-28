@@ -13,12 +13,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/match"
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/service/internal/records"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/match"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 // BasePath prefixes every endpoint.

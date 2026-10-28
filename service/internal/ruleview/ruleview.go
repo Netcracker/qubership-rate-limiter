@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // Runtime mode vocabulary. It is lowercase and shared by every runtime view

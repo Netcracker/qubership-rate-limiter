@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // Sanitary limits are engine constants, not configuration: the token is

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/netcracker/qubership-ratelimit/engine/identity"
+	"github.com/netcracker/qubership-rate-limiter/engine/identity"
 )
 
 // tokenCache memoizes identity extraction per token. Extraction is a pure

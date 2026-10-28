@@ -8,7 +8,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/netcracker/qubership-ratelimit/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 // InstrumentStore wraps a counter store with the roundtrip histogram and the

@@ -12,8 +12,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // The snapshot endpoint: what one replica enforces, rendered in full on its

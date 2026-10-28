@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 // tolerance absorbs the real time passing between two calls in one subtest.

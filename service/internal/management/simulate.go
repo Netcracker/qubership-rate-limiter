@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
 )
 
 // Simulation is the non-charging request debugger: what would the gateway have

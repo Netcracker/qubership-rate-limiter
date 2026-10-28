@@ -1,4 +1,4 @@
-module github.com/netcracker/qubership-ratelimit
+module github.com/netcracker/qubership-rate-limiter
 
 go 1.26.5
 
@@ -16,7 +16,7 @@ require (
 	github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.4
 	github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.3
 	github.com/netcracker/qubership-core-lib-go/v3 v3.15.2
-	github.com/netcracker/qubership-ratelimit/engine v0.0.0-00010101000000-000000000000
+	github.com/netcracker/qubership-rate-limiter/engine v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
 	github.com/prometheus/client_golang v1.25.0
@@ -146,4 +146,4 @@ require (
 
 // The engine module lives in this repository; the replace makes the first
 // import resolve to the local directory with no tags involved.
-replace github.com/netcracker/qubership-ratelimit/engine => ./engine
+replace github.com/netcracker/qubership-rate-limiter/engine => ./engine

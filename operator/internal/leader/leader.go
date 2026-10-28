@@ -10,7 +10,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
-	"github.com/netcracker/qubership-ratelimit/internal/process"
+	"github.com/netcracker/qubership-rate-limiter/internal/process"
 )
 
 // LeaseName is the Lease the operator's pods compete for.
