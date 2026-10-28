@@ -5,6 +5,7 @@
 #
 # Triggers:
 #   - Push to main or an lts/** branch
+#   - Push of a vMAJOR.MINOR.PATCH release tag: publishes the images under that tag
 #   - Pull requests
 #
 # See generic-go-build.yaml for full documentation on build features and required secrets/vars.
@@ -25,6 +26,8 @@ on:
     branches:
       - main
       - 'lts/**'
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -54,14 +57,15 @@ jobs:
       install-envtest: true
       # Matches k8s.io/api in go.mod, v0.37, so the test control plane cannot
       # drift from the client libraries the service is built against. A bump of
-      # k8s.io/api bumps this, release.yaml's copy, and the version README.md
-      # names; make test derives its own from go.mod.
+      # k8s.io/api bumps this and the version README.md names; make test
+      # derives its own from go.mod.
       kube-version: '1.37.0'
       # Pull requests build a single native platform: the image is validation
       # only there, and the two cross-compilations otherwise contend for the
       # runner's cores. Pushes keep the full multi-arch config.
       docker-config-file: ${{ github.event_name == 'pull_request' && 'docker-dev-config-pr.json' || 'docker-dev-config.json' }}
-      sonar-project-key: ${{ vars.SONAR_PROJECT_KEY }}
+      # The analysis belongs to main and pull requests, not to release tags.
+      sonar-project-key: ${{ github.ref_type != 'tag' && vars.SONAR_PROJECT_KEY || '' }}
     secrets:
       # generic-go-build.yaml declares exactly one secret, and it is required.
       # Inheriting the whole set would hand a reusable workflow every credential
@@ -88,7 +92,9 @@ jobs:
       # binary built by an older Go refuses to target this module's version -
       # so the job needs exactly the toolchain go.mod declares, not whatever
       # the runner has preinstalled.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Publishes nothing: the images come from generic-go-build.yaml's
+      # Docker build, so the cache-poisoning audit does not apply.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # Whole-module runs with the Makefile's pinned golangci-lint. This is
@@ -145,7 +151,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Publishes nothing: the images come from generic-go-build.yaml's
+      # Docker build, so the cache-poisoning audit does not apply.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # The depguard rule keeps client-go and controller-runtime out of the
@@ -279,7 +287,9 @@ jobs:
       # service chart and nothing from the operator chart; the CRD rendered by
       # the CRD chart alone. It skips without helm on PATH; here helm is on
       # PATH and the skip is a failure.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Publishes nothing: the images come from generic-go-build.yaml's
+      # Docker build, so the cache-poisoning audit does not apply.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # The alert rules each chart ships go through promtool check rules in
