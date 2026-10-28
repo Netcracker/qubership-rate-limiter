@@ -24,7 +24,7 @@ pods=()
 ports=()
 pids=()
 port=19280
-for pod in $(kubectl get pods -n "$NS" -l app.kubernetes.io/name=ratelimit-service -o name); do
+for pod in $(kubectl get pods -n "$NS" -l app.kubernetes.io/name=rate-limiter -o name); do
   kubectl port-forward -n "$NS" "$pod" "$port:8080" >/dev/null 2>&1 &
   pids+=($!)
   pods+=("${pod#pod/}")
@@ -45,7 +45,7 @@ n=0
 while [ ! -e "$OUT/stop" ]; do
   t0=$(now)
   curl -sf -m 3 "http://127.0.0.1:$gw_port/stats/prometheus" \
-    | grep -E '^envoy_' | grep -E '9000\|\|ratelimit|loadtest-backend|downstream_rq|_ratelimit_' >"$OUT/gw/$t0" &
+    | grep -E '^envoy_' | grep -E '9000\|\|rate-limiter|loadtest-backend|downstream_rq|_ratelimit_' >"$OUT/gw/$t0" &
   jobs_now=($!)
   for i in "${!ports[@]}"; do
     curl -sf -m 3 "http://127.0.0.1:${ports[$i]}/metrics" \

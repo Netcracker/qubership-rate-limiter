@@ -159,7 +159,7 @@ def over(h, bound):
     return c - b[min(keys)]
 
 
-rls = lambda d: "9000||ratelimit" in d.get("cluster_name", "")
+rls = lambda d: "9000||rate-limiter" in d.get("cluster_name", "")
 backend = lambda d: "loadtest-backend" in d.get("cluster_name", "")
 ingress = lambda d: d.get("http_conn_manager_prefix", "").startswith("outbound_0.0.0.0_8080")
 domain = lambda d: d.get("domain") == "gateway.public"
@@ -269,7 +269,7 @@ cv = [(t, read_cadv(p)) for t, p in files("cadv2")] or [(t, read_cadv(p)) for t,
 
 def group_of(key):
     ns, pod, cont = key
-    if cont in ("ratelimit-service", "service"):
+    if cont in ("rate-limiter", "service"):
         return "rls"
     if pod.startswith("public-gateway-istio"):
         return "gateway"

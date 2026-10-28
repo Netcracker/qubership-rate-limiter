@@ -1,4 +1,4 @@
-module github.com/netcracker/qubership-ratelimit/engine
+module github.com/netcracker/qubership-rate-limiter/engine
 
 go 1.26.5
 

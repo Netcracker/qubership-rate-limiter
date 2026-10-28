@@ -77,7 +77,7 @@ spec:
           command:
             - /usr/bin/entrypoint.sh
           args:
-            - /app/ratelimit-operator
+            - /app/rate-limiter-operator
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8080
             # The operator's own Deployment, which owns the configuration

@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
 )
 
 // Bucket is one counter taking part in a decision.

@@ -1,8 +1,8 @@
 # Deployment topology: operator and service, singleton policy, composites
 
-Rate limiting is delivered as **two components** per namespace. The operator, `ratelimit-operator`, reads the policies
-of its own namespace, validates them, writes them into one ConfigMap, and writes the policy status. The service,
-`ratelimit-service`, mounts that ConfigMap, compiles it, and serves gateways over the Envoy RLS protocol. Both are
+Rate limiting is delivered as **two components** per namespace. The operator, `rate-limiter-operator`, reads the
+policies of its own namespace, validates them, writes them into one ConfigMap, and writes the policy status. The
+service, `rate-limiter`, mounts that ConfigMap, compiles it, and serves gateways over the Envoy RLS protocol. Both are
 installed in every namespace where a domain lives: in the application's single namespace or in the baseline of a
 composite. There are no cluster-level components: no cluster-wide operator, no ClusterRole, no auxiliary CRs. The only
 user-facing resource is `RateLimitPolicy`, one per domain; it holds the rules, the extraction of keys from the token,
@@ -18,7 +18,7 @@ Both charts refuse to render a `BASELINE_ORIGIN` that names `NAMESPACE`, the nam
 2. **Composite.** A set of related namespaces: one **baseline** and one or more **satellites**. Every namespace has a
    gateway; the operator and the service are installed **only in the baseline**; the policy is placed only in the
    baseline. Satellites get only EnvoyFilters: the RLS address is computed at install time from `BASELINE_ORIGIN` and
-   the fixed name of the Service `ratelimit`.
+   the fixed name of the Service `rate-limiter`.
 
 Blue-Green applies to satellites only; the baseline is never Blue-Green'd. Both namespaces of a Blue-Green satellite
 receive the same `BASELINE_ORIGIN`, so their filters point at the one baseline RLS, and a switch between them changes
@@ -45,16 +45,16 @@ a built-in key in the service. These entities do not exist today.
 team ── kubectl apply ──► RateLimitPolicy <domain>                       ns: single | baseline
                                    │  informer (own ns only)
                                    ▼
-                          ratelimit-operator ── status ──► RateLimitPolicy
+                          rate-limiter-operator ── status ──► RateLimitPolicy
                           (Lease holder: decode → compile → size check;
                            a Lease covers the rollout overlap)
                                    │  writes the whole object on every reconcile
                                    ▼
-                          ConfigMap ratelimit-config                     (the last-good state)
+                          ConfigMap rate-limiter-config                  (the last-good state)
                           (<domain>.json.gz per domain + manifest)
                                    │  the kubelet projects the volume (sync period, 1 min by default)
                                    ▼
-                          ratelimit-service ◄── /debug/applied probe ── ratelimit-operator (every 10 s)
+                          rate-limiter ◄── /debug/applied probe ── rate-limiter-operator (every 10 s)
                           (REPLICAS replicas: decode → compile → swap; no Role)
                                    ▲            └── atomic Lua ──► Redis from DBaaS (one instance, adapter ns)
                                    │  gRPC ShouldRateLimit
@@ -62,10 +62,10 @@ team ── kubectl apply ──► RateLimitPolicy <domain>                    
 gateways (baseline and satellites) with EnvoyFilter ◄── service chart at install of each ns
 ```
 
-Two flows cross the picture. On the request path a gateway calls `ShouldRateLimit` on the Service `ratelimit`, and every
-service replica decides against the Redis database DBaaS provisions for the release. The configuration path runs through
-the ConfigMap: the operator validates and writes, the kubelet projects, and the service replicas decode, compile, and
-swap.
+Two flows cross the picture. On the request path a gateway calls `ShouldRateLimit` on the Service `rate-limiter`, and
+every service replica decides against the Redis database DBaaS provisions for the release. The configuration path runs
+through the ConfigMap: the operator validates and writes, the kubelet projects, and the service replicas decode,
+compile, and swap.
 
 For a visual picture with the composite, the satellites, and the request path, see the
 [interaction diagram](topology-diagram.md).
@@ -87,19 +87,19 @@ the status. The full list of bounds and their origin is in [limits](limits.md).
 Two binaries, two images. The operator holds the control plane of its namespace, and the service holds the data
 plane:
 
-- **Operator** `ratelimit-operator`: a Deployment whose Lease holder alone does the work, with a standby in the `-ha`
+- **Operator** `rate-limiter-operator`: a Deployment whose Lease holder alone does the work, with a standby in the `-ha`
   and `prod` profiles; the Lease also covers the overlap of two pods during a rollout. An informer on the
   `RateLimitPolicy` of its own namespace: event → strict decode → compile → size check → a write of the ConfigMap
-  `ratelimit-config` and of the policy status. It is the only writer of both. Its chart ships its ServiceAccount
+  `rate-limiter-config` and of the policy status. It is the only writer of both. Its chart ships its ServiceAccount
   with the only Role of the delivery and, behind `MONITORING_ENABLED`, its own PodMonitor and PrometheusRule; the CRD
-  has a chart of its own, `ratelimit-crds`.
-- **Service** `ratelimit-service`: a Deployment with `REPLICAS` replicas. gRPC `ShouldRateLimit` on all replicas, with
+  has a chart of its own, `rate-limiter-crds`.
+- **Service** `rate-limiter`: a Deployment with `REPLICAS` replicas. gRPC `ShouldRateLimit` on all replicas, with
   no coordination; the counter store is a single Redis instance that the DBaaS Redis adapter provisions for the
   release and runs in its own namespace. Every replica mounts the ConfigMap as a whole
   directory at `/etc/ratelimit/config` (`optional: true`), watches the `..data` symlink swap, decodes the manifest
   strictly, compiles every domain with the engine module, and swaps the in-memory snapshot atomically. All replicas
   compile independently and deterministically; there is no shared state between them. Pod name and namespace come
-  from the Downward API. Its chart ships the Service `ratelimit`, a ServiceAccount with no Role and
+  from the Downward API. Its chart ships the Service `rate-limiter`, a ServiceAccount with no Role and
   `automountServiceAccountToken: false` (the pod mounts its token only with `management.enabled`, to read the OIDC
   discovery), the HorizontalPodAutoscaler, a PodDisruptionBudget when the service runs more than one replica
   (`REPLICAS`, or `HPA_MIN_REPLICAS` with `HPA_ENABLED`), the `InternalDatabase` and the `DatabaseSecretClaim` of its
@@ -110,18 +110,18 @@ plane:
   domain. After the first apply the replica keeps its snapshot in memory and stays Ready if the files vanish or a
   later manifest is refused.
 - **RBAC** is the operator's namespace-scoped Role: `ratelimitpolicies` get/list/watch, `ratelimitpolicies/status`
-  update, Lease get/create/update, EndpointSlice get/list/watch, ConfigMap create and, by the name `ratelimit-config`,
-  get/list/watch/update, its own Deployment get (the ConfigMap's owner), `events` create/patch; the
-  [Role table](helm-chart.md#roleyaml-operator-chart) carries each rule. No ClusterRole. The service has no Role, and
-  its pod mounts a token only with `management.enabled`, which reads the OIDC discovery and nothing else. A depguard
+  update, Lease get/create/update, EndpointSlice get/list/watch, ConfigMap create and, by the name
+  `rate-limiter-config`, get/list/watch/update, its own Deployment get (the ConfigMap's owner), `events` create/patch;
+  the [Role table](helm-chart.md#roleyaml-operator-chart) carries each rule. No ClusterRole. The service has no Role,
+  and its pod mounts a token only with `management.enabled`, which reads the OIDC discovery and nothing else. A depguard
   rule forbids client-go and controller-runtime under `service/`, and CI reads the build information of the service
   binary and fails when client-go is present.
-- **Contract** is a set of constants in one Go package that both binaries import: the Service `ratelimit`, its gRPC port
-  9000 named `grpc`, the probe port published on the Service under the name `metrics` (the service's metrics port,
-  8080), and the ConfigMap `ratelimit-config`. The mode rule, satellite iff `BASELINE_ORIGIN` is non-empty, is the
+- **Contract** is a set of constants in one Go package that both binaries import: the Service `rate-limiter`, its gRPC
+  port 9000 named `grpc`, the probe port published on the Service under the name `metrics` (the service's metrics port,
+  8080), and the ConfigMap `rate-limiter-config`. The mode rule, satellite iff `BASELINE_ORIGIN` is non-empty, is the
   `ratelimit.mode` helper in the `_helpers.tpl` of each namespace chart, and the two namespace charts are installed in
   one namespace; the CRD chart has neither. Satellites compute the RLS address from the Service name,
-  `ratelimit.<BASELINE_ORIGIN>.svc.cluster.local:9000` (or `BASELINE_CONTROLLER` when the platform sets it, read for
+  `rate-limiter.<BASELINE_ORIGIN>.svc.cluster.local:9000` (or `BASELINE_CONTROLLER` when the platform sets it, read for
   parity with `control-plane`), and the operator reads its fleet through the same name. A CI test renders both charts
   and compares the rendered names and ports with the constants, and the [chart document](helm-chart.md) lists the
   contract.
@@ -176,7 +176,7 @@ compressed total of the namespace fits the 1 MiB cap of a ConfigMap; one that do
 
 ## Last-good
 
-The operator persists the active state of every domain of the namespace in one ConfigMap, `ratelimit-config`. Under
+The operator persists the active state of every domain of the namespace in one ConfigMap, `rate-limiter-config`. Under
 `binaryData`, one `<domain>.json.gz` key per domain holds the validated spec in the resource's own format,
 gzip-compressed. Under `data`, the `manifest` key holds plain JSON with an integer `formatVersion`, the
 `operatorVersion`, and per domain the `generation`, the `uid`, and the `hash` of the content. The operator writes the
@@ -209,7 +209,7 @@ The policy's conditions follow the Kubernetes API conventions:
 
 - **`Accepted`**: the object compiles (no blocking problems).
 - **`Ready`** is strict: **all ready service replicas** execute the latest generation. The operator reads the
-  EndpointSlice of the Service `ratelimit`, takes the probe port number from it by the port name `metrics`, fetches
+  EndpointSlice of the Service `rate-limiter`, takes the probe port number from it by the port name `metrics`, fetches
   `/debug/applied` from every ready replica in one round per probe cycle (10 s) that serves every domain of the
   namespace (JSON: per domain `generation`, `uid`, `appliedAt`, plus the format versions the replica reads and a
   refusal with its reason), and writes `status.replicas: {total, applied, summary, lastCheckTime}`; the
@@ -234,13 +234,13 @@ age past 5 minutes and a probe cycle means that no operator is writing. Details 
 
 ## Delivery: monorepo, one application
 
-The code lives in a monorepo; the delivery is **one application**, `ratelimit`, made of **three charts** and **two
-images**, `qubership-ratelimit-operator` and `qubership-ratelimit-service`: one cluster chart, `ratelimit-crds`, for the
-CRD (see below), and two namespace charts. The namespace charts live under `helm-templates/ratelimit-operator` and
-`helm-templates/ratelimit-service`, the platform installs the same pair in every namespace, and both derive their
+The code lives in a monorepo; the delivery is **one application**, `rate-limiter`, made of **three charts** and **two
+images**, `qubership-rate-limiter-operator` and `qubership-rate-limiter`: one cluster chart, `rate-limiter-crds`, for
+the CRD (see below), and two namespace charts. The namespace charts live under `helm-templates/rate-limiter-operator`
+and `helm-templates/rate-limiter`, the platform installs the same pair in every namespace, and both derive their
 contents from `BASELINE_ORIGIN`:
 
-| Scheme | `ratelimit-operator` renders | `ratelimit-service` renders |
+| Scheme | `rate-limiter-operator` renders | `rate-limiter` renders |
 | --- | --- | --- |
 | single namespace | Deployment (`REPLICAS`, one active), SA, Role/RoleBinding; with `MONITORING_ENABLED`, PodMonitor and PrometheusRule | Deployment (`REPLICAS`), Service, SA, HPA, PDB, EnvoyFilters; with `redis.dbaas.enabled`, InternalDatabase and DatabaseSecretClaim; with `management.enabled`, AuthorizationPolicy; with `MONITORING_ENABLED`, PodMonitor, PrometheusRule, GrafanaDashboard |
 | composite, baseline | the same | the same |
@@ -266,7 +266,7 @@ first, then the operator, and a rollback reverses the order. A fresh installatio
 the service chart: the service stays NotReady until the operator writes, and the service chart's EnvoyFilters are live
 from the moment it is installed.
 
-**The CRD ships in a chart of its own**, `ratelimit-crds`, which the platform installs as one release per cluster
+**The CRD ships in a chart of its own**, `rate-limiter-crds`, which the platform installs as one release per cluster
 before the namespace charts and upgrades first, to the newest operator version in the cluster. Application pipelines do
 not install it. It carries `helm.sh/resource-policy: keep`,
 so deleting the release does not remove the type. Schema changes stay additive. Schema version skew
@@ -280,7 +280,7 @@ enforcement.
 Decision budgets, window math, formats, and the physical walls of the object size are collected in one document that
 says where each number comes from and who checks it: [limits and their origin](limits.md). There are no bounds for the
 validator's sake. One wall belongs to the configuration channel: the compressed configuration of a namespace, the
-ConfigMap `ratelimit-config`, is bounded by 1 MiB. Rules compress about 20 to 40 times and a group of UUIDs about
+ConfigMap `rate-limiter-config`, is bounded by 1 MiB. Rules compress about 20 to 40 times and a group of UUIDs about
 1.8 times, so about 45000 UUIDs fill the object; a generation that does not fit is reported with `ConfigMapTooLarge`,
 and last-good stays enforced.
 
@@ -294,13 +294,13 @@ there with `BASELINE_ORIGIN`; the `satellite` suite finds it through `E2E_SATELL
 so a run against a plain stand still passes. Four specs: the satellite namespace holds the two EnvoyFilters of the
 service chart and no Deployment, Service, ServiceAccount, or Role, and the operator chart's release is empty; the
 satellite gateway's own Envoy config dump, read instead of the EnvoyFilter object, names
-`outbound|9000||ratelimit.<baseline>.svc.cluster.local` as the RLS cluster, so the spec sees what the gateway calls and
-not what the chart wrote; a `2/1h` policy (GCRA, so no calendar boundary inside a run) in the baseline admits one
-request through each gateway and refuses the third through either, in that order, so the satellite's request has to
-land in the bucket the baseline's request opened; and the negative control: a policy placed in the satellite
-namespace, on a path of its own, changes nothing for three requests through the satellite gateway and keeps an empty
-status for 30 s, because no operator reads that namespace. The same setup on a local stand is the workflow's "Set up
-the satellite namespace" step, run with `make test-e2e-go E2E_SATELLITE_NAMESPACE=<namespace>`.
+`outbound|9000||rate-limiter.<baseline>.svc.cluster.local` as the RLS cluster, so the spec sees what the gateway calls
+and not what the chart wrote; a `2/1h` policy (GCRA, so no calendar boundary inside a run) in the baseline admits one
+request through each gateway and refuses the third through either, in that order, so the satellite's request has to land
+in the bucket the baseline's request opened; and the negative control: a policy placed in the satellite namespace, on a
+path of its own, changes nothing for three requests through the satellite gateway and keeps an empty status for 30 s,
+because no operator reads that namespace. The same setup on a local stand is the workflow's "Set up the satellite
+namespace" step, run with `make test-e2e-go E2E_SATELLITE_NAMESPACE=<namespace>`.
 
 The suites cover both halves:
 

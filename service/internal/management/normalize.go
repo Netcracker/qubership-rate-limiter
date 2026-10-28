@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // unnormalized refuses an identity value the domain's normalization would

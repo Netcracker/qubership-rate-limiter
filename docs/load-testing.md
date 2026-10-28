@@ -9,7 +9,7 @@ checks its own results. It installs as one Helm chart beside the rate limit char
 - a Job of JMeter generators. Each one sends READ, LIST, and SEARCH requests of test users at the rates of the load
   steps, builds the JMeter HTML report, and checks the results with `loadkit verify`.
 
-The image, `ghcr.io/netcracker/qubership-ratelimit-loadtest`, carries JMeter, the plan
+The image, `ghcr.io/netcracker/qubership-rate-limiter-loadtest`, carries JMeter, the plan
 [`ratelimit-load.jmx`](../tests/load/jmeter/ratelimit-load.jmx) with its script `pick.groovy`, and `loadkit`. Its
 tags follow the operator and service images built from the same commit. The
 [load test workflow](../.github/workflows/load-test.yml) runs the whole kit on kind for every pull request that
@@ -71,7 +71,7 @@ incomplete profile. Rerunning the command resets the password of a user that exi
 
 ```bash
 docker run --rm --user "$(id -u)" --entrypoint loadkit -v "$PWD/secrets:/secrets:ro" \
-  ghcr.io/netcracker/qubership-ratelimit-loadtest:<tag> keycloak-users \
+  ghcr.io/netcracker/qubership-rate-limiter-loadtest:<tag> keycloak-users \
   -keycloak-url https://keycloak.example.com -realm <realm> \
   -admin-user <admin> -admin-password-file /secrets/admin-password \
   -users 2000 -password-file /secrets/users-password
@@ -146,7 +146,7 @@ The values below differ between the scenarios of a typical test campaign; everyt
 
 | Scenario | Values | What the summary shows |
 | --- | --- | --- |
-| Baseline without the rate limit | `runtime.enabledPercent: 0` in the ratelimit-service chart; here `load.requireDecisions: false` and the steps of the capacity ladder | The latency and the ceiling of the gateway, the backend, and token introspection alone |
+| Baseline without the rate limit | `runtime.enabledPercent: 0` in the rate-limiter chart; here `load.requireDecisions: false` and the steps of the capacity ladder | The latency and the ceiling of the gateway, the backend, and token introspection alone |
 | Nominal load | `load.steps` at the expected rate, such as `rate: 10` for 600 requests a minute, for an hour | The latency the rate limit adds at the expected load, and no refusal of a user who keeps to the limits |
 | Limits at work | `load.hotUsers: 20`, `load.hotRatePerMinute: 60`, steps of at least 5 hours to fill a daily window of 5000 | Every window of every hot user filled to its requests and not past them, and no false refusal |
 | Capacity ladder | `policy.multiplier: 1000`, `load.checkLimits: false`, rising `load.steps` of 10 minutes each, `load.generators` and `load.threads` sized as below | The rate at which latency, errors, or undecided responses appear: the capacity |
@@ -215,7 +215,7 @@ the step, not only the test's.
 | --- | --- |
 | Gateway calls | The calls the gateway's statistics grew by between the first and the last sample inside the measured part of the step, which can fall up to one sampling interval short of its start and of its end |
 | Gateway p50, p90, p99 ms | The bound each quantile lies under. Envoy records whole milliseconds, so `<1` means under a millisecond and `<3` under 3 ms. `past the buckets` means the quantile lies above the largest bucket of the histogram |
-| Timeouts | The calls the gateway stopped waiting for at `filter.timeout` of the ratelimit-service chart; the summary counts their requests as undecided |
+| Timeouts | The calls the gateway stopped waiting for at `filter.timeout` of the rate-limiter chart; the summary counts their requests as undecided |
 | Service checks | The checks of `gateway.domain` the service's statistics grew by |
 | Check p50, p99, mean ms | The service's check time; the quantiles interpolate inside a bucket the way PromQL's `histogram_quantile` does, and the mean is exact |
 | Store p99 ms | The counter store's share of the check |
@@ -254,11 +254,11 @@ default buckets start at 0.5, 1, 5, and 10 ms, and a quantile between 1 and 5 ms
 a `proxy.istio.io/config` annotation the Gateway already has, so merge the two by hand there. Where a chart such as
 mesh-config owns the Gateway, its next upgrade can drop the annotations; `meshConfig.defaultConfig.proxyStatsMatcher`
 of istiod keeps the statistics for every proxy instead. The patch keeps the statistics of the cluster
-`outbound|9000||ratelimit.*`; a `metrics.rlsCluster` of another name needs its own. Without the statistics the
+`outbound|9000||rate-limiter.*`; a `metrics.rlsCluster` of another name needs its own. Without the statistics the
 gateway's columns show `-` and the reason:
 
 ```text
-http://<address>:15090/stats/prometheus: no envoy_cluster_upstream_rq_time of cluster outbound|9000||ratelimit.<namespace>.svc.cluster.local: enable the gateway's statistics of the rate limit service
+http://<address>:15090/stats/prometheus: no envoy_cluster_upstream_rq_time of cluster outbound|9000||rate-limiter.<namespace>.svc.cluster.local: enable the gateway's statistics of the rate limit service
 ```
 
 The generators run outside the mesh, so they read both ports in plain HTTP. A `PeerAuthentication` in `STRICT` mode or
@@ -273,10 +273,10 @@ rate limit service decides their checks in time.
 
 ```bash
 kubectl port-forward -n <namespace> <gateway pod> 15090:15090 &
-curl -s http://127.0.0.1:15090/stats/prometheus | grep ratelimit
+curl -s http://127.0.0.1:15090/stats/prometheus | grep -E 'ratelimit|rate-limiter'
 ```
 
-- `envoy_cluster_upstream_rq_time` with the `cluster_name` `outbound|9000||ratelimit.<namespace>.svc.cluster.local`:
+- `envoy_cluster_upstream_rq_time` with the `cluster_name` `outbound|9000||rate-limiter.<namespace>.svc.cluster.local`:
   the time of the gateway's call to the service, in milliseconds.
 - `envoy_cluster_upstream_rq_timeout` of the same cluster: the calls cut at `filter.timeout`.
 - `envoy_cluster_ratelimit_<prefix>_ok`, `_over_limit`, `_error`, and `_failure_mode_allowed`, with the
@@ -286,7 +286,7 @@ curl -s http://127.0.0.1:15090/stats/prometheus | grep ratelimit
 
 ```promql
 histogram_quantile(0.99, sum by (le) (rate(
-  envoy_cluster_upstream_rq_time_bucket{cluster_name=~"outbound\\|9000\\|\\|ratelimit\\..*"}[1m])))
+  envoy_cluster_upstream_rq_time_bucket{cluster_name=~"outbound\\|9000\\|\\|rate-limiter\\..*"}[1m])))
 ```
 
 ## Sizing the generators
@@ -346,8 +346,8 @@ The [values file](../tests/load/chart/values.yaml) describes every value; the on
 | `load.holdSeconds` | `3600` | How long a generator keeps its results for `kubectl cp` |
 | `metrics.enabled`, `metrics.intervalSeconds` | `true`, `5` | Whether the first generator samples the calls to the rate limit service, and how often |
 | `metrics.required` | `false` | Whether a step without the statistics of either end fails the run |
-| `metrics.servicePodLabels`, `metrics.servicePort` | `name: ratelimit-service`, `8080` | The rate limit service's pods and the port of their metrics |
-| `metrics.gatewayPort`, `metrics.rlsCluster` | `15090`, `outbound\|9000\|\|ratelimit.<namespace>.svc.cluster.local` | Envoy's statistics port on the gateway's pods, and the gateway's cluster of the rate limit service |
+| `metrics.servicePodLabels`, `metrics.servicePort` | `name: rate-limiter`, `8080` | The rate limit service's pods and the port of their metrics |
+| `metrics.gatewayPort`, `metrics.rlsCluster` | `15090`, `outbound\|9000\|\|rate-limiter.<namespace>.svc.cluster.local` | Envoy's statistics port on the gateway's pods, and the gateway's cluster of the rate limit service |
 
 ## The generator's environment
 

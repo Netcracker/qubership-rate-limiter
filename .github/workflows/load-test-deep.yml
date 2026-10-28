@@ -153,21 +153,21 @@ jobs:
       # one CPU each, as on the local stand.
       - name: Install the rate limit charts
         run: |
-          helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds \
+          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds \
             --namespace "${LOAD_NAMESPACE}" --wait --timeout 2m
-          helm upgrade --install ratelimit-operator helm-templates/ratelimit-operator \
+          helm upgrade --install rate-limiter-operator helm-templates/rate-limiter-operator \
             --namespace "${LOAD_NAMESPACE}" \
             --set NAMESPACE="${LOAD_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
             --set IMAGE_REPOSITORY=ratelimit-operator \
             --set TAG=kind \
             --wait --timeout 5m
-          helm upgrade --install ratelimit-service helm-templates/ratelimit-service \
+          helm upgrade --install rate-limiter helm-templates/rate-limiter \
             --namespace "${LOAD_NAMESPACE}" \
             --set NAMESPACE="${LOAD_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/ratelimit-service/resource-profiles/prod.yaml \
+            -f helm-templates/rate-limiter/resource-profiles/prod.yaml \
             --set HPA_ENABLED=false \
             --set REPLICAS=2 \
             --set IMAGE_REPOSITORY=ratelimit-service \
@@ -183,12 +183,12 @@ jobs:
             '{host: $host, port: 6379, url: ("redis://" + $host + ":6379"), password: $password,
               role: "admin", service: "e2e-redis"}')"
           metadata="$(jq -cn --arg namespace "${LOAD_NAMESPACE}" \
-            '{classifier: {microserviceName: "ratelimit-service", namespace: $namespace, scope: "service"},
+            '{classifier: {microserviceName: "rate-limiter", namespace: $namespace, scope: "service"},
               type: "redis", name: "e2e-redis", namespace: $namespace}')"
-          kubectl create secret generic ratelimit-service-redis -n "${LOAD_NAMESPACE}" \
+          kubectl create secret generic rate-limiter-redis -n "${LOAD_NAMESPACE}" \
             --from-file=connectionProperties.json=<(printf '%s' "${connection}") \
             --from-file=metadata.json=<(printf '%s' "${metadata}")
-          kubectl rollout status deployment/ratelimit-service -n "${LOAD_NAMESPACE}" --timeout=5m
+          kubectl rollout status deployment/rate-limiter -n "${LOAD_NAMESPACE}" --timeout=5m
 
       # The samples, the logs, and later the results land in the layout
       # deep-analyze.py reads: results/<scenario>, results/<scenario>-deep,
@@ -198,7 +198,7 @@ jobs:
           deep="load-deep/results/${SCENARIO}-deep"
           mkdir -p "${deep}/logs" load-deep/values
           cp "tests/load/kind/diag/${SCENARIO}.yaml" "load-deep/values/${SCENARIO}.yaml"
-          for pod in $(kubectl get pods -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=ratelimit-service -o name) \
+          for pod in $(kubectl get pods -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter -o name) \
             $(kubectl get pods -n "${LOAD_NAMESPACE}" -l gateway.networking.k8s.io/gateway-name=public-gateway -o name); do
             nohup kubectl logs -f -n "${LOAD_NAMESPACE}" "${pod}" --since=1s >"${deep}/logs/${pod#pod/}.log" 2>&1 &
           done

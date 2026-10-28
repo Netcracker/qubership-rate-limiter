@@ -18,18 +18,18 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	"github.com/netcracker/qubership-ratelimit/internal/metrics"
-	"github.com/netcracker/qubership-ratelimit/internal/process"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/config"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/controller"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/leader"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/policy"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/internal/metrics"
+	"github.com/netcracker/qubership-rate-limiter/internal/process"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/config"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/controller"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/leader"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
 // ManagedBy labels the ConfigMap the operator writes, and names the event
 // recorder.
-const ManagedBy = "ratelimit-operator"
+const ManagedBy = "rate-limiter-operator"
 
 // Options is what the flags and the environment decided.
 type Options struct {

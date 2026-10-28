@@ -1,17 +1,17 @@
 {
     "components": [
         {
-            "name": "qubership-ratelimit-operator",
+            "name": "qubership-rate-limiter-operator",
             "file": "./operator/Dockerfile",
             "context": "."
         },
         {
-            "name": "qubership-ratelimit-service",
+            "name": "qubership-rate-limiter",
             "file": "./service/Dockerfile",
             "context": "."
         },
         {
-            "name": "qubership-ratelimit-loadtest",
+            "name": "qubership-rate-limiter-loadtest",
             "file": "./tests/load/Dockerfile",
             "context": "."
         }

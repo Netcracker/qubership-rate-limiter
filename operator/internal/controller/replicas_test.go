@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	"github.com/netcracker/qubership-ratelimit/api/contract"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
 )
 
 // The probe is the only part of the operator that talks to another replica, and
@@ -30,7 +30,7 @@ import (
 // /debug/applied reports a fleet it never saw. These tests drive it against a
 // real HTTP server and EndpointSlice fixtures rather than stubbing it out.
 
-const probeService = "ratelimit"
+const probeService = "rate-limiter"
 
 // fleet starts a server answering for every replica and returns a probe wired
 // to it. The handler decides what each caller is told, keyed by nothing: every

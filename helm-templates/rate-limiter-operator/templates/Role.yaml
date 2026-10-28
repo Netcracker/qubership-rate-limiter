@@ -40,26 +40,26 @@ rules:
   - apiGroups: [ratelimit.netcracker.com]
     resources: [ratelimitpolicies/status]
     verbs: [update]
-  # The operator asks every ready endpoint of the Service ratelimit which
+  # The operator asks every ready endpoint of the Service rate-limiter which
   # generation it enforces, which is what makes the Ready condition a
   # statement about the fleet rather than about the operator's own view.
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
     verbs: [get, list, watch]
-  # The configuration ConfigMap, ratelimit-config: the service's configuration
-  # and the last-good state of the namespace in one object, written whole on
-  # every reconcile and recreated when it is deleted. It is the only ConfigMap
-  # the operator touches, so every verb but create is granted on it by name:
-  # create is the one verb RBAC cannot narrow, since the object does not
-  # exist yet. list and watch pass under the name because the operator's
-  # cache selects the object by metadata.name. Nothing here reaches the
-  # ConfigMaps of the other applications in the namespace.
+  # The configuration ConfigMap, rate-limiter-config: the service's
+  # configuration and the last-good state of the namespace in one object,
+  # written whole on every reconcile and recreated when it is deleted. It is
+  # the only ConfigMap the operator touches, so every verb but create is
+  # granted on it by name: create is the one verb RBAC cannot narrow, since the
+  # object does not exist yet. list and watch pass under the name because the
+  # operator's cache selects the object by metadata.name. Nothing here reaches
+  # the ConfigMaps of the other applications in the namespace.
   - apiGroups: [""]
     resources: [configmaps]
     verbs: [create]
   - apiGroups: [""]
     resources: [configmaps]
-    resourceNames: [ratelimit-config]
+    resourceNames: [rate-limiter-config]
     verbs: [get, list, watch, update]
   # The operator's own Deployment, read once at start to become the owner of
   # the ConfigMap: the object goes with the operator, never with a policy.

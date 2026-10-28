@@ -7,7 +7,7 @@ spec:
       proxy.istio.io/config: |
         proxyStatsMatcher:
           inclusionRegexps:
-          - ".*outbound\\|9000\\|\\|ratelimit\\..*"
+          - ".*outbound\\|9000\\|\\|rate-limiter\\..*"
           - ".*\\.ratelimit\\..*"
           - ".*loadtest-backend.*"
           - ".*downstream_rq_time.*"

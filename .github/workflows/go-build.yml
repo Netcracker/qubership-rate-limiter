@@ -163,8 +163,8 @@ jobs:
       # check that holds whatever the import graph does.
       - name: Build the service and read its build information
         run: |
-          go build -o bin/ratelimit-service ./service/cmd/
-          go version -m bin/ratelimit-service | grep -E '^\s+dep\s+' | tee service-deps.txt
+          go build -o bin/rate-limiter ./service/cmd/
+          go version -m bin/rate-limiter | grep -E '^\s+dep\s+' | tee service-deps.txt
           if grep -E '^\s+dep\s+(k8s.io/client-go|sigs.k8s.io/controller-runtime)\s' service-deps.txt; then
             echo "::error::the service binary depends on a Kubernetes client; see service-deps.txt above"
             exit 1
@@ -316,7 +316,7 @@ jobs:
       - name: Check what a satellite renders
         run: |
           set -o pipefail
-          for chart in ratelimit-service; do
+          for chart in rate-limiter; do
             rendered=$(helm template t helm-templates/$chart -n satellite \
               --set NAMESPACE=satellite --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
               -f helm-templates/$chart/resource-profiles/dev.yaml \
@@ -326,24 +326,24 @@ jobs:
             kinds=$(echo "$rendered" | grep '^kind:' | sort -u)
             [ "$kinds" = "kind: EnvoyFilter" ] || {
               echo "::error::a satellite of $chart rendered more than its gateway filters:"; echo "$kinds"; exit 1; }
-            echo "$rendered" | grep -q 'ratelimit\.baseline\.svc\.cluster\.local' || {
-              echo "::error::the satellite filters of $chart do not point at the baseline's ratelimit Service"; exit 1; }
+            echo "$rendered" | grep -q 'rate-limiter\.baseline\.svc\.cluster\.local' || {
+              echo "::error::the satellite filters of $chart do not point at the baseline's rate-limiter Service"; exit 1; }
             # A blue-green baseline runs its shared components in the controller
             # namespace, and that is where the filters must point.
             helm template t helm-templates/$chart -n satellite \
               --set NAMESPACE=satellite --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
               -f helm-templates/$chart/resource-profiles/dev.yaml \
               --set BASELINE_ORIGIN=baseline --set BASELINE_CONTROLLER=baseline-ctl \
-              | grep -q 'ratelimit\.baseline-ctl\.svc\.cluster\.local' || {
+              | grep -q 'rate-limiter\.baseline-ctl\.svc\.cluster\.local' || {
               echo "::error::the satellite filters of $chart ignore BASELINE_CONTROLLER"; exit 1; }
           done
-          rendered=$(helm template t helm-templates/ratelimit-operator -n satellite \
+          rendered=$(helm template t helm-templates/rate-limiter-operator -n satellite \
             --set NAMESPACE=satellite --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
-            -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
             --set MONITORING_ENABLED=true \
             --set BASELINE_ORIGIN=baseline)
           if echo "$rendered" | grep -q '^kind:'; then
-            echo "::error::a satellite of ratelimit-operator rendered objects:"; echo "$rendered" | grep '^kind:'; exit 1
+            echo "::error::a satellite of rate-limiter-operator rendered objects:"; echo "$rendered" | grep '^kind:'; exit 1
           fi
 
       # The port and the policy ship together: a release that opens the port
@@ -352,7 +352,7 @@ jobs:
       - name: Check that the management port is never rendered alone
         run: |
           set -o pipefail
-          for chart in ratelimit-service; do
+          for chart in rate-limiter; do
             manifests=$(helm template t helm-templates/$chart \
               -f helm-templates/$chart/resource-profiles/dev.yaml \
               --set NAMESPACE=ci --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
@@ -376,7 +376,7 @@ jobs:
           identity=(--set management.enabled=true
             --set 'management.callers={ui-backend,platform/ops-backend}'
             --set management.m2m.audience=ci-audience)
-          for chart in ratelimit-service; do
+          for chart in rate-limiter; do
             render() {
               helm template t helm-templates/$chart \
                 -f helm-templates/$chart/resource-profiles/dev.yaml --set NAMESPACE=ci --set TAG=ci \
@@ -405,7 +405,7 @@ jobs:
         run: make sync-helm-crds
       - name: Fail on drift between the generated files and the commit
         run: |
-          paths=(config/rbac config/crd/bases helm-templates/ratelimit-crds/templates)
+          paths=(config/rbac config/crd/bases helm-templates/rate-limiter-crds/templates)
           if ! git diff --exit-code -- "${paths[@]}" || [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
             echo "::error::generated manifests drifted from the commit: run 'make sync-helm-crds' and commit the result"
             exit 1

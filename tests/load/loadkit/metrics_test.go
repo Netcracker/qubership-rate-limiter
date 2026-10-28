@@ -15,24 +15,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const rlsCluster = "outbound|9000||ratelimit.rl.svc.cluster.local"
+const rlsCluster = "outbound|9000||rate-limiter.rl.svc.cluster.local"
 
 // gatewayText is what the gateway's Envoy serves: the histogram and the
 // timeouts of the rate limit service's cluster, the same of another cluster,
 // and a family with two TYPE lines, which the text parser refuses.
 const gatewayText = `# TYPE envoy_cluster_upstream_rq_time histogram
-envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|9000||ratelimit.rl.svc.cluster.local",le="0.5"} 7
-envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|9000||ratelimit.rl.svc.cluster.local",le="1"} 9
-envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|9000||ratelimit.rl.svc.cluster.local",le="+Inf"} 10
-envoy_cluster_upstream_rq_time_sum{cluster_name="outbound|9000||ratelimit.rl.svc.cluster.local"} 12
-envoy_cluster_upstream_rq_time_count{cluster_name="outbound|9000||ratelimit.rl.svc.cluster.local"} 10
+envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|9000||rate-limiter.rl.svc.cluster.local",le="0.5"} 7
+envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|9000||rate-limiter.rl.svc.cluster.local",le="1"} 9
+envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|9000||rate-limiter.rl.svc.cluster.local",le="+Inf"} 10
+envoy_cluster_upstream_rq_time_sum{cluster_name="outbound|9000||rate-limiter.rl.svc.cluster.local"} 12
+envoy_cluster_upstream_rq_time_count{cluster_name="outbound|9000||rate-limiter.rl.svc.cluster.local"} 10
 envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|8080||backend.rl.svc.cluster.local",le="0.5"} 500
 envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|8080||backend.rl.svc.cluster.local",le="1"} 500
 envoy_cluster_upstream_rq_time_bucket{cluster_name="outbound|8080||backend.rl.svc.cluster.local",le="+Inf"} 500
 envoy_cluster_upstream_rq_time_sum{cluster_name="outbound|8080||backend.rl.svc.cluster.local"} 100
 envoy_cluster_upstream_rq_time_count{cluster_name="outbound|8080||backend.rl.svc.cluster.local"} 500
 # TYPE envoy_cluster_upstream_rq_timeout counter
-envoy_cluster_upstream_rq_timeout{cluster_name="outbound|9000||ratelimit.rl.svc.cluster.local"} 2
+envoy_cluster_upstream_rq_timeout{cluster_name="outbound|9000||rate-limiter.rl.svc.cluster.local"} 2
 envoy_cluster_upstream_rq_timeout{cluster_name="outbound|8080||backend.rl.svc.cluster.local"} 40
 # TYPE envoy_server_live gauge
 # TYPE envoy_server_live gauge

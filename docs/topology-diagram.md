@@ -2,7 +2,7 @@
 
 A visual version of the [topology](deployment-topology.md) for the composite scheme: the team places the domain
 policy in the baseline, the API server checks the object's shape, and the operator in the baseline reads the
-object, compiles it, and writes it into the ConfigMap `ratelimit-config`; the service in the baseline executes it for
+object, compiles it, and writes it into the ConfigMap `rate-limiter-config`; the service in the baseline executes it for
 the gateways of all namespaces in the composite, with one domain and one budget.
 
 ![Interaction diagram: operator, service, policy, baseline, and satellites](topology-diagram.drawio.png)
@@ -19,12 +19,12 @@ a policy placed in a satellite is processed by nobody.
 
 | Object | Who places it | Where | Who processes it |
 | --- | --- | --- | --- |
-| `RateLimitPolicy` (mapping, groups, rules) | the team, `kubectl apply` | the single ns or the baseline; one per domain | the API server: schema (shape); the operator: informer → strict decode and compile (references, windows, budgets) → size check → a write of `ratelimit-config` and of the status (on problems, status without a write); in a satellite, nobody |
+| `RateLimitPolicy` (mapping, groups, rules) | the team, `kubectl apply` | the single ns or the baseline; one per domain | the API server: schema (shape); the operator: informer → strict decode and compile (references, windows, budgets) → size check → a write of `rate-limiter-config` and of the status (on problems, status without a write); in a satellite, nobody |
 | policy `status` | the operator | the same object | `Ready`: all ready service replicas execute the latest generation (a read of `/debug/applied` from the EndpointSlice replicas on the port named `metrics`, once per 10 s); `Ready` is binary, `Stalled` means stuck |
-| ConfigMap `ratelimit-config` (`<domain>.json.gz` per domain, `manifest`) | the operator: the whole object on every reconcile, with an `ownerReference` to its own Deployment | the operator's namespace; one per namespace | the service replicas: a volume at `/etc/ratelimit/config`, projected by the kubelet within its sync period → decode → compile → swap; this is also last-good on a restart |
+| ConfigMap `rate-limiter-config` (`<domain>.json.gz` per domain, `manifest`) | the operator: the whole object on every reconcile, with an `ownerReference` to its own Deployment | the operator's namespace; one per namespace | the service replicas: a volume at `/etc/ratelimit/config`, projected by the kubelet within its sync period → decode → compile → swap; this is also last-good on a restart |
 | `EnvoyFilter` | the service chart at the install of each namespace | its own namespace (the baseline and every satellite) | the gateway (Envoy): sends the domain and one descriptor with four entries to the RLS of the baseline service |
 | counters `rl:v1:{ns/domain}:block/rule:…` | the service (atomic Lua) | the Redis database DBaaS provisions for the release | the service; it substitutes the namespace in the hash tag itself, and the filters take no part in the key shape |
-| CRD, the operator Lease | the cluster chart `ratelimit-crds` (CRD with `keep`), the operator itself | cluster / namespace | no cluster-level components and no ClusterRole; the service has no Role and mounts its token only for the management API |
+| CRD, the operator Lease | the cluster chart `rate-limiter-crds` (CRD with `keep`), the operator itself | cluster / namespace | no cluster-level components and no ClusterRole; the service has no Role and mounts its token only for the management API |
 
 A single (non-composite) deployment is the same picture without the satellite columns: the policy, the operator, the
 ConfigMap, the service, and the gateway live in one namespace. For details, see the
