@@ -96,7 +96,7 @@ var _ = Describe("the operator, built without a Deployment to adopt", Ordered, C
 
 		GinkgoT().Setenv("POD_NAME", "")
 		mgr, err = Build(cfg, scheme.Scheme, testNamespace, Options{
-			ProbeAddr: probeAddr, MetricsAddr: "0", Deployment: "ratelimit-operator", Version: "0.0.0-test",
+			ProbeAddr: probeAddr, MetricsAddr: "0", Deployment: "rate-limiter-operator", Version: "0.0.0-test",
 			LeaderElection: true,
 			Log:            logf.Log,
 			Warn: func(format string, args ...any) {

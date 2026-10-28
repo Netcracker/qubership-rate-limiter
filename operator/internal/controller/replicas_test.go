@@ -30,7 +30,7 @@ import (
 // /debug/applied reports a fleet it never saw. These tests drive it against a
 // real HTTP server and EndpointSlice fixtures rather than stubbing it out.
 
-const probeService = "ratelimit"
+const probeService = "rate-limiter"
 
 // fleet starts a server answering for every replica and returns a probe wired
 // to it. The handler decides what each caller is told, keyed by nothing: every

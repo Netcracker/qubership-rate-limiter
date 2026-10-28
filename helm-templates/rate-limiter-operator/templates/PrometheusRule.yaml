@@ -29,7 +29,7 @@ metadata:
     app.kubernetes.io/processed-by-operator: victoriametrics-operator
 spec:
   groups:
-    - name: ratelimit-operator
+    - name: rate-limiter-operator
       rules:
         # NotCompiled is left to RatelimitRuleProblems: an author's mistake
         # keeps the last-good generation enforced and pages nobody. A domain
@@ -96,7 +96,7 @@ spec:
             description: >-
               Domain {{ "{{" }} $labels.domain {{ "}}" }} in {{ "{{" }} $labels.namespace {{ "}}" }} has no ready
               service replica, so every check of it is decided by the gateway's failure mode: unlimited under
-              fail-open, refused under fail-closed. Read the ratelimit-service Deployment and its pods.
+              fail-open, refused under fail-closed. Read the rate-limiter Deployment and its pods.
 
         - alert: RatelimitChecksStopped
           expr: >-
@@ -142,7 +142,7 @@ spec:
             summary: The operator cannot save the namespace's configuration
             description: >-
               The operator in {{ "{{" }} $labels.namespace {{ "}}" }} has failed to write the
-              ratelimit-config ConfigMap for {{ .Values.policyAlerts.configWriteFailingFor }}, with reason
+              rate-limiter-config ConfigMap for {{ .Values.policyAlerts.configWriteFailingFor }}, with reason
               {{ "{{" }} $labels.reason {{ "}}" }} among the attempts since the last successful write. The
               replicas keep the previous configuration and the last-good fallback a restart would need is not
               being saved, and a replica behind follows as ReplicaStale. size is a state the object cannot
@@ -171,12 +171,12 @@ spec:
           annotations:
             summary: An operator controller fails every reconcile
             description: >-
-              Controller {{ "{{" }} $labels.controller {{ "}}" }} of the ratelimit operator in
+              Controller {{ "{{" }} $labels.controller {{ "}}" }} of the rate-limiter operator in
               {{ "{{" }} $labels.namespace {{ "}}" }} has failed its reconciles for
               {{ .Values.policyAlerts.reconcileFailingFor }} and completed none in
               {{ .Values.policyAlerts.reconcileErrorsWindow }}. The leader holds the Lease, so
               RatelimitNoOperatorLeader stays quiet.
-              {{ "{{" }} if eq $labels.controller "ratelimit-config" {{ "}}" }}Policy edits do not reach the
+              {{ "{{" }} if eq $labels.controller "rate-limiter-config" {{ "}}" }}Policy edits do not reach the
               replicas.{{ "{{" }} else {{ "}}" }}The policy status stays as it was.{{ "{{" }} end {{ "}}" }}
               The operator log names the error, often a permission the operator's Role lacks.
 
@@ -189,7 +189,7 @@ spec:
           annotations:
             summary: No operator pod holds the Lease
             description: >-
-              No ratelimit operator pod in {{ $ns }} reports holding the Lease, so no policy is compiled,
+              No rate-limiter operator pod in {{ $ns }} reports holding the Lease, so no policy is compiled,
               no status is written, and the ConfigMap is not maintained; the service replicas keep enforcing
               what they applied last. Check the operator Deployment and its scrape.
 {{- end }}

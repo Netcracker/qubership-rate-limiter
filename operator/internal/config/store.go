@@ -1,5 +1,5 @@
 // Package config writes the configuration of the namespace: one ConfigMap,
-// ratelimit-config, that the operator owns and the service mounts.
+// rate-limiter-config, that the operator owns and the service mounts.
 //
 // The object is the whole channel between the two halves of the split and
 // the last-good state of the namespace at once: under binaryData

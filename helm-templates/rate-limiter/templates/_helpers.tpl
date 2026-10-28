@@ -22,7 +22,7 @@ Service.
 {{- end -}}
 
 {{/*
-The Service is named ratelimit whatever the release is called, and its gRPC
+The Service is named rate-limiter whatever the release is called, and its gRPC
 port is 9000: both are contract constants (api/contract), the same in both
 binaries, and a CI test compares this render with the Go
 constants. A satellite namespace of a composite runs no component of its own:
@@ -31,7 +31,7 @@ they compute has only the baseline's namespace to go on. The operator reads
 the service replicas through this Service too, by the port named metrics.
 */}}
 {{- define "ratelimit.serviceName" -}}
-ratelimit
+rate-limiter
 {{- end -}}
 
 {{- define "ratelimit.grpcPort" -}}

@@ -23,8 +23,8 @@ import (
 	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
-// Reconciler writes ratelimit-config. It is the operator's only writer of the
-// object, and it runs on the leader: the Lease covers the overlap of two
+// Reconciler writes rate-limiter-config. It is the operator's only writer of
+// the object, and it runs on the leader: the Lease covers the overlap of two
 // operator pods during a rollout.
 //
 // Every policy event, a change or a deletion of the ConfigMap itself, and the
@@ -65,11 +65,11 @@ func (r *Reconciler) limit() int {
 
 // The operator creates and updates one ConfigMap and touches no other: create
 // is the one verb RBAC cannot narrow by name, and the rest are granted on
-// ratelimit-config alone. list and watch pass under the name because the
+// rate-limiter-config alone. list and watch pass under the name because the
 // cache selects the object by metadata.name (CacheOptions). The Deployment
 // it reads is its own, which the chart narrows by name too.
 // +kubebuilder:rbac:groups="",namespace=ratelimit-system,resources=configmaps,verbs=create
-// +kubebuilder:rbac:groups="",namespace=ratelimit-system,resources=configmaps,resourceNames=ratelimit-config,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups="",namespace=ratelimit-system,resources=configmaps,resourceNames=rate-limiter-config,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=apps,namespace=ratelimit-system,resources=deployments,verbs=get
 
 // Reconcile compiles the namespace and writes the result. The request names
@@ -163,7 +163,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	kick <- event.TypedGenericEvent[client.Object]{Object: &corev1.ConfigMap{}}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("ratelimit-config").
+		Named("rate-limiter-config").
 		// The object itself: a deletion is a recreate, an edit by anyone else
 		// is overwritten on the next pass.
 		Watches(&corev1.ConfigMap{}, toTheOne, builder.WithPredicates(predicate.NewPredicateFuncs(

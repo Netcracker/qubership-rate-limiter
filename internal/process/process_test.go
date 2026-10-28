@@ -244,9 +244,9 @@ func TestLogrAdapter_boundsVerbosityByThePlatformLevel(t *testing.T) {
 }
 
 func TestPodName_isTheDownwardAPIValue(t *testing.T) {
-	t.Setenv("POD_NAME", "ratelimit-abc12")
+	t.Setenv("POD_NAME", "rate-limiter-abc12")
 
-	assert.Equal(t, "ratelimit-abc12", PodName())
+	assert.Equal(t, "rate-limiter-abc12", PodName())
 }
 
 // Outside a pod there is no pod name to borrow.

@@ -29,7 +29,7 @@ import (
 
 // ManagedBy labels the ConfigMap the operator writes, and names the event
 // recorder.
-const ManagedBy = "ratelimit-operator"
+const ManagedBy = "rate-limiter-operator"
 
 // Options is what the flags and the environment decided.
 type Options struct {

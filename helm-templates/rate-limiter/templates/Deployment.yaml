@@ -85,7 +85,7 @@ spec:
           command:
             - /usr/bin/entrypoint.sh
           args:
-            - /app/ratelimit-service
+            - /app/rate-limiter
             # The gRPC port is the contract's: the gateway filters of every
             # namespace of the composite compute the address from it.
             - --rls-bind-address=:{{ include "ratelimit.grpcPort" . }}
@@ -255,7 +255,7 @@ spec:
         # the operator's writes on every sync.
         - name: config
           configMap:
-            name: ratelimit-config
+            name: rate-limiter-config
             optional: true
         # The counter store's connection properties, written by dbaas-operator
         # for the chart's DatabaseSecretClaim once DBaaS has provisioned the

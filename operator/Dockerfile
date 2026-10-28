@@ -30,12 +30,12 @@ COPY . .
 # avoid QEMU emulation; Go cross-compiles through TARGETOS/TARGETARCH.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH}" \
-    go build -ldflags "-X main.version=${VERSION}" -o ratelimit-operator ./operator/cmd/
+    go build -ldflags "-X main.version=${VERSION}" -o rate-limiter-operator ./operator/cmd/
 
 FROM ghcr.io/netcracker/qubership-core-base:alpine-2.5.9@sha256:ab860790e4ecce56f8df673495cd5745ce587fffa7d7eb210d6d098563ccb26d
 WORKDIR /app
-COPY --chown=10001:0 --chmod=555 --from=builder /app/ratelimit-operator /app/ratelimit-operator
+COPY --chown=10001:0 --chmod=555 --from=builder /app/rate-limiter-operator /app/rate-limiter-operator
 COPY --chown=10001:0 --chmod=444 --from=builder /app/operator/application.yaml /app/application.yaml
 USER 10001:10001
 
-CMD ["/app/ratelimit-operator"]
+CMD ["/app/rate-limiter-operator"]

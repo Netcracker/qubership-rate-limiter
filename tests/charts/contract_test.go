@@ -29,8 +29,8 @@ import (
 )
 
 const (
-	operatorChart = "ratelimit-operator"
-	serviceChart  = "ratelimit-service"
+	operatorChart = "rate-limiter-operator"
+	serviceChart  = "rate-limiter"
 	// imageTag is the TAG of every render unless a --set in its arguments
 	// overrides it.
 	imageTag = "test"
@@ -378,7 +378,7 @@ func assertFiltersAddress(t *testing.T, objects []object, namespace string) {
 		assert.Contains(t, string(raw), "authority: "+authority, filter.name())
 		assert.Contains(t, string(raw), "cluster_name: "+cluster, filter.name())
 	}
-	assert.ElementsMatch(t, []string{"ratelimit-service-public-gateway", "ratelimit-service-private-gateway"}, names,
+	assert.ElementsMatch(t, []string{"rate-limiter-public-gateway", "rate-limiter-private-gateway"}, names,
 		"one filter per enabled gateway")
 }
 
@@ -999,8 +999,8 @@ func TestCharts_defaultTheOptionalPlatformParameters(t *testing.T) {
 // case is in TestCharts_refuseABaselineOriginOfTheirOwnNamespace.
 func TestCharts_placeEveryObjectInThePlatformsNamespace(t *testing.T) {
 	for _, c := range []struct{ chart, instance string }{
-		{operatorChart, "ratelimit-operator-biz"},
-		{serviceChart, "ratelimit-service-biz"},
+		{operatorChart, "rate-limiter-operator-biz"},
+		{serviceChart, "rate-limiter-biz"},
 	} {
 		t.Run(c.chart, func(t *testing.T) {
 			objects := render(t, c.chart, "release-ns", "--set", "NAMESPACE=biz", "--set", "MONITORING_ENABLED=true",
@@ -1339,20 +1339,27 @@ func TestServiceChart_readsTheAutoscalerTuningParameters(t *testing.T) {
 		map[string]any{"type": "Percent", "value": float64(100), "periodSeconds": float64(30)}, "scaleUp.policies")
 }
 
-// jsonWithoutTheChartNameByDesign removes from o the two places that keep the
+// jsonWithoutTheChartNameByDesign removes from o the places that keep the
 // chart's name whatever SERVICE_NAME says, and marshals the rest: the
-// binary's path among a container's args, and the groups of a
-// PrometheusRule, whose group name and alert text name the chart.
+// binary's path among a container's args, the groups of a PrometheusRule,
+// whose group name and alert text name the chart, and the contract names,
+// which start with the service chart's name: the Service's own name, the
+// ConfigMap, and the RLS address the filters compute from the Service.
 func jsonWithoutTheChartNameByDesign(t *testing.T, o object) string {
 	t.Helper()
 	if spec, ok := o["spec"].(map[string]any); ok && o.kind() == "PrometheusRule" {
 		delete(spec, "groups")
 	}
+	if o.kind() == "Service" {
+		delete(o["metadata"].(map[string]any), "name")
+	}
 	for _, container := range o.at("spec", "template", "spec", "containers").list() {
 		args := slices.DeleteFunc(argsOf(container), func(arg string) bool { return strings.HasPrefix(arg, "/app/") })
 		container.v.(map[string]any)["args"] = args
 	}
-	return jsonOf(t, o)
+	rendered := strings.ReplaceAll(jsonOf(t, o), contract.ConfigMapName, "")
+	address := contract.ServiceName + "." + o.at("metadata", "namespace").str2() + ".svc"
+	return strings.ReplaceAll(rendered, address, "")
 }
 
 // Every object of both charts reads NAMESPACE and SERVICE_NAME, and the
@@ -1360,16 +1367,16 @@ func jsonWithoutTheChartNameByDesign(t *testing.T, o object) string {
 // namespace or the chart's own name. A reference that drifted would leave an
 // installation that does not work once a parameter differs from its default:
 // a classifier in another namespace, a policy principal or a RoleBinding
-// subject that matches nothing, a selector that selects no pod. The two
-// places that keep the chart's name by design are left out of the search:
-// the binary's path in the container's arguments, and the alert rules'
-// groups.
+// subject that matches nothing, a selector that selects no pod. The places
+// that keep the chart's name by design are left out of the search: the
+// binary's path in the container's arguments, the alert rules' groups, and
+// the contract names of api/contract.
 func TestCharts_readTheParametersInEveryObject(t *testing.T) {
 	for _, chart := range namespaceCharts {
 		t.Run(chart, func(t *testing.T) {
 			objects := render(t, chart, "release-ns", "-f", profileFile(chart, "prod"),
 				"--set", "NAMESPACE=biz", "--set", "SERVICE_NAME=rl", "--set", "IMAGE_REPOSITORY=registry.example/rl",
-				"--set", "MANAGED_BY=platform", "--set", "DEPLOYMENT_SESSION_ID=session",
+				"--set", "APPLICATION_NAME=shop", "--set", "MANAGED_BY=platform", "--set", "DEPLOYMENT_SESSION_ID=session",
 				"--set", "MONITORING_ENABLED=true", "--set", "management.enabled=true",
 				"--set", "management.callers={ui-backend}",
 				"--set", "CLOUD_TOPOLOGIES[0].topologyKey=topology.kubernetes.io/zone")
@@ -1378,6 +1385,8 @@ func TestCharts_readTheParametersInEveryObject(t *testing.T) {
 			for _, o := range objects {
 				what := o.kind() + " " + o.name()
 				labels := o.at("metadata", "labels")
+				assert.Equal(t, "shop", labels.at("app.kubernetes.io/part-of").str2(),
+					"app.kubernetes.io/part-of label of %s", what)
 				assert.Equal(t, "platform", labels.at("app.kubernetes.io/managed-by").str2(),
 					"app.kubernetes.io/managed-by label of %s", what)
 				assert.Equal(t, "session", labels.at("deployment.netcracker.com/sessionId").str2(),
@@ -1393,14 +1402,14 @@ func TestCharts_readTheParametersInEveryObject(t *testing.T) {
 	}
 }
 
-// The CRD is cluster-scoped and has one owner, the ratelimit-crds release: it
-// renders exactly the CRD the operator is built against, with the annotation
-// that keeps an uninstall from taking every namespace's policies with it. The
-// namespace charts render no copy, which would bring back the contest over
-// its ownership between the releases of every namespace.
+// The CRD is cluster-scoped and has one owner, the rate-limiter-crds release:
+// it renders exactly the CRD the operator is built against, with the
+// annotation that keeps an uninstall from taking every namespace's policies
+// with it. The namespace charts render no copy, which would bring back the
+// contest over its ownership between the releases of every namespace.
 func TestCRDChart_ownsTheCRD(t *testing.T) {
 	t.Run("the CRD chart renders the generated CRD under the keep policy", func(t *testing.T) {
-		out, err := exec.Command("helm", "template", "t", chartFile("ratelimit-crds")).CombinedOutput()
+		out, err := exec.Command("helm", "template", "t", chartFile("rate-limiter-crds")).CombinedOutput()
 		require.NoError(t, err, "%s", out)
 		raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases",
 			"ratelimit.netcracker.com_ratelimitpolicies.yaml"))

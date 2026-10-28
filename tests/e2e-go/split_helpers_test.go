@@ -90,8 +90,8 @@ func debugRequest(pod corev1.Pod, path string) (int, []byte) {
 	return resp.StatusCode, body
 }
 
-// readyServiceEndpoints counts the ready endpoints of the Service ratelimit,
-// the set the gateways route to and the operator probes.
+// readyServiceEndpoints counts the ready endpoints of the Service
+// rate-limiter, the set the gateways route to and the operator probes.
 func readyServiceEndpoints() int {
 	var slices discoveryv1.EndpointSliceList
 	if err := k8s.List(ctx, &slices, client.InNamespace(namespace),

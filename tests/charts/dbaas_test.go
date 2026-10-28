@@ -21,7 +21,7 @@ func TestServiceChart_declaresItsCounterStoreInDBaaS(t *testing.T) {
 	for _, o := range []object{database, claim} {
 		assert.Equal(t, "dbaas.netcracker.com/v1", o.str("apiVersion"), "apiVersion of the %s", o.kind())
 		assert.Equal(t, "redis", o.at("spec", "type").str2(), "spec.type of the %s", o.kind())
-		assert.Equal(t, "ratelimit-service", o.at("spec", "classifier", "microserviceName").str2(),
+		assert.Equal(t, "rate-limiter", o.at("spec", "classifier", "microserviceName").str2(),
 			"spec.classifier.microserviceName of the %s", o.kind())
 		assert.Equal(t, "service", o.at("spec", "classifier", "scope").str2(), "spec.classifier.scope of the %s", o.kind())
 		assert.Equal(t, "biz", o.at("spec", "classifier", "namespace").str2(),
@@ -37,7 +37,7 @@ func TestServiceChart_declaresItsCounterStoreInDBaaS(t *testing.T) {
 		claim.at("metadata", "labels", "app.kubernetes.io/name").str2(),
 		"app.kubernetes.io/name label of the DatabaseSecretClaim")
 
-	assert.Contains(t, argsOf(container), "--redis-dbaas-microservice=ratelimit-service",
+	assert.Contains(t, argsOf(container), "--redis-dbaas-microservice=rate-limiter",
 		"the service asks for the database the claim names")
 	env := keyed(container.at("env"), "name")
 	assert.Equal(t, "metadata.namespace", env["MICROSERVICE_NAMESPACE"].at("valueFrom", "fieldRef", "fieldPath").str2(),
@@ -65,7 +65,7 @@ func TestServiceChart_leavesTheSecretToSomeoneElseWithDBaaSOff(t *testing.T) {
 	assert.NotContains(t, kinds(objects), "InternalDatabase")
 	assert.NotContains(t, kinds(objects), "DatabaseSecretClaim")
 	assert.Contains(t, secretsMountedBy(only(t, objects, "Deployment").at("spec", "template", "spec")),
-		"ratelimit-service-redis", "the Secret is mounted whoever writes it")
+		"rate-limiter-redis", "the Secret is mounted whoever writes it")
 }
 
 // The DBaaS objects go to the operator in the aggregator's namespace, read

@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema",
-  "$id": "https://netcracker.com/ratelimit-service/values.schema.json",
+  "$id": "https://netcracker.com/rate-limiter/values.schema.json",
   "type": "object",
-  "title": "The ratelimit-service schema.",
-  "description": "JSON Schema for the ratelimit-service chart. The root stays open: the platform passes one parameter set to every chart of the application, so the operator chart's blocks reach this schema and are ignored. The blocks this chart reads are closed.",
+  "title": "The rate-limiter schema.",
+  "description": "JSON Schema for the rate-limiter chart. The root stays open: the platform passes one parameter set to every chart of the application, so the operator chart's blocks reach this schema and are ignored. The blocks this chart reads are closed.",
   "required": [
     "SERVICE_NAME",
     "IMAGE_REPOSITORY",
@@ -28,7 +28,7 @@
       "title": "The SERVICE_NAME schema",
       "description": "Name of a service.",
       "minLength": 1,
-      "default": "ratelimit-service",
+      "default": "rate-limiter",
       "internal": true,
       "maxLength": 63,
       "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -46,7 +46,7 @@
       "type": "string",
       "title": "The APPLICATION_NAME schema",
       "description": "Defines application name",
-      "default": "ratelimit",
+      "default": "rate-limiter",
       "examples": [
         "MyApplication"
       ],

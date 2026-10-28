@@ -6,8 +6,8 @@
 #
 # The name of the Deployment, the ServiceAccount and the RBAC pair, and the
 # app.kubernetes.io/name and name labels. The service chart's Service keeps
-# its fixed name, ratelimit, whatever this is.
-SERVICE_NAME: ratelimit-operator
+# its fixed name, rate-limiter, whatever this is.
+SERVICE_NAME: rate-limiter-operator
 # The namespace every object lands in. Required, with no default: the platform
 # sets it to the namespace it installs into, and a manual helm install sets it
 # to the namespace it passes as -n.
@@ -21,7 +21,7 @@ TAG: ""
 # app.kubernetes.io/version (empty renders an empty label), and
 # deployment.netcracker.com/sessionId (required, with no default: the platform
 # sets it to the deployment session).
-APPLICATION_NAME: ratelimit
+APPLICATION_NAME: rate-limiter
 MANAGED_BY: Helm
 ARTIFACT_DESCRIPTOR_VERSION: ""
 DEPLOYMENT_SESSION_ID: ""

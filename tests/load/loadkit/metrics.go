@@ -94,7 +94,7 @@ func metricsCommand(args []string, _ io.Writer) error {
 	fs.StringVar(&cfg.gateway, "gateway", "", "host:port of the gateway pods' Envoy statistics, "+
 		"a host that resolves to every pod; empty skips the gateway")
 	fs.StringVar(&cfg.cluster, "cluster", "", "Envoy cluster of the rate limit service in the gateway, "+
-		"such as outbound|9000||ratelimit.<namespace>.svc.cluster.local")
+		"such as outbound|9000||rate-limiter.<namespace>.svc.cluster.local")
 	fs.StringVar(&cfg.service, "service", "", "host:port of the rate limit service pods' metrics, "+
 		"a host that resolves to every pod; empty skips the service")
 	fs.StringVar(&cfg.domain, "domain", "", "rate limit domain of the gateway")

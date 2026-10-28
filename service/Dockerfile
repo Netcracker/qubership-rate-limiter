@@ -30,17 +30,17 @@ COPY . .
 # avoid QEMU emulation; Go cross-compiles through TARGETOS/TARGETARCH.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH}" \
-    go build -ldflags "-X main.version=${VERSION}" -o ratelimit-service ./service/cmd/
+    go build -ldflags "-X main.version=${VERSION}" -o rate-limiter ./service/cmd/
 
 # The binary carries no Kubernetes client, and the image proves it: the same
 # check CI runs, so an image that leaks one is never pushed.
-RUN go version -m ratelimit-service | grep -E '^\s+dep\s+(k8s.io/client-go|sigs.k8s.io/controller-runtime)\s' \
+RUN go version -m rate-limiter | grep -E '^\s+dep\s+(k8s.io/client-go|sigs.k8s.io/controller-runtime)\s' \
     && { echo "the service binary depends on a Kubernetes client"; exit 1; } || true
 
 FROM ghcr.io/netcracker/qubership-core-base:alpine-2.5.9@sha256:ab860790e4ecce56f8df673495cd5745ce587fffa7d7eb210d6d098563ccb26d
 WORKDIR /app
-COPY --chown=10001:0 --chmod=555 --from=builder /app/ratelimit-service /app/ratelimit-service
+COPY --chown=10001:0 --chmod=555 --from=builder /app/rate-limiter /app/rate-limiter
 COPY --chown=10001:0 --chmod=444 --from=builder /app/service/application.yaml /app/application.yaml
 USER 10001:10001
 
-CMD ["/app/ratelimit-service"]
+CMD ["/app/rate-limiter"]

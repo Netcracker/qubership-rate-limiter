@@ -92,7 +92,7 @@ spec:
             - name: LT_METRICS_GATEWAY
               value: {{ printf "%s-gateway-stats.%s.svc.cluster.local:%d" (include "loadtest.name" .) (include "loadtest.gatewayNamespace" .) (int .Values.metrics.gatewayPort) | quote }}
             - name: LT_METRICS_CLUSTER
-              value: {{ default (printf "outbound|9000||ratelimit.%s.svc.cluster.local" .Release.Namespace) .Values.metrics.rlsCluster | quote }}
+              value: {{ default (printf "outbound|9000||rate-limiter.%s.svc.cluster.local" .Release.Namespace) .Values.metrics.rlsCluster | quote }}
             - name: LT_METRICS_SERVICE
               value: {{ printf "%s-service-metrics.%s.svc.cluster.local:%d" (include "loadtest.name" .) .Release.Namespace (int .Values.metrics.servicePort) | quote }}
             - name: LT_METRICS_DOMAIN

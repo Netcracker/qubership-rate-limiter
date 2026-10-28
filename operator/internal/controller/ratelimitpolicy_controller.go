@@ -2,11 +2,11 @@
 //
 // The one operator pod that holds the Lease writes it, from the compile it
 // shares with the ConfigMap writer (operator/internal/config) and the fleet
-// it probes: the service replicas of the Service ratelimit, each asked which
-// generation it enforces. A reconciler therefore never decides anything the
-// service depends on; it reads the same pure compilation the writer reads and
-// reports what it says, plus the one thing only the operator can see: whether
-// every replica agrees.
+// it probes: the service replicas of the Service rate-limiter, each asked
+// which generation it enforces. A reconciler therefore never decides anything
+// the service depends on; it reads the same pure compilation the writer reads
+// and reports what it says, plus the one thing only the operator can see:
+// whether every replica agrees.
 package controller
 
 import (

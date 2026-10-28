@@ -25,7 +25,7 @@ import (
 	"github.com/netcracker/qubership-rate-limiter/operator/internal/policy"
 )
 
-const testNamespace = "ratelimit-config-envtest"
+const testNamespace = "rate-limiter-config-envtest"
 
 // The writer against a real API server. What a fake client cannot show is
 // the object as the service will mount it: the keys, the manifest under
@@ -167,7 +167,7 @@ var _ = Describe("the configuration writer", func() {
 			"Data": HaveKeyWithValue(contract.ManifestKey,
 				WithTransform(manifestOf, HaveField("Domains", Not(HaveKey("gateway.gone"))))),
 			"BinaryData": Not(HaveKey("gateway.gone.json.gz")),
-		})), "ratelimit-config after the policy of gateway.gone is gone")
+		})), "rate-limiter-config after the policy of gateway.gone is gone")
 	})
 
 	It("keeps the last-good generation in when the latest one does not fit", func() {
@@ -192,7 +192,7 @@ var _ = Describe("the configuration writer", func() {
 			"Data": HaveKeyWithValue(contract.ManifestKey, WithTransform(manifestOf,
 				HaveField("Domains", HaveKeyWithValue("gateway.size", HaveField("Generation", int64(1)))))),
 			"BinaryData": HaveKeyWithValue("gateway.size.json.gz", WithTransform(payloadOf, Equal(small.Spec))),
-		})), "ratelimit-config after generation 2 of gateway.size did not fit")
+		})), "rate-limiter-config after generation 2 of gateway.size did not fit")
 	})
 
 	It("recreates the object when it is deleted", func() {
@@ -213,7 +213,7 @@ var _ = Describe("the configuration writer", func() {
 
 	It("owns the object through the operator's Deployment", func() {
 		deployment := &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: "ratelimit-operator"},
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: "rate-limiter-operator"},
 			Spec: appsv1.DeploymentSpec{
 				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "op"}},
 				Template: corev1.PodTemplateSpec{
@@ -231,8 +231,8 @@ var _ = Describe("the configuration writer", func() {
 
 		object, _ := read()
 		Expect(object.OwnerReferences).To(Equal([]metav1.OwnerReference{{
-			APIVersion: "apps/v1", Kind: "Deployment", Name: "ratelimit-operator", UID: deployment.UID,
-		}}), "ownerReferences of ratelimit-config")
+			APIVersion: "apps/v1", Kind: "Deployment", Name: "rate-limiter-operator", UID: deployment.UID,
+		}}), "ownerReferences of rate-limiter-config")
 	})
 
 	It("reads back what it wrote as last-good", func() {

@@ -14,7 +14,7 @@ gateway:
   # Its namespace; empty is the release namespace.
   namespace: ""
   # The rate limit domain this gateway sends, the gateways.<role>.domain of
-  # the ratelimit-service chart. The policy is named after it.
+  # the rate-limiter chart. The policy is named after it.
   domain: gateway.public
   # The host and port the generators connect to; an empty host is the
   # gateway's Service, <name>-istio.<namespace>.svc.cluster.local.
@@ -143,7 +143,7 @@ load:
   checkLimits: true
   # Expect the rate limit service to decide every request. false is for the
   # baseline run with the rate limit off (runtime.enabledPercent: 0 in the
-  # ratelimit-service chart): the generator then waits for the route alone
+  # rate-limiter chart): the generator then waits for the route alone
   # and checks neither decisions nor limits.
   requireDecisions: true
   # More flags of loadkit verify, such as
@@ -186,11 +186,11 @@ metrics:
   # The port of Envoy's own statistics on the gateway pods.
   gatewayPort: 15090
   # The gateway's Envoy cluster of the rate limit service; empty is
-  # outbound|9000||ratelimit.<release namespace>.svc.cluster.local, the
-  # Service of the ratelimit-service chart. tests/load/gateway-stats.yaml
+  # outbound|9000||rate-limiter.<release namespace>.svc.cluster.local, the
+  # Service of the rate-limiter chart. tests/load/gateway-stats.yaml
   # keeps the statistics of that cluster; another one needs its own patch.
   rlsCluster: ""
   # The labels of the rate limit service pods and the port of their metrics.
   servicePodLabels:
-    name: ratelimit-service
+    name: rate-limiter
   servicePort: 8080
