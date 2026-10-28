@@ -45,7 +45,7 @@ RUN chmod 755 /opt/loadtest \
     && chmod 444 /opt/loadtest/ratelimit-load.jmx /opt/loadtest/loadtest.properties /opt/loadtest/pick.groovy \
     && chmod 555 /opt/loadtest/run.sh
 
-FROM eclipse-temurin:21-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
+FROM eclipse-temurin:21-jre-alpine-3.24@sha256:b48e02e0ea88d7bfb305335df94923bdef394905f4147dccd52e873cf17b1088
 COPY --from=jmeter /opt/jmeter /opt/jmeter
 COPY --chmod=555 --from=builder /loadkit /usr/local/bin/loadkit
 COPY --from=jmeter /opt/loadtest /opt/loadtest
