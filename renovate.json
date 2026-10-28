@@ -26,6 +26,12 @@
       "matchPackageNames": ["github.com/gofiber/fiber/v2"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "The load test chart deploys the image that tests/load/Dockerfile builds. The install sets image.tag, so values.yaml leaves the tag empty. Renovate treats the empty tag as latest and opens a pull request that pins it to the digest of the current latest image.",
+      "matchManagers": ["helm-values"],
+      "matchPackageNames": ["ghcr.io/netcracker/qubership-rate-limiter-loadtest"],
+      "enabled": false
     }
   ]
 }
