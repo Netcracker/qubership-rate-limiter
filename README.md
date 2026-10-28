@@ -451,9 +451,11 @@ the `load-results` artifact.
 `make test` runs the envtest suites of `operator/internal` against a real API server, which is where the CRD schema
 and the status subresource actually exist — the fake client the other tests use validates nothing. The first run
 downloads the envtest binaries into `bin/`, so it needs internet. Both derive their Kubernetes version from `go.mod`,
-so the test control plane cannot drift from the client libraries the operator is built against. `make test-unit`
-includes the engine's Redis suites, which run against `REDIS_ADDR` when it is set, otherwise against a
-`redis:8-alpine` container they start through Docker, and skip when neither is available.
+so the test control plane cannot drift from the client libraries the operator is built against. A plain
+`go test ./...` that finds no envtest binaries skips these suites, unless `USE_EXISTING_CLUSTER=true` points envtest
+at an existing cluster; `make test` sets `REQUIRE_ENVTEST=1`, and any non-empty value makes missing binaries fail the
+run. `make test-unit` includes the engine's Redis suites, which run against `REDIS_ADDR` when it is set, otherwise
+against a `redis:8-alpine` container they start through Docker, and skip when neither is available.
 
 `helm-templates/ratelimit-crds/templates/crd-*.yaml` is generated. Edit the Go types and run `make sync-helm-crds`
 instead of editing them.
@@ -495,12 +497,11 @@ loader reads each binary's `application.yaml` from the directory in `PROPERTY_FI
 
 ### Release
 
-The Release workflow in GitHub Actions is started by hand with a `MAJOR.MINOR.PATCH` version. It tags the head of the
-branch it runs on, builds and tests the root module at that tag, publishes three images as `v<version>`, the operator,
-the service, and the load test kit (`ghcr.io/netcracker/qubership-ratelimit-loadtest`), and creates the GitHub release.
-It does not run the engine tests, the linters, the chart checks, or e2e: those run on pushes and pull requests. Dispatch
-it from a `main` whose checks have all passed, and start with a dry run, which builds the images without pushing them
-and deletes the tag afterwards. A run that fails or is cancelled deletes the tag too, so the same version can be
-released again. A run that succeeds keeps its tag, and the workflow refuses a version whose tag exists, so it does not
-release a published version a second time while that tag stands. A published version is never released again or
-deleted: a defect in it is fixed in the next patch version.
+A release goes through the Go bulk release of core services in
+[qubership-core-infra](https://github.com/Netcracker/qubership-core-infra). It tags the released commit as
+`v<version>`, and the engine module as `engine/v<version>`, and creates the GitHub release. The `v<version>` tag starts
+the Build workflow, which runs all of its jobs except the Sonar analysis and publishes three images as `v<version>`:
+the operator, the service, and the load test kit (`ghcr.io/netcracker/qubership-ratelimit-loadtest`). The bulk release
+runs `go test ./...` without envtest binaries, so the envtest suites skip there and run only in that build. E2E and
+Super-Linter do not run on the tag. If the Build run of the tag fails, the GitHub release has no images until a re-run
+passes. A published version is never released again or deleted: a defect in it is fixed in the next patch version.

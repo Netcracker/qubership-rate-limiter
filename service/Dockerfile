@@ -5,7 +5,7 @@
 #
 #   docker build -f service/Dockerfile .
 
-FROM --platform=$BUILDPLATFORM golang:1.27@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27@sha256:898838c455eecb68ed7b0b6f0635630ebdd657e732f07a23d0ab475007a52c36 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 # The build's own version stamp, and the fallback only: the pipeline passes
@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN go version -m ratelimit-service | grep -E '^\s+dep\s+(k8s.io/client-go|sigs.k8s.io/controller-runtime)\s' \
     && { echo "the service binary depends on a Kubernetes client"; exit 1; } || true
 
-FROM ghcr.io/netcracker/qubership-core-base:alpine-2.5.8@sha256:0c2c9e4b49e73efffb30edf8d3de8b3eb43194a6c4f688da08ec3236b570b486
+FROM ghcr.io/netcracker/qubership-core-base:alpine-2.5.9@sha256:ab860790e4ecce56f8df673495cd5745ce587fffa7d7eb210d6d098563ccb26d
 WORKDIR /app
 COPY --chown=10001:0 --chmod=555 --from=builder /app/ratelimit-service /app/ratelimit-service
 COPY --chown=10001:0 --chmod=444 --from=builder /app/service/application.yaml /app/application.yaml
