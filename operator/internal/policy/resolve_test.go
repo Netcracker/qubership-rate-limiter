@@ -321,7 +321,8 @@ func TestResolve_leavesTheSpecItWasGivenUntouched(t *testing.T) {
 			{Name: "enterprise", Rates: []v1.Rate{minuteRate(2000)}},
 			{Name: "partner", Before: perUserName, Counters: []string{"sub"}, Rates: []v1.Rate{minuteRate(500)}},
 			{Name: "anonymous", Dropped: true},
-		}})
+		}},
+		v1.LimitBlock{Name: "catalog", Preset: "plan-cascade"})
 	written := spec.DeepCopy()
 
 	_, problems := Resolve(spec)

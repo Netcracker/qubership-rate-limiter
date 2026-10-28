@@ -399,9 +399,10 @@ its own `replacedRules`.
 ### Block presets
 
 `spec.presets.blocks[]` holds block bodies: `target`, `mode`, and `rules`, each optional, with `name` as the name of
-the preset. A block preset body has no `preset` field. The rules of a block preset may name rule presets and may not
-carry `before` or `dropped`; that shape is checked whether a block uses the preset or not, and the content through
-the blocks that use it.
+the preset. A block preset body has no `preset` field. The rules of a block preset carry names unique within the
+preset, may name rule presets that `spec.presets.rules` declares, and may not carry `before` or `dropped`. The API
+server refuses a repeated name; the other two are checked whether a block uses the preset or not, and the rest of the
+content through the blocks that use it.
 
 A block of `limits` takes a preset through `preset` and keeps its own `name`, which stays unique within the policy
 and stays the block's segment of the counter key. `target` and `mode` written in the block replace the preset's
@@ -415,6 +416,8 @@ The rules of the block merge with the rules of the preset by name:
 | a name the preset holds | the written fields replace those of the preset's rule; the rule keeps the preset's position |
 | a name the preset does not hold | a new rule, placed in front of the rule `before` names, or appended after the preset's rules without `before` |
 | a name the preset holds, with `dropped: true` and nothing else beside `name` | the preset's rule is left out |
+
+A block writes each rule name once, so it never both overrides and drops one rule of the preset.
 
 The merge runs in three passes over the preset's list: overrides first, then insertions in the order written, each
 directly in front of its anchor, then drops. A dropped rule serves as an anchor until the drops run, so `x` with

@@ -1,9 +1,9 @@
 package policy
 
 import (
+	"container/list"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
@@ -61,16 +61,21 @@ type Resolved struct {
 // list, and a dropped rule the block's preset does not hold are
 // UnresolvedPresetReference. A resolved policy estimated above
 // [MaxResolvedSize] is ResolvedPolicyTooLarge. A preset declared twice or
-// without a name, a rule of a block preset that carries before or dropped,
-// before or dropped in a block without a preset, dropped beside any field
-// other than name, before on a rule the block's preset holds, and preset on
-// a rule that overrides a rule of the block's preset by name are
-// InvalidSpec. The estimate, [Resolved.EstimatedSize], is made before any
-// preset is written into a block or a rule and never falls below the
-// resolved size, so it can refuse a policy whose resolved size is below the
-// bound.
+// without a name, a rule name a block preset holds twice or a block that
+// takes a block preset writes twice, a rule of a block preset that carries
+// before or dropped, before or dropped in a block without a preset, dropped
+// beside any field other than name, before on a rule the block's preset
+// holds, and preset on a rule that overrides a rule of the block's preset by
+// name are InvalidSpec. The estimate, [Resolved.EstimatedSize], is made
+// before any preset is written into a block or a rule and never falls below
+// the resolved size, so it can refuse a policy whose resolved size is below
+// the bound.
 func Resolve(spec *v1.RateLimitPolicySpec) (*Resolved, []v1.RuleProblem) {
-	r := &resolver{rulePresets: map[string]*v1.RulePreset{}, blockPresets: map[string]*v1.BlockPreset{}}
+	r := &resolver{
+		rulePresets:  map[string]*v1.RulePreset{},
+		blockPresets: map[string]*v1.BlockPreset{},
+		heldRules:    map[string]map[string]*v1.Rule{},
+	}
 	r.declareRulePresets(spec)
 	r.declareBlockPresets(spec)
 	uses := r.checkReferences(spec)
@@ -90,7 +95,7 @@ func Resolve(spec *v1.RateLimitPolicySpec) (*Resolved, []v1.RuleProblem) {
 		block := &out.Spec.Limits[b]
 		if block.Preset != "" {
 			out.BlockPresets[block.Name] = block.Preset
-			*block = mergeBlock(block, blockOf(r.blockPresets[block.Preset]))
+			*block = mergeBlock(block, r.blockPresets[block.Preset])
 		}
 		for i := range block.Rules {
 			rule := &block.Rules[i]
@@ -109,7 +114,12 @@ func Resolve(spec *v1.RateLimitPolicySpec) (*Resolved, []v1.RuleProblem) {
 type resolver struct {
 	rulePresets  map[string]*v1.RulePreset
 	blockPresets map[string]*v1.BlockPreset
-	problems     []v1.RuleProblem
+
+	// heldRules holds, by the name of each block preset, its rules by name.
+	// It is built once per preset, not once per block that takes it.
+	heldRules map[string]map[string]*v1.Rule
+
+	problems []v1.RuleProblem
 }
 
 func (r *resolver) fail(block, rule, reason, format string, args ...any) {
@@ -143,10 +153,12 @@ func (r *resolver) declareRulePresets(spec *v1.RateLimitPolicySpec) {
 	}
 }
 
-// declareBlockPresets indexes the block presets by name and checks the shape
-// of each, whether a block takes it or not: its rules carry no before or
-// dropped. A rule preset its rules name is a reference, checked through the
-// blocks that take the body.
+// declareBlockPresets indexes the block presets by name, and the rules of
+// each by name, and checks each preset whether a block takes it or not: its
+// rules carry names unique within the preset, no before or dropped, and only
+// rule presets spec.presets.rules declares, so Resolve calls
+// [resolver.declareRulePresets] first. A problem of a preset has no block and
+// no rule to be addressed to, so the message names the preset and the rule.
 func (r *resolver) declareBlockPresets(spec *v1.RateLimitPolicySpec) {
 	if spec.Presets == nil {
 		return
@@ -161,33 +173,47 @@ func (r *resolver) declareBlockPresets(spec *v1.RateLimitPolicySpec) {
 			r.fail("", "", v1.ProblemInvalidSpec, "block preset %q is declared twice", preset.Name)
 			continue
 		}
-		for _, rule := range preset.Rules {
+		held := make(map[string]*v1.Rule, len(preset.Rules))
+		for j := range preset.Rules {
+			rule := &preset.Rules[j]
+			if _, dup := held[rule.Name]; dup {
+				r.fail("", "", v1.ProblemInvalidSpec, "rule %q is declared twice in block preset %q",
+					rule.Name, preset.Name)
+			} else {
+				held[rule.Name] = rule
+			}
 			if rule.Before != "" || rule.Dropped {
 				r.fail("", "", v1.ProblemInvalidSpec,
 					"rule %q of block preset %q carries before or dropped, which a block that takes the preset carries",
 					rule.Name, preset.Name)
 			}
+			if _, declared := r.rulePresets[rule.Preset]; rule.Preset != "" && !declared {
+				r.fail("", "", v1.ProblemUnresolvedPresetReference,
+					"rule %q of block preset %q takes preset %q, which is not declared under spec.presets.rules",
+					rule.Name, preset.Name, rule.Preset)
+			}
 		}
 		r.blockPresets[preset.Name] = preset
+		r.heldRules[preset.Name] = held
 	}
 }
 
 // presetUses is what the size estimate needs: how many times each preset is
-// taken, and the serialized size of the preset rules the blocks drop.
+// taken, and how many blocks drop each rule of a block preset.
 type presetUses struct {
 	rules   map[string]int
 	blocks  map[string]int
-	dropped int
+	dropped map[*v1.Rule]int
 }
 
-// checkReferences reports every reference that does not resolve and every
-// rule shape a block may not carry, and counts the uses of each preset for
-// the size estimate.
+// checkReferences reports every reference written in spec.limits that does
+// not resolve and every rule shape a block may not carry, and counts the uses
+// of each preset for the size estimate.
 func (r *resolver) checkReferences(spec *v1.RateLimitPolicySpec) presetUses {
-	uses := presetUses{rules: map[string]int{}, blocks: map[string]int{}}
+	uses := presetUses{rules: map[string]int{}, blocks: map[string]int{}, dropped: map[*v1.Rule]int{}}
 	for i := range spec.Limits {
 		block := &spec.Limits[i]
-		preset, ok := r.blockPresets[block.Preset]
+		_, ok := r.blockPresets[block.Preset]
 		switch {
 		case block.Preset == "":
 			r.checkPlainBlock(block, &uses)
@@ -199,9 +225,10 @@ func (r *resolver) checkReferences(spec *v1.RateLimitPolicySpec) presetUses {
 			}
 		default:
 			uses.blocks[block.Preset]++
-			r.checkBlockUse(block, preset, &uses)
+			r.checkBlockUse(block, &uses)
 		}
 	}
+	r.countHeldRulePresets(&uses)
 	return uses
 }
 
@@ -234,29 +261,20 @@ func (r *resolver) checkRulePreset(block string, rule *v1.Rule, uses *presetUses
 }
 
 // checkBlockUse checks the rules a block writes against the block preset it
-// takes: an override carries no before and no preset, a dropped rule
-// carries nothing beside its name and names a rule of the preset, and a new
-// rule's before names a rule of the preset or a new rule written earlier.
-// The rule presets the preset's own rules take count once per block that
-// takes the preset, less the rules the block drops.
-func (r *resolver) checkBlockUse(block *v1.LimitBlock, preset *v1.BlockPreset, uses *presetUses) {
-	held := map[string]*v1.Rule{}
-	for i := range preset.Rules {
-		held[preset.Rules[i].Name] = &preset.Rules[i]
-	}
-	dropped := r.checkWrittenRules(block, held, uses)
-	r.countPresetRules(block, preset, dropped, uses)
-}
-
-// checkWrittenRules checks each rule the block writes against held, the
-// rules of its block preset by name, and returns the names of the rules the
-// block drops.
-func (r *resolver) checkWrittenRules(block *v1.LimitBlock, held map[string]*v1.Rule,
-	uses *presetUses) map[string]bool {
-	dropped := map[string]bool{}
+// takes: each name is written once, an override carries no before and no
+// preset, a dropped rule carries nothing beside its name and names a rule of
+// the preset, and a new rule's before names a rule of the preset or a new
+// rule written earlier.
+func (r *resolver) checkBlockUse(block *v1.LimitBlock, uses *presetUses) {
+	held := r.heldRules[block.Preset]
+	written := map[string]bool{}
 	earlier := map[string]bool{}
 	for i := range block.Rules {
 		rule := &block.Rules[i]
+		if written[rule.Name] {
+			r.fail(block.Name, rule.Name, v1.ProblemInvalidSpec, "rule %q is declared twice", rule.Name)
+		}
+		written[rule.Name] = true
 		presetRule, inPreset := held[rule.Name]
 		switch {
 		case rule.Dropped && !inPreset:
@@ -267,8 +285,7 @@ func (r *resolver) checkWrittenRules(block *v1.LimitBlock, held map[string]*v1.R
 				r.fail(block.Name, rule.Name, v1.ProblemInvalidSpec,
 					"a dropped rule carries nothing beside name")
 			}
-			dropped[rule.Name] = true
-			uses.dropped += serializedSize(presetRule)
+			uses.dropped[presetRule]++
 		case inPreset:
 			r.checkOverride(block, rule)
 		default:
@@ -281,7 +298,6 @@ func (r *resolver) checkWrittenRules(block *v1.LimitBlock, held map[string]*v1.R
 			r.checkRulePreset(block.Name, rule, uses)
 		}
 	}
-	return dropped
 }
 
 // checkOverride reports the fields a rule that overrides a rule of the block
@@ -298,21 +314,24 @@ func (r *resolver) checkOverride(block *v1.LimitBlock, rule *v1.Rule) {
 	}
 }
 
-// countPresetRules counts the rule presets the block preset's own rules take,
-// once for this block, and reports one that is not declared; a rule in
-// dropped counts nowhere.
-func (r *resolver) countPresetRules(block *v1.LimitBlock, preset *v1.BlockPreset, dropped map[string]bool,
-	uses *presetUses) {
-	for _, rule := range preset.Rules {
-		if dropped[rule.Name] || rule.Preset == "" {
-			continue
+// countHeldRulePresets counts the declared rule presets the rules of the
+// block presets take: once per block that takes the preset, less once per
+// block that drops the rule. It works from the totals checkReferences
+// gathered, so it walks the rules of each preset once, however many blocks
+// take the preset.
+func (r *resolver) countHeldRulePresets(uses *presetUses) {
+	for name, n := range uses.blocks {
+		preset := r.blockPresets[name]
+		for i := range preset.Rules {
+			if _, declared := r.rulePresets[preset.Rules[i].Preset]; declared {
+				uses.rules[preset.Rules[i].Preset] += n
+			}
 		}
-		if _, ok := r.rulePresets[rule.Preset]; !ok {
-			r.fail(block.Name, rule.Name, v1.ProblemUnresolvedPresetReference,
-				"preset %q is not declared under spec.presets.rules; the block takes preset %q", rule.Preset, block.Preset)
-			continue
+	}
+	for rule, n := range uses.dropped {
+		if _, declared := r.rulePresets[rule.Preset]; declared {
+			uses.rules[rule.Preset] -= n
 		}
-		uses.rules[rule.Preset]++
 	}
 }
 
@@ -346,7 +365,9 @@ func (r *resolver) checkSize(spec *v1.RateLimitPolicySpec, uses presetUses) int 
 		applyBlockDefaults(preset)
 		total += n * serializedSize(preset)
 	}
-	total -= uses.dropped
+	for rule, n := range uses.dropped {
+		total -= n * serializedSize(rule)
+	}
 	if total > MaxResolvedSize {
 		r.fail("", "", v1.ProblemResolvedPolicyTooLarge,
 			"the resolved policy is estimated at %d bytes serialized, over the limit of %d bytes (1.5 MiB)",
@@ -397,70 +418,104 @@ func blockOf(preset *v1.BlockPreset) *v1.LimitBlock {
 // before names or at the end. Then the drops, so a dropped rule serves as an
 // anchor until then. The result carries the block's own name, no preset, and
 // rules with no before and no dropped.
-func mergeBlock(use, preset *v1.LimitBlock) v1.LimitBlock {
+func mergeBlock(use *v1.LimitBlock, preset *v1.BlockPreset) v1.LimitBlock {
 	written := use.DeepCopy()
-	out := preset.DeepCopy()
+	// The rules are left to ruleOrder, which deep-copies only the ones that
+	// stay.
+	withoutRules := *preset
+	withoutRules.Rules = nil
+	out := blockOf(&withoutRules)
 	out.Name = written.Name
-	out.Preset = ""
 	if written.Target != nil {
 		out.Target = written.Target
 	}
 	if written.Mode != "" {
 		out.Mode = written.Mode
 	}
-	overrideRules(out, written.Rules)
-	insertRules(out, written.Rules)
-	dropRules(out, written.Rules)
+	rules := newRuleOrder(preset.Rules)
+	rules.override(written.Rules)
+	rules.insert(written.Rules)
+	rules.drop(written.Rules)
+	out.Rules = rules.slice()
 	return *out
 }
 
-// ruleIndex is the position of the rule named name in rules, or -1.
-func ruleIndex(rules []v1.Rule, name string) int {
-	return slices.IndexFunc(rules, func(rule v1.Rule) bool { return rule.Name == name })
+// ruleOrder is the rule list of a block during [mergeBlock]: the rules in a
+// linked list, indexed by name, so that each pass finds a rule, puts one in
+// front of it, or takes it out without walking the list, and the merge takes
+// time linear in the two lists. The index holds one rule per name, as
+// [Resolve] refuses a name the preset holds twice or the block writes twice.
+// The list starts with shallow copies of the preset's rules, which share its
+// slices, and [ruleOrder.slice] deep-copies the rules that stay, so a rule the
+// block drops is never deep-copied.
+type ruleOrder struct {
+	rules  *list.List // of v1.Rule
+	byName map[string]*list.Element
 }
 
-// overrideRules is the first pass of [mergeBlock]: each written rule of a
-// name the block holds, other than a dropped one, replaces that rule in
-// place.
-func overrideRules(block *v1.LimitBlock, written []v1.Rule) {
+func newRuleOrder(rules []v1.Rule) *ruleOrder {
+	order := &ruleOrder{rules: list.New(), byName: make(map[string]*list.Element, len(rules))}
+	for _, rule := range rules {
+		order.byName[rule.Name] = order.rules.PushBack(rule)
+	}
+	return order
+}
+
+// override is the first pass of [mergeBlock]: each written rule of a name the
+// block holds, other than a dropped one, replaces that rule in place.
+func (o *ruleOrder) override(written []v1.Rule) {
 	for i := range written {
 		rule := &written[i]
-		if at := ruleIndex(block.Rules, rule.Name); at >= 0 && !rule.Dropped {
-			block.Rules[at] = overrideRule(rule, &block.Rules[at])
+		if at := o.byName[rule.Name]; at != nil && !rule.Dropped {
+			base := at.Value.(v1.Rule)
+			at.Value = overrideRule(rule, &base)
 		}
 	}
 }
 
-// insertRules is the second pass of [mergeBlock]: each written rule the block
-// does not hold yet goes in, in the order written, directly in front of the
-// rule its before names, or at the end.
-func insertRules(block *v1.LimitBlock, written []v1.Rule) {
+// insert is the second pass of [mergeBlock]: each written rule the block does
+// not hold yet goes in, in the order written, directly in front of the rule
+// its before names, or at the end.
+func (o *ruleOrder) insert(written []v1.Rule) {
 	for i := range written {
 		rule := &written[i]
-		if rule.Dropped || ruleIndex(block.Rules, rule.Name) >= 0 {
+		if rule.Dropped || o.byName[rule.Name] != nil {
 			continue
 		}
 		inserted := *rule
 		inserted.Before = ""
-		if at := ruleIndex(block.Rules, rule.Before); rule.Before != "" && at >= 0 {
-			block.Rules = slices.Insert(block.Rules, at, inserted)
+		var anchor *list.Element
+		if rule.Before != "" {
+			anchor = o.byName[rule.Before]
+		}
+		if anchor != nil {
+			o.byName[rule.Name] = o.rules.InsertBefore(inserted, anchor)
 		} else {
-			block.Rules = append(block.Rules, inserted)
+			o.byName[rule.Name] = o.rules.PushBack(inserted)
 		}
 	}
 }
 
-// dropRules is the last pass of [mergeBlock]: each rule a written rule drops
+// drop is the last pass of [mergeBlock]: each rule a written rule drops
 // leaves the block.
-func dropRules(block *v1.LimitBlock, written []v1.Rule) {
-	for _, rule := range written {
-		if !rule.Dropped {
-			continue
-		}
-		if at := ruleIndex(block.Rules, rule.Name); at >= 0 {
-			block.Rules = slices.Delete(block.Rules, at, at+1)
+func (o *ruleOrder) drop(written []v1.Rule) {
+	for i := range written {
+		if at := o.byName[written[i].Name]; written[i].Dropped && at != nil {
+			o.rules.Remove(at)
+			delete(o.byName, written[i].Name)
 		}
 	}
+}
+
+// slice is a copy of the rules in list order, sharing no memory with the
+// rules the list was built from or with the written ones.
+func (o *ruleOrder) slice() []v1.Rule {
+	rules := make([]v1.Rule, 0, o.rules.Len())
+	for at := o.rules.Front(); at != nil; at = at.Next() {
+		rule := at.Value.(v1.Rule)
+		rules = append(rules, *rule.DeepCopy())
+	}
+	return rules
 }
 
 // overrideRule is a rule of the point of use over the rule of the same name

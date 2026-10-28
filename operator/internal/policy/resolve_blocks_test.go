@@ -412,6 +412,29 @@ func TestResolve_rejectsARuleShapeABlockMayNotCarryAtThePointOfUse(t *testing.T)
 			}},
 			want: v1.RuleProblem{Block: "orders", Rule: "anonymous", Reason: v1.ProblemInvalidSpec},
 		},
+		{
+			name: "a new rule written twice",
+			block: v1.LimitBlock{Name: "orders", Preset: "plan-cascade", Rules: []v1.Rule{
+				{Name: "partner", Rates: []v1.Rate{minuteRate(500)}},
+				{Name: "partner", Rates: []v1.Rate{minuteRate(600)}},
+			}},
+			want: v1.RuleProblem{Block: "orders", Rule: "partner", Reason: v1.ProblemInvalidSpec},
+		},
+		{
+			name: "a rule of the preset overridden and dropped",
+			block: v1.LimitBlock{Name: "orders", Preset: "plan-cascade", Rules: []v1.Rule{
+				{Name: "anonymous", Rates: []v1.Rate{minuteRate(30)}},
+				{Name: "anonymous", Dropped: true},
+			}},
+			want: v1.RuleProblem{Block: "orders", Rule: "anonymous", Reason: v1.ProblemInvalidSpec},
+		},
+		{
+			name: "a rule of the preset dropped twice",
+			block: v1.LimitBlock{Name: "orders", Preset: "plan-cascade", Rules: []v1.Rule{
+				{Name: "anonymous", Dropped: true}, {Name: "anonymous", Dropped: true},
+			}},
+			want: v1.RuleProblem{Block: "orders", Rule: "anonymous", Reason: v1.ProblemInvalidSpec},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -441,31 +464,35 @@ func TestResolve_aBlockWhosePresetDoesNotResolveStillHasItsRulesChecked(t *testi
 	}, withoutMessage(problems), "Resolve problems")
 }
 
-// A rule preset that a rule of a block preset names is a reference of the
-// body, checked through the blocks that take the rule: reported at each block
-// that takes the preset, with both presets named, and at no block that drops
-// the rule; a block preset that no block takes has its rule presets checked
-// nowhere.
-func TestResolve_aRulePresetABlockPresetNamesIsCheckedThroughTheBlocksThatTakeTheRule(t *testing.T) {
+// A rule preset that a rule of a block preset names is checked once, at the
+// block preset: one problem per preset, with no block and no rule, whose
+// message names the rule, the rule preset, and the block preset, whether
+// several blocks take the preset, a block drops the rule, or no block takes
+// it. The problem used to be reported at every block that took the preset,
+// and a 142 KB object produced three million of them.
+func TestResolve_aRulePresetABlockPresetNamesIsCheckedOnceAtThePreset(t *testing.T) {
 	spec := cascadeSpec(
 		v1.LimitBlock{Name: "orders", Preset: "plan-cascade"},
 		v1.LimitBlock{Name: "catalog", Preset: "plan-cascade"},
 		v1.LimitBlock{Name: "exports", Preset: "plan-cascade", Rules: []v1.Rule{{Name: "internal", Dropped: true}}})
 	spec.Presets.Blocks[0].Rules[0].Preset = "internal-bypas"
 	spec.Presets.Blocks = append(spec.Presets.Blocks,
-		v1.BlockPreset{Name: "unused", Rules: []v1.Rule{{Name: "internal", Preset: "internal-bypas"}}})
+		v1.BlockPreset{Name: "unused", Rules: []v1.Rule{{Name: "anonymous", Preset: "internal-bypas"}}})
 
 	resolved, problems := Resolve(spec)
 
 	assert.Nil(t, resolved, "Resolved")
 	require.Equal(t, []v1.RuleProblem{
-		{Block: "orders", Rule: "internal", Reason: v1.ProblemUnresolvedPresetReference},
-		{Block: "catalog", Rule: "internal", Reason: v1.ProblemUnresolvedPresetReference},
+		{Reason: v1.ProblemUnresolvedPresetReference},
+		{Reason: v1.ProblemUnresolvedPresetReference},
 	}, withoutMessage(problems), "Resolve problems")
-	for _, problem := range problems {
-		assert.Contains(t, problem.Message, `"internal-bypas"`, "Message of the problem at %s/internal", problem.Block)
-		assert.Contains(t, problem.Message, `"plan-cascade"`, "Message of the problem at %s/internal", problem.Block)
-	}
+	cascade, unused := problems[0].Message, problems[1].Message
+	assert.Contains(t, cascade, `"internal"`, "Message of the problem of block preset plan-cascade")
+	assert.Contains(t, cascade, `"internal-bypas"`, "Message of the problem of block preset plan-cascade")
+	assert.Contains(t, cascade, `"plan-cascade"`, "Message of the problem of block preset plan-cascade")
+	assert.Contains(t, unused, `"anonymous"`, "Message of the problem of block preset unused")
+	assert.Contains(t, unused, `"internal-bypas"`, "Message of the problem of block preset unused")
+	assert.Contains(t, unused, `"unused"`, "Message of the problem of block preset unused")
 }
 
 // The shape of a block preset is checked whether a block takes it or not. A
@@ -487,6 +514,13 @@ func TestResolve_rejectsTheShapeOfABlockPresetNoBlockTakes(t *testing.T) {
 		{
 			name:    "a rule of a block preset with dropped",
 			presets: []v1.BlockPreset{withRules(v1.Rule{Name: "a", Dropped: true})},
+			locates: []string{`"a"`, `"cascade"`},
+		},
+		{
+			name: "a block preset that holds a rule name twice",
+			presets: []v1.BlockPreset{withRules(
+				v1.Rule{Name: "a", Rates: []v1.Rate{minuteRate(1)}}, v1.Rule{Name: "a", Rates: []v1.Rate{minuteRate(2)}},
+			)},
 			locates: []string{`"a"`, `"cascade"`},
 		},
 		{
@@ -518,6 +552,31 @@ func TestResolve_rejectsTheShapeOfABlockPresetNoBlockTakes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A block preset that holds a rule name twice is refused before a block
+// merges with it, also where the block drops the name, and every copy of the
+// name is checked. The API server refuses such an object on apply; Resolve
+// refuses it as well, so that no spec makes it panic. A block that dropped the
+// name used to keep one copy while the checks took both as dropped, and
+// Resolve panicked with a nil pointer dereference on the undeclared rule
+// preset of the copy it kept.
+func TestResolve_refusesABlockPresetThatHoldsARuleNameTwiceWhereABlockDropsTheName(t *testing.T) {
+	spec := &v1.RateLimitPolicySpec{
+		Domain: testDomain,
+		Presets: &v1.Presets{Blocks: []v1.BlockPreset{{Name: "twice", Rules: []v1.Rule{
+			{Name: "a", Behavior: v1.RuleBehaviorBypass}, {Name: "a", Preset: "ghost"},
+		}}}},
+		Limits: []v1.LimitBlock{{Name: "orders", Preset: "twice", Rules: []v1.Rule{{Name: "a", Dropped: true}}}},
+	}
+
+	resolved, problems := Resolve(spec)
+
+	assert.Nil(t, resolved, "Resolved")
+	assert.Equal(t, []v1.RuleProblem{
+		{Reason: v1.ProblemInvalidSpec},
+		{Reason: v1.ProblemUnresolvedPresetReference},
+	}, withoutMessage(problems), "Resolve problems")
 }
 
 // A block that holds no rule once its preset is resolved is the engine's
@@ -619,28 +678,12 @@ func TestCompile_theDecisionBudgetChargesABlockPresetOncePerBlock(t *testing.T) 
 // block half of the size formula, computed here from the literal forms: the
 // spec as written with the defaults written in, plus the block preset with
 // its defaults once per block that takes it, plus the rule presets its rules
-// take once per block, less the preset rules the blocks drop as written.
+// take once per block that keeps the rule, less each preset rule as written
+// once per block that drops it.
 func TestResolve_estimatesABlockPresetOncePerBlockLessTheRulesDropped(t *testing.T) {
 	bodyRules := []v1.Rule{
 		{Name: "a", Counters: []string{"sub"}, Rates: []v1.Rate{minuteRate(100)}},
 		{Name: "b", Preset: "standard-client"},
-	}
-	spec := &v1.RateLimitPolicySpec{
-		Domain: testDomain,
-		Presets: &v1.Presets{
-			Rules:  []v1.RulePreset{standardClient()},
-			Blocks: []v1.BlockPreset{{Name: "body", Rules: bodyRules}},
-		},
-		Limits: []v1.LimitBlock{
-			{Name: "x", Preset: "body"},
-			{Name: "y", Preset: "body", Rules: []v1.Rule{{Name: "a", Dropped: true}}},
-		},
-	}
-	writtenWithDefaults := *spec.DeepCopy()
-	writtenWithDefaults.Limits = []v1.LimitBlock{
-		{Name: "x", Preset: "body", Mode: v1.BlockModeAll},
-		{Name: "y", Preset: "body", Mode: v1.BlockModeAll,
-			Rules: []v1.Rule{{Name: "a", Dropped: true, Behavior: v1.RuleBehaviorEnforce}}},
 	}
 	bodyWithDefaults := v1.LimitBlock{Name: "body", Mode: v1.BlockModeAll, Rules: []v1.Rule{
 		{Name: "a", Counters: []string{"sub"}, Behavior: v1.RuleBehaviorEnforce,
@@ -654,13 +697,45 @@ func TestResolve_estimatesABlockPresetOncePerBlockLessTheRulesDropped(t *testing
 			{Requests: 100, PeriodSeconds: 60, Burst: &burst, Algorithm: v1.AlgorithmGCRA},
 			{Requests: 20000, PeriodSeconds: 86400, Algorithm: v1.AlgorithmFixedWindow},
 		}}
+	cases := []struct {
+		name         string
+		dropped      v1.Rule
+		standardUses int
+	}{
+		{name: "the dropped rule takes no rule preset", dropped: bodyRules[0], standardUses: 3},
+		{name: "the dropped rule takes a rule preset", dropped: bodyRules[1], standardUses: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := &v1.RateLimitPolicySpec{
+				Domain: testDomain,
+				Presets: &v1.Presets{
+					Rules:  []v1.RulePreset{standardClient()},
+					Blocks: []v1.BlockPreset{{Name: "body", Rules: bodyRules}},
+				},
+				Limits: []v1.LimitBlock{
+					{Name: "x", Preset: "body"},
+					{Name: "y", Preset: "body", Rules: []v1.Rule{{Name: tc.dropped.Name, Dropped: true}}},
+					{Name: "z", Preset: "body", Rules: []v1.Rule{{Name: tc.dropped.Name, Dropped: true}}},
+				},
+			}
+			writtenWithDefaults := *spec.DeepCopy()
+			writtenWithDefaults.Limits = []v1.LimitBlock{
+				{Name: "x", Preset: "body", Mode: v1.BlockModeAll},
+				{Name: "y", Preset: "body", Mode: v1.BlockModeAll,
+					Rules: []v1.Rule{{Name: tc.dropped.Name, Dropped: true, Behavior: v1.RuleBehaviorEnforce}}},
+				{Name: "z", Preset: "body", Mode: v1.BlockModeAll,
+					Rules: []v1.Rule{{Name: tc.dropped.Name, Dropped: true, Behavior: v1.RuleBehaviorEnforce}}},
+			}
 
-	resolved, problems := Resolve(spec)
+			resolved, problems := Resolve(spec)
 
-	require.Empty(t, problems, "Resolve problems")
-	want := serialized(t, writtenWithDefaults) + 2*serialized(t, bodyWithDefaults) +
-		2*serialized(t, standardWithDefaults) - serialized(t, bodyRules[0])
-	assert.Equal(t, want, resolved.EstimatedSize, "Resolved.EstimatedSize")
+			require.Empty(t, problems, "Resolve problems")
+			want := serialized(t, writtenWithDefaults) + 3*serialized(t, bodyWithDefaults) +
+				tc.standardUses*serialized(t, standardWithDefaults) - 2*serialized(t, tc.dropped)
+			assert.Equal(t, want, resolved.EstimatedSize, "Resolved.EstimatedSize")
+		})
+	}
 }
 
 func TestResolve_theEstimateIsAtLeastTheResolvedSizeWithBlockPresets(t *testing.T) {

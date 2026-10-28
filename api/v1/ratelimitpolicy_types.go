@@ -483,10 +483,11 @@ type RulePreset struct {
 // BlockPreset is a block body a block of spec.limits takes by name through
 // its preset field: target, mode, and rules, each optional, with name as the
 // name of the preset. Presets do not chain: a body has no preset field. The
-// rules of a body may take rule presets and carry no before or dropped,
-// which belong to the rules of a block that takes a block preset; the
-// compiler reports a rule that carries one, whether a block takes the preset
-// or not. The content of a body is checked through the blocks that take it.
+// rules of a body may take rule presets the policy declares and carry no
+// before or dropped, which belong to the rules of a block that takes a block
+// preset; the compiler reports a rule that breaks either, whether a block
+// takes the preset or not. The rest of the content of a body is checked
+// through the blocks that take it.
 type BlockPreset struct {
 	// name is the name a block's preset refers to. It is unique among the
 	// block presets of the policy and is part of no counter key.
