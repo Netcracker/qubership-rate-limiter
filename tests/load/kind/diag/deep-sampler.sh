@@ -6,6 +6,9 @@
 # slowlog, which it then resets, CPU and clients), and the CPU throttling of
 # every container from the kubelet. Each sample is one file per source named
 # by the epoch milliseconds. Every 15 s it also records the kind node's CPU.
+# On every sample it appends the CPU time of the whole runner VM, the kind
+# node and steal included, to host-cpu.log; at the start it writes lscpu's
+# description of the runner's CPU to lscpu.txt.
 #
 #   LOAD_NAMESPACE=... REDIS_NAMESPACE=... deep-sampler.sh <dir>
 set -uo pipefail
@@ -14,6 +17,7 @@ NS="${LOAD_NAMESPACE:-ratelimit-load}"
 RNS="${REDIS_NAMESPACE:-ratelimit-load-redis}"
 NODE="${KIND_NODE:-ratelimit-load-control-plane}"
 mkdir -p "$OUT"/gw "$OUT"/svc "$OUT"/redis "$OUT"/cadv
+lscpu >"$OUT/lscpu.txt" 2>&1
 pw="$(kubectl get secret e2e-redis-auth -n "$RNS" -o jsonpath='{.data.password}' | base64 -d)"
 
 pods=()
@@ -64,6 +68,7 @@ while [ ! -e "$OUT/stop" ]; do
     | grep -E '^container_cpu_(cfs_throttled_periods_total|cfs_periods_total|usage_seconds_total|cfs_throttled_seconds_total)\{' \
     | grep -E 'container="(service|istio-proxy|redis|generator|nginx)"' >"$OUT/cadv/$t0" &
   jobs_now+=($!)
+  { printf '%s ' "$t0"; head -1 /proc/stat; } >>"$OUT/host-cpu.log"
   if [ $((n % 3)) = 0 ]; then
     { printf '%s ' "$t0"; docker stats --no-stream --format '{{.CPUPerc}} {{.MemUsage}}' "$NODE"; } >>"$OUT/node-cpu.log" &
     jobs_now+=($!)

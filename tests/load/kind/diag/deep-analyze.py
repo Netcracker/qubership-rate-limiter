@@ -305,6 +305,27 @@ def throttle(a, b):
     return out
 
 
+# ---------- the runner's CPU ----------
+# The cpu line of /proc/stat counts user, nice, system, idle, iowait, irq, softirq, and steal ticks, then guest time,
+# which user and nice already include. The report sums user with nice, and system with irq and softirq.
+hv = []
+try:
+    for line in open(os.path.join(DEEP, "host-cpu.log")):
+        p = line.split()
+        if len(p) >= 10 and p[1] == "cpu":
+            hv.append((int(p[0]), [int(x) for x in p[2:10]]))
+except FileNotFoundError:
+    pass
+lscpu = {}
+try:
+    for line in open(os.path.join(DEEP, "lscpu.txt")):
+        k, sep, v = line.partition(":")
+        if sep:
+            lscpu.setdefault(k.strip(), v.strip())
+except FileNotFoundError:
+    pass
+
+
 # ---------- windows ----------
 def at(series, t0, t1):
     """First and last sample inside [t0, t1]."""
@@ -345,6 +366,12 @@ def window(t0, t1):
     if c:
         (_, a), (_, b) = c
         w["thr"] = throttle(a, b)
+    h = at(hv, t0, t1)
+    if h:
+        (_, a), (_, b) = h
+        d = [y - x for x, y in zip(a, b)]
+        if sum(d) > 0:
+            w["host"] = [x / sum(d) * 100 for x in d]  # % of all the runner's CPU time, in /proc/stat's order
     return w
 
 
@@ -433,12 +460,18 @@ if "thr" in W:
     print("| --- | ---: | ---: | ---: |")
     for g, (th, per, cpu) in sorted(W["thr"].items()):
         print(f"| {g} | {cpu / ((m1 - m0) / 1000) * 100:.1f} | {th:.0f} | {fmt(th / per * 100 if per else float('nan'), 2)}% |")
+if lscpu or "host" in W:
+    h = W.get("host")
+    print(f"\nrunner: {lscpu.get('Model name', 'unknown CPU model')}, {lscpu.get('CPU(s)', '?')} CPUs, "
+          f"hypervisor {lscpu.get('Hypervisor vendor', 'not reported')}"
+          + (f"; of all its CPU time user {h[0] + h[1]:.1f}%, system {h[2] + h[5] + h[6]:.1f}%, iowait {h[4]:.1f}%, "
+             f"steal {h[7]:.2f}%, idle {h[3]:.1f}%" if h else ""))
 
 # per minute
 print("\n## Per minute\n")
 print("| Minute | client p99 | client max | >50 ms | undecided | gw RLS p99 < | RLS timeouts | check p99 | check max bucket | "
-      "store p99 | redis mean us | slow>2ms | GC max ms | RLS throttled | gw throttled | node CPU % |")
-print("| --- " * 16 + "|")
+      "store p99 | redis mean us | slow>2ms | GC max ms | RLS throttled | gw throttled | node CPU % | runner steal % |")
+print("| --- " * 17 + "|")
 node = []
 try:
     for line in open(os.path.join(DEEP, "node-cpu.log")):
@@ -476,7 +509,7 @@ while t < m1:
           f"{fmt(w.get('gc_max', float('nan')) * 1000)} | "
           f"{fmt(thr['rls'][0] / thr['rls'][1] * 100 if 'rls' in thr and thr['rls'][1] else float('nan'))}% | "
           f"{fmt(thr['gateway'][0] / thr['gateway'][1] * 100 if 'gateway' in thr and thr['gateway'][1] else float('nan'))}% | "
-          f"{fmt(max(nd) if nd else float('nan'), 0)} |")
+          f"{fmt(max(nd) if nd else float('nan'), 0)} | {fmt(w['host'][7] if 'host' in w else float('nan'))} |")
     t = t2
 
 # incidents
@@ -507,4 +540,5 @@ for ts in bad:
           f"{' max ' + fmt(max(u for _, u in w['r_slow']) / 1000, 1) + ' ms' if w.get('r_slow') else ''}; "
           f"GC max {fmt(w.get('gc_max', float('nan')) * 1000)} ms; throttled: "
           + ", ".join(f"{g} {th:.0f}/{per:.0f}" for g, (th, per, _) in sorted(thr.items()) if th)
-          + f"; node CPU {fmt(max(nd) if nd else float('nan'), 0)}%")
+          + f"; node CPU {fmt(max(nd) if nd else float('nan'), 0)}%"
+          + f"; runner steal {fmt(w['host'][7] if 'host' in w else float('nan'))}%")
