@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ type cluster struct {
 	key     *rsa.PrivateKey
 	podAuth atomic.Value // the Authorization header of the last discovery request
 	keysOut atomic.Bool  // the key set answers 503 while set
+	alias   atomic.Value // a second key id the key set publishes the key under, when set
 }
 
 func newCluster(t *testing.T) *cluster {
@@ -46,11 +48,19 @@ func newCluster(t *testing.T) *cluster {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]string{
-			"kty": "RSA", "kid": "cluster", "alg": "RS256", "use": "sig",
-			"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
-			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
-		}}})
+		kids := []string{"cluster"}
+		if alias, ok := c.alias.Load().(string); ok {
+			kids = append(kids, alias)
+		}
+		keys := make([]any, 0, len(kids))
+		for _, kid := range kids {
+			keys = append(keys, map[string]string{
+				"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig",
+				"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+				"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": keys})
 	})
 	c.server = httptest.NewServer(mux)
 	t.Cleanup(c.server.Close)
@@ -75,6 +85,13 @@ func (c *cluster) token(t *testing.T, key *rsa.PrivateKey, kid string, override 
 func (c *cluster) signed(t *testing.T, method jwt.SigningMethod, key any, kid string,
 	override jwt.MapClaims) string {
 	t.Helper()
+	return c.signedWithHeader(t, method, key, map[string]any{"kid": kid}, override)
+}
+
+// signedWithHeader is signed with header's fields added to the header.
+func (c *cluster) signedWithHeader(t *testing.T, method jwt.SigningMethod, key any, header map[string]any,
+	override jwt.MapClaims) string {
+	t.Helper()
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss": c.server.URL, "aud": []string{audience}, "sub": "system:serviceaccount:biz:ui-backend",
@@ -89,7 +106,7 @@ func (c *cluster) signed(t *testing.T, method jwt.SigningMethod, key any, kid st
 		claims[name] = value
 	}
 	token := jwt.NewWithClaims(method, claims)
-	token.Header["kid"] = kid
+	maps.Copy(token.Header, header)
 	signed, err := token.SignedString(key)
 	require.NoError(t, err)
 	return signed
