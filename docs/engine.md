@@ -198,9 +198,10 @@ operator are in the [resource specification](ratelimitpolicy-cr-spec.md).
   Below one second, counting with a network round trip to the store loses its meaning; above one day a counter stops
   being a rate limit and becomes a quota, a long-lived state with different reset and accounting semantics, which the
   engine does not cover. The worst-case key TTL, and with it store memory, follows the window. A fixed-window key
-  expires at the window boundary, at most `periodSeconds` away. A GCRA key expires when its bucket drains, at most
-  `burst × periodSeconds / requests` away, so the period alone bounds it only at the default `burst = requests`; the
-  depth cap of 10¹⁵ µs (about 31.7 years) holds for any `burst`.
+  expires up to a tenth of `periodSeconds` after the window boundary, at most 1.1 × `periodSeconds` away; the delay
+  differs from key to key, so the keys of a rate do not all expire in one second. A GCRA key expires when its bucket
+  drains, at most `burst × periodSeconds / requests` away, so the period alone bounds it only at the default
+  `burst = requests`; the depth cap of 10¹⁵ µs (about 31.7 years) holds for any `burst`.
   The schema's lists carry no bounds; the number of blocks, axes, and windows is unbounded, held only by the object
   size and the bucket budget, and the full list is in [limits](limits.md).
 - **Path handling and captures.** The query string is stripped from the `path` value before any path predicate is
@@ -306,8 +307,8 @@ The full contract, the interfaces, and the implementations are in the [store con
   its ceiling. `requests` and `burst` are not in the key, so tuning a limit reinterprets live state (fixed window
   keeps the consumed count, GCRA keeps drain depth in time) rather than resetting it. Keys come from the engine's single
   builder; management and matching agree to the byte.
-- **Every key carries a TTL**, to the window boundary for a fixed window and to the drained bucket for GCRA; there is no
-  separate cleanup process.
+- **Every key carries a TTL**, to the drained bucket for GCRA and, for a fixed window, to the window boundary plus a
+  delay of its own, under a tenth of the period; there is no separate cleanup process.
 - **Raw token values never appear in keys.** Identity axes use extracted claims only, so rotating a token resets no
   counter.
 - **Time comes from the store** (`TIME` inside the script), not from the replicas: clock skew between pods does not
