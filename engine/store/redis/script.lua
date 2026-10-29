@@ -3,13 +3,14 @@
 -- allows. All arithmetic is integer microseconds of Unix time -- exact in Lua
 -- doubles -- and must match the in-memory reference implementation
 -- (engine/store/memory) formula for formula; the differential test holds the
--- two together.
+-- two together. Key lifetime is the one difference: the reference expires a
+-- fixed window at its boundary, and this script keeps it linger_us longer.
 --
 -- KEYS: bucket keys, all in one slot (the domain hash tag guarantees it)
 -- ARGV[1]: "decide" | "peek"
 -- then 6 values per bucket: cost, algorithm id, p1, p2, p3, shadow(0|1)
 --   gcra  (id 1): p1 = emission_us, p2 = tau_us,   p3 = burst
---   fixed (id 2): p1 = period_us,   p2 = requests, p3 = unused
+--   fixed (id 2): p1 = period_us,   p2 = requests, p3 = linger_us
 --
 -- Reply, flat array of integers: [admitted(0|1)], then 5 per bucket:
 --   allowed(0|1), cost_exceeds(0|1), remaining, retry_after_us (-1 when no
@@ -33,12 +34,13 @@ local states = n > 0 and call('MGET', unpack(KEYS)) or {}
 
 -- The first pass writes the uncharged shape of every reply quintuple straight
 -- into out and keeps the charged shape as numbers on the side: rc/sc are the
--- charged remaining and reset, sa/sb the next state (sa alone for GCRA, both
--- for a fixed window), set only for buckets whose own verdict allows. The
--- commit pass patches the reply and serializes state in one place, so refused
--- decisions and peeks never pay for strings they would throw away.
+-- charged remaining and reset, sl the lifetime of the key, sa/sb the next
+-- state (sa alone for GCRA, both for a fixed window), set only for buckets
+-- whose own verdict allows. The commit pass patches the reply and serializes
+-- state in one place, so refused decisions and peeks never pay for strings
+-- they would throw away.
 local out = {1}
-local rc, sc, sa, sb = {}, {}, {}, {}
+local rc, sc, sl, sa, sb = {}, {}, {}, {}, {}
 
 local admitted = 1
 
@@ -77,6 +79,7 @@ for i = 1, n do
         allowed = true
         rc[i] = floor(diff / emission)
         sc[i] = new_tat - now
+        sl[i] = sc[i]
         sa[i] = new_tat
       else
         retry = -diff
@@ -88,7 +91,7 @@ for i = 1, n do
     out[o + 4] = retry
     out[o + 5] = depth
   else
-    local period, requests = p1, p2
+    local period, requests, linger = p1, p2, p3
     local start = now - (now % period)
     local count = 0
     if state then
@@ -108,6 +111,10 @@ for i = 1, n do
     if allowed then
       rc[i] = left - cost
       sc[i] = boundary
+      -- The key outlives its window by linger, so the keys of a rate do not
+      -- all expire in one second. The state it keeps is ignored meanwhile:
+      -- a start other than the current window's counts nothing.
+      sl[i] = boundary + linger
       sa[i] = start
       sb[i] = count + cost
     end
@@ -144,7 +151,7 @@ if admitted == 1 and decide then
       else
         state = fmt('%.0f', sa[i])
       end
-      call('SET', KEYS[i], state, 'PX', ceil(sc[i] / 1000))
+      call('SET', KEYS[i], state, 'PX', ceil(sl[i] / 1000))
     end
   end
 end
