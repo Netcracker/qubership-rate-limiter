@@ -296,17 +296,13 @@ func microsDuration(us int64) time.Duration {
 // runs commands, so thousands of keys expiring in one second delay every
 // command queued behind them.
 func lingerMicros(key string, periodUS int64) int64 {
-	spread := uint64(periodUS / 10)
-	if spread == 0 {
-		return 0
-	}
 	// FNV-1a, 64-bit.
 	h := uint64(14695981039346656037)
 	for i := 0; i < len(key); i++ {
 		h ^= uint64(key[i])
 		h *= 1099511628211
 	}
-	return int64(h % spread)
+	return int64(h % uint64(max(periodUS/10, 1)))
 }
 
 // boolArg encodes a flag the way the script reads it.
