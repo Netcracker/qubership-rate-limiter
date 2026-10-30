@@ -13,9 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -662,6 +664,32 @@ func TestWatcher_staysNotReadyUntilAMissingDirectoryAppears(t *testing.T) {
 	f.write(1, spec("gateway.public", 10))
 	require.Eventually(t, a.Ready, 3*time.Second, 10*time.Millisecond,
 		"waiting for the resync timer to find the directory and apply its contents")
+}
+
+// A replica that cannot create a file watcher, on a node out of inotify
+// instances, still starts: it logs the cause once, and the resync timer reads
+// the directory, applies what is present, and applies a change within one
+// resync.
+func TestWatcher_readsOnTheResyncTimerWithoutAFileWatcher(t *testing.T) {
+	newFileWatcher = func() (*fsnotify.Watcher, error) { return nil, syscall.EMFILE }
+	t.Cleanup(func() { newFileWatcher = fsnotify.NewWatcher })
+	var watcherErrors atomic.Int64
+	log := funcr.New(func(_, args string) {
+		if strings.Contains(args, "cannot create the file watcher") {
+			watcherErrors.Add(1)
+		}
+	}, funcr.Options{})
+	f := newFixture(t)
+	f.write(1, spec("gateway.public", 10))
+	a := newApplier()
+	runWatcher(t, &Watcher{Dir: f.dir, Applier: a, Log: log,
+		Resync: 200 * time.Millisecond, Settle: 20 * time.Millisecond})
+	waitForGeneration(t, a, 1)
+
+	f.write(2, spec("gateway.public", 11))
+
+	waitForGeneration(t, a, 2)
+	assert.Equal(t, int64(1), watcherErrors.Load(), "the lines logged about the file watcher once the change applied")
 }
 
 // The kubelet's periodic refresh rewrites unchanged files, and the same

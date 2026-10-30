@@ -185,10 +185,15 @@ Prerequisites, which the charts do not install:
   the counter store below);
 - the Prometheus Operator CRDs behind `PodMonitor` and `PrometheusRule`, when `MONITORING_ENABLED` is set.
 
-No chart declares a `kubeVersion`. CI runs the envtest suites against a Kubernetes 1.37 API server, and the e2e
-workflow installs on a kind cluster from `helm/kind-action` v1.15.1 with its default node image, Gateway API v1.4.0, and
-qubership-istio from its `main` branch. No workflow pins Helm: CI uses the Helm of the GitHub runner image. Adopting an
-existing CRD with `--take-ownership` needs Helm 3.17 or later ([the CRD chart](docs/helm-chart.md#the-crd-chart)).
+No chart declares a `kubeVersion`. The service Deployment uses native `lifecycle.preStop.sleep` to pause for 7 seconds
+before shutdown, allowing gateways to stop routing requests to the terminating pod. The `PodLifecycleSleepAction`
+feature gate is enabled by default from Kubernetes 1.30; on Kubernetes 1.29, enable it explicitly on the API server and
+kubelets ([Kubernetes feature gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)).
+
+CI runs the envtest suites against a Kubernetes 1.37 API server, and the e2e workflow installs on a kind cluster from
+`helm/kind-action` v1.15.1 with its default node image, Gateway API v1.4.0, and qubership-istio from its `main` branch.
+No workflow pins Helm: CI uses the Helm of the GitHub runner image. Adopting an existing CRD with `--take-ownership`
+needs Helm 3.17 or later ([the CRD chart](docs/helm-chart.md#the-crd-chart)).
 
 The images are `ghcr.io/netcracker/qubership-rate-limiter-operator` and `ghcr.io/netcracker/qubership-rate-limiter`.
 A release publishes them tagged `v<version>`, the same as its Git tag, and that is the `TAG` to pass below. A push to

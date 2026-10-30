@@ -9,6 +9,7 @@ import (
 	"time"
 
 	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
 )
 
@@ -204,6 +205,11 @@ func (s *SimulationRequest) validate() *apiError {
 	// an absent one in disguise.
 	if s.Cost < 0 || s.carriedEmpty("cost", s.Cost == 0) {
 		return invalid("the cost must be at least 1; omit it for a cost of 1", "cost")
+	}
+	// A check refuses a cost past model.MaxCost as invalid_cost, so a larger
+	// one could only be simulated as a decision no check reaches.
+	if s.Cost > model.MaxCost {
+		return invalid("the cost must be at most 1000000000, the largest a check accepts", "cost")
 	}
 	if s.carriedEmpty("token", s.Token == "") {
 		return invalid("the token is empty; omit the field instead", "token")

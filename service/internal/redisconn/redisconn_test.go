@@ -189,6 +189,29 @@ func TestParse_refusesAnAddressItCannotRead(t *testing.T) {
 	}
 }
 
+// A url may carry the password in its userinfo, and the refusal of a url
+// Parse cannot use goes to the startup log and to every resync line, so it
+// never quotes the password.
+func TestParse_leavesThePasswordOfAURLOutOfItsError(t *testing.T) {
+	cases := []struct{ url, password string }{
+		{"redis://:s3cr3t-pw@h", "s3cr3t-pw"},
+		{"redis://:s3cr3t-pw@h:port", "s3cr3t-pw"},
+		{"redis://user:s3cr3t-pw@h:99999", "s3cr3t-pw"},
+		{"redis://:s3cr3t-pw@[::1", "s3cr3t-pw"},
+		// An unescaped / ends the authority inside the password, whose first
+		// part then parses as the host and the port.
+		{"redis://:s3cr/3t-pw@h:6379", "s3cr"},
+		{"redis://:4242/3t-pw@h", "4242"},
+	}
+	for _, c := range cases {
+		t.Run(c.url, func(t *testing.T) {
+			_, err := Parse(map[string]any{"url": c.url})
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), c.password, "the error of Parse(url: %s)", c.url)
+		})
+	}
+}
+
 // The adapter installed with TLS returns its usual host and port and adds
 // "tls": true, and the database listens on TLS alone: the flag is refused
 // by name rather than dialed in plain text.

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,6 +21,10 @@ const DefaultResync = 10 * time.Second
 // on the first of those would find the old files, and the rename is the
 // last.
 const DefaultSettle = 100 * time.Millisecond
+
+// newFileWatcher creates the file watcher Run listens on; a test swaps it to
+// take the path where none can be created.
+var newFileWatcher = fsnotify.NewWatcher
 
 // Watcher reads the mounted directory when it changes and hands each reading
 // to the applier.
@@ -60,16 +63,25 @@ func (w *Watcher) Run(ctx context.Context) error {
 		settle = DefaultSettle
 	}
 
-	notify, err := fsnotify.NewWatcher()
+	// Without a file watcher, a node out of inotify instances or a process
+	// out of descriptors, the resync timer alone reads the directory, as it
+	// does for a directory that cannot be watched yet: a change then applies
+	// within one resync rather than within the settle delay.
+	var events <-chan fsnotify.Event
+	var watchErrors <-chan error
+	notify, err := newFileWatcher()
 	if err != nil {
-		return fmt.Errorf("create the file watcher: %w", err)
+		w.Log.Error(err, "cannot create the file watcher, reading the configuration on the resync timer alone",
+			"dir", w.Dir, "resync", resync.String())
+	} else {
+		defer func() { _ = notify.Close() }()
+		events, watchErrors = notify.Events, notify.Errors
 	}
-	defer func() { _ = notify.Close() }()
 
 	// The directory may not exist yet: outside a pod, or before the volume
 	// is mounted. The resync retries the watch; the reads in between report
 	// the absence and keep the replica NotReady.
-	watching := w.watch(notify)
+	watching := notify != nil && w.watch(notify)
 	w.read()
 
 	ticker := time.NewTicker(resync)
@@ -83,20 +95,20 @@ func (w *Watcher) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-notify.Events:
+		case <-events:
 			// One read per burst: the timer is armed by the first event and
 			// not re-armed by the rest.
 			if pending == nil {
 				timer.Reset(settle)
 				pending = timer.C
 			}
-		case err := <-notify.Errors:
+		case err := <-watchErrors:
 			w.Log.Error(err, "file watcher error; the resync timer covers it")
 		case <-pending:
 			pending = nil
 			w.read()
 		case <-ticker.C:
-			if !watching {
+			if !watching && notify != nil {
 				watching = w.watch(notify)
 			}
 			w.read()

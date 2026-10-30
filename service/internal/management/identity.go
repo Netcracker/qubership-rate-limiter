@@ -173,6 +173,13 @@ func oneLine(err error) string {
 func requireRole(role string, next fiber.Handler) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		subject := subjectOf(c)
+		if len(subject.Roles) == 0 {
+			// A role is held only through management.callers, so the list is
+			// what the caller's team has to ask for, never a role by name.
+			return errorf(CodeForbidden,
+				"subject "+logSafe(subject.Name)+" is not among the callers of this release (management.callers), "+
+					"so it holds no role for "+c.Method()+" "+logSafe(c.Path()))
+		}
 		if !subject.Can(role) {
 			return errorf(CodeForbidden,
 				"subject "+logSafe(subject.Name)+" lacks the "+role+" role for "+

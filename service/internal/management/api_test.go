@@ -959,9 +959,10 @@ func TestSimulation_acceptsATokenOfExactlyTheLimit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code, "body: %s", recorder.Body.String())
 }
 
-// A negative cost, an identity key without values, and a pure form without
-// its one source are refused, and the refusal names the field at fault.
-func TestSimulation_refusesAMissingIdentityOrANegativeCost(t *testing.T) {
+// A cost outside 1 to model.MaxCost, an identity key without values, and a
+// pure form without its one source are refused, and the refusal names the
+// field at fault.
+func TestSimulation_refusesAMissingIdentityOrACostOutOfRange(t *testing.T) {
 	h := newTestAPI(t)
 
 	cases := []struct {
@@ -973,6 +974,13 @@ func TestSimulation_refusesAMissingIdentityOrANegativeCost(t *testing.T) {
 			name: "a negative cost",
 			request: SimulationRequest{
 				Domain: testDomain, Path: "/api/orders", Method: http.MethodGet, Cost: -1,
+			},
+			field: "cost",
+		},
+		{
+			name: "a cost one past model.MaxCost",
+			request: SimulationRequest{
+				Domain: testDomain, Path: "/api/orders", Method: http.MethodGet, Cost: model.MaxCost + 1,
 			},
 			field: "cost",
 		},
@@ -1006,6 +1014,13 @@ func TestSimulation_refusesAMissingIdentityOrANegativeCost(t *testing.T) {
 			assert.Equal(t, []string{tc.field}, body.Meta.Fields, "POST simulations %+v", tc.request)
 		})
 	}
+
+	t.Run("a cost of model.MaxCost is simulated", func(t *testing.T) {
+		recorder := h.call(t, http.MethodPost, BasePath+"/simulations", listedCaller, SimulationRequest{
+			Domain: testDomain, Path: "/api/orders", Method: http.MethodGet, Cost: model.MaxCost,
+		})
+		assert.Equal(t, http.StatusOK, recorder.Code, "body: %s", recorder.Body.String())
+	})
 }
 
 // A field the body carries is a value, bounded as the specification bounds it:

@@ -620,7 +620,8 @@ management API's callers, and its ServiceAccount has no Role:
   "Management API port");
 - the `maxSurge: 1 / maxUnavailable: 0` strategy unless `DEPLOYMENT_STRATEGY_TYPE` says otherwise: the gateways must
   not lose all RLS endpoints at once;
-- `lifecycle.preStop.sleep: 7s` (the native handler, needs k8s >= 1.30): on deletion the pod leaves Endpoints
+- `lifecycle.preStop.sleep: 7s` (the native handler, enabled by default from Kubernetes 1.30; on Kubernetes 1.29,
+  enable `PodLifecycleSleepAction` on the API server and kubelets): on deletion the pod leaves Endpoints
   immediately, but xDS takes seconds to reach the gateways; the pause keeps the process serving through that window, so
   a rolling restart drops nothing and lets nothing slip through; the SIGTERM drain picks up the tail, and
   `terminationGracePeriodSeconds: 30` covers everything with margin;

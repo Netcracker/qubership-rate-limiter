@@ -524,10 +524,10 @@ func (s *Server) logStoreError(ctx context.Context, format string, args ...any) 
 }
 
 // strictestDecision picks the decision whose numbers the response carries:
-// among refusals, the longest wait; among admitted ones, the fewest further
-// requests at the cost each decision's window was judged at, compared exactly
-// as remaining times the other's cost, the rule the engine applies within one
-// decision.
+// among refusals, one whose cost never fits its window, then the longest wait;
+// among admitted ones, the fewest further requests at the cost each decision's
+// window was judged at, compared exactly as remaining times the other's cost.
+// Both are the rules the engine applies within one decision.
 // Decisions without matched counting rules carry no headers and lose every
 // comparison; when none carries headers, the response carries none either.
 func strictestDecision(decisions []engine.Decision, allowed bool) engine.Decision {
@@ -542,6 +542,12 @@ func strictestDecision(decisions []engine.Decision, allowed bool) engine.Decisio
 		}
 		if allowed {
 			if d.Headers.Remaining*best.Headers.Cost < best.Headers.Remaining*d.Headers.Cost {
+				best = d
+			}
+		} else if d.CostExceedsCapacity != best.CostExceedsCapacity {
+			// A retry hint would send the caller back after a wait that cures
+			// only the other refusal, so a cost that never fits wins.
+			if d.CostExceedsCapacity {
 				best = d
 			}
 		} else if d.Headers.RetryAfter > best.Headers.RetryAfter {
