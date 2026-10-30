@@ -14,7 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
 )
 
 // UnknownDomain replaces the domain label of a check no policy claims. The

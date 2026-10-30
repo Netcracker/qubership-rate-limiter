@@ -17,11 +17,11 @@ import (
 	"github.com/go-redis/redis_rate/v10"
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	redisstore "github.com/netcracker/qubership-ratelimit/engine/store/redis"
-	"github.com/netcracker/qubership-ratelimit/engine/store/storetest"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	redisstore "github.com/netcracker/qubership-rate-limiter/engine/store/redis"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/storetest"
 )
 
 // tolerance absorbs the clock difference between this process and the store
@@ -284,8 +284,9 @@ func TestAHighFrequencyBucketStoresItsStateAsExactIntegers(t *testing.T) {
 	fixed := store.Bucket{Key: uniq + ":f", Algorithm: algo.FixedWindowID, Cost: 9000,
 		Window: algo.Window{Requests: 100_000, Period: time.Second}}
 
-	// The fixed-window state expires at the second boundary, and the GET
-	// below has to find it: the decision starts clear of the boundary.
+	// The fixed-window state can expire as soon as the second boundary
+	// passes, and the GET below has to find it: the decision starts clear of
+	// the boundary.
 	waitOutBoundary(time.Second, 200*time.Millisecond)
 
 	// Charged in-script at one instant: the verdict is exact, no clock races.
@@ -338,8 +339,9 @@ func assertExactTimestampState(t *testing.T, key, raw string, nowUS int64) {
 }
 
 // State vanishes on its own once its window drains: the store has no cleanup
-// process to fall back on. Both windows last one second, so the poll allows
-// 200 ms more than a window for the keys to go.
+// process to fall back on. A fixed-window key outlives its window by less than
+// a tenth of the period. Both windows last one second, so the keys live at
+// most 1.1 s, and the poll allows 1.2 s for them to go.
 func TestStateIsGoneOnceItsWindowDrains(t *testing.T) {
 	c := client(t)
 	r := redisstore.New(c)
@@ -386,11 +388,106 @@ func liveKeys(t *testing.T, c goredis.UniversalClient, buckets []store.Bucket) [
 	return live
 }
 
+// The keys of one fixed-window rate expire at different moments: each outlives
+// the window boundary by an offset below a tenth of the period, taken from the
+// key, while the verdict's reset still names the boundary. Twenty keys written
+// in one decision of an hourly rate therefore expire over several minutes, not
+// in the same second.
+func TestFixedWindowKeysExpireAtOffsetsSpreadPastTheBoundary(t *testing.T) {
+	c := client(t)
+	r := redisstore.New(c)
+
+	const period = time.Hour
+	waitOutBoundary(period, tolerance)
+	uniq := fmt.Sprintf("linger:{%d}", time.Now().UnixNano())
+	buckets := make([]store.Bucket, 20)
+	for i := range buckets {
+		buckets[i] = store.Bucket{Key: fmt.Sprintf("%s:%d", uniq, i), Algorithm: algo.FixedWindowID, Cost: 1,
+			Window: algo.Window{Requests: 10, Period: period}}
+	}
+
+	now, err := c.Time(t.Context()).Result()
+	if err != nil {
+		t.Fatalf("TIME: %v", err)
+	}
+	untilBoundary := now.Truncate(period).Add(period).Sub(now)
+	v, err := r.Decide(t.Context(), buckets)
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+
+	lowest, highest := untilBoundary+period, time.Duration(0)
+	for i, b := range buckets {
+		if v[i].ResetAfter < untilBoundary-tolerance || v[i].ResetAfter > untilBoundary {
+			t.Errorf("Decide verdict of %s: ResetAfter = %v, want within [%v, %v]: the boundary, without the offset",
+				b.Key, v[i].ResetAfter, untilBoundary-tolerance, untilBoundary)
+		}
+		ttl, err := c.PTTL(t.Context(), b.Key).Result()
+		if err != nil {
+			t.Fatalf("PTTL(%s): %v", b.Key, err)
+		}
+		// PX rounds the lifetime up to the millisecond.
+		if ttl < untilBoundary-tolerance || ttl > untilBoundary+period/10+time.Millisecond {
+			t.Errorf("PTTL(%s) = %v, want within [%v, %v]: the boundary, %v away, plus less than a tenth of %v",
+				b.Key, ttl, untilBoundary-tolerance, untilBoundary+period/10+time.Millisecond, untilBoundary, period)
+		}
+		lowest, highest = min(lowest, ttl), max(highest, ttl)
+	}
+	if spread := highest - lowest; spread < time.Minute {
+		t.Errorf("PTTL of %d keys spans %v (%v to %v), want at least a minute of the %v the offsets cover",
+			len(buckets), spread, lowest, highest, period/10)
+	}
+}
+
+// A fixed-window state left from an earlier window counts nothing, so a key
+// that outlives its window refuses no request of the next one. The control is
+// the same full count stamped with the current window's start, which refuses.
+func TestAFixedWindowStateFromAnEarlierWindowCountsNothing(t *testing.T) {
+	c := client(t)
+	r := redisstore.New(c)
+
+	const period = time.Hour
+	waitOutBoundary(period, tolerance)
+	now, err := c.Time(t.Context()).Result()
+	if err != nil {
+		t.Fatalf("TIME: %v", err)
+	}
+	start := now.Truncate(period)
+
+	uniq := fmt.Sprintf("stale:{%d}", time.Now().UnixNano())
+	window := algo.Window{Requests: 5, Period: period}
+	earlier := store.Bucket{Key: uniq + ":earlier", Algorithm: algo.FixedWindowID, Cost: 1, Window: window}
+	current := store.Bucket{Key: uniq + ":current", Algorithm: algo.FixedWindowID, Cost: 1, Window: window}
+	// The script stores a fixed window as "<start in microseconds>:<count>".
+	for key, state := range map[string]string{
+		earlier.Key: fmt.Sprintf("%d:5", start.Add(-period).UnixMicro()),
+		current.Key: fmt.Sprintf("%d:5", start.UnixMicro()),
+	} {
+		if err := c.Set(t.Context(), key, state, period).Err(); err != nil {
+			t.Fatalf("SET %s %s: %v", key, state, err)
+		}
+	}
+
+	v, err := r.Peek(t.Context(), []store.Bucket{earlier, current})
+	if err != nil {
+		t.Fatalf("Peek: %v", err)
+	}
+	if !v[0].Allowed || v[0].Remaining != 5 {
+		t.Errorf("Peek verdict of %s, full in the previous window = %+v, want allowed with 5 remaining",
+			earlier.Key, v[0])
+	}
+	if v[1].Allowed || v[1].Remaining != 0 {
+		t.Errorf("Peek verdict of %s, full in the current window = %+v, want refused with 0 remaining",
+			current.Key, v[1])
+	}
+}
+
 // waitOutBoundary keeps a test clear of the next boundary of a fixed window
-// of the given period, best effort on the local clock: a window's state
-// expires at its boundary, so a decision taken within a round trip of it
-// leaves nothing to read back, and a run that straddles one counts in two
-// windows. margin is how close to the boundary the test may start.
+// of the given period, best effort on the local clock: a window's state can
+// expire as soon as its boundary passes, so a decision taken within a round
+// trip of it may leave nothing to read back, and a run that straddles one
+// counts in two windows. margin is how close to the boundary the test may
+// start.
 func waitOutBoundary(period, margin time.Duration) {
 	now := time.Now()
 	boundary := now.Truncate(period).Add(period)

@@ -1,4 +1,4 @@
-# ratelimit documentation
+# rate-limiter documentation
 
 Reference documentation for the rate limit component: what it is made of, what its resource means, what its API
 answers, and what to do when it misbehaves. The repository [README](../README.md) is the short introduction; these

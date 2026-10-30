@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/processed-by-operator: victoriametrics-operator
 spec:
   groups:
-    - name: ratelimit-service
+    - name: rate-limiter
       rules:
         - alert: RatelimitUnknownDomain
           expr: sum by (namespace) (increase(ratelimit_unknown_domain_checks_total{ {{- $sel -}} }[5m])) > 0
@@ -115,7 +115,7 @@ spec:
               Service replica {{ "{{" }} $labels.pod {{ "}}" }} in {{ "{{" }} $labels.namespace {{ "}}" }} finds
               no manifest in its mounted configuration. It keeps enforcing what it last applied, or stays
               NotReady if it never applied anything, and no policy change reaches it. The ConfigMap
-              ratelimit-config is written by the operator: check that the operator release is installed
+              rate-limiter-config is written by the operator: check that the operator release is installed
               and holds the Lease, and that its reconciles succeed (RatelimitOperatorReconcileFailing, or
               a Reconciler error in the operator log).
 {{- end }}

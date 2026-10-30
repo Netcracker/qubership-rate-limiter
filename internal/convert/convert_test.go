@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	enginecompile "github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	enginecompile "github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 const testDomain = "gateway.public"

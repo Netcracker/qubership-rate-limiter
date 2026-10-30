@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
-	redisstore "github.com/netcracker/qubership-ratelimit/engine/store/redis"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
+	redisstore "github.com/netcracker/qubership-rate-limiter/engine/store/redis"
 )
 
 // benchBuckets builds n buckets in one slot, alternating the two algorithms,

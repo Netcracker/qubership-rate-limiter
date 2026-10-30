@@ -16,7 +16,7 @@ tests:
   - interval: 1m
     name: unknown-domain checks that keep arriving
     input_series:
-      - series: 'ratelimit_unknown_domain_checks_total{namespace="biz", pod="ratelimit-service-0"}'
+      - series: 'ratelimit_unknown_domain_checks_total{namespace="biz", pod="rate-limiter-0"}'
         values: "0+10x15"
     alert_rule_test:
       - eval_time: 4m
@@ -42,7 +42,7 @@ tests:
   - interval: 1m
     name: one stray unknown-domain check
     input_series:
-      - series: 'ratelimit_unknown_domain_checks_total{namespace="biz", pod="ratelimit-service-0"}'
+      - series: 'ratelimit_unknown_domain_checks_total{namespace="biz", pod="rate-limiter-0"}'
         values: "0 0 1 1 1 1 1 1 1 1 1 1 1 1 1"
     alert_rule_test:
       - eval_time: 7m
@@ -59,7 +59,7 @@ tests:
   - interval: 1m
     name: store errors that keep arriving
     input_series:
-      - series: 'ratelimit_store_errors_total{namespace="biz", pod="ratelimit-service-0", reason="timeout"}'
+      - series: 'ratelimit_store_errors_total{namespace="biz", pod="rate-limiter-0", reason="timeout"}'
         values: "0+3x15"
     alert_rule_test:
       - eval_time: 12m
@@ -83,7 +83,7 @@ tests:
   - interval: 1m
     name: one retried store error
     input_series:
-      - series: 'ratelimit_store_errors_total{namespace="biz", pod="ratelimit-service-0", reason="timeout"}'
+      - series: 'ratelimit_store_errors_total{namespace="biz", pod="rate-limiter-0", reason="timeout"}'
         values: "0 0 0 1 1 1 1 1 1 1 1 1 1 1 1"
     alert_rule_test:
       - eval_time: 6m
@@ -102,11 +102,11 @@ tests:
   - interval: 1m
     name: a dead claim path next to an idle domain
     input_series:
-      - series: 'ratelimit_extractions_total{namespace="biz", pod="ratelimit-service-0", domain="gateway.public", key="tenant"}'
+      - series: 'ratelimit_extractions_total{namespace="biz", pod="rate-limiter-0", domain="gateway.public", key="tenant"}'
         values: "0x40"
-      - series: 'ratelimit_tokens_seen_total{namespace="biz", pod="ratelimit-service-0", domain="gateway.public"}'
+      - series: 'ratelimit_tokens_seen_total{namespace="biz", pod="rate-limiter-0", domain="gateway.public"}'
         values: "0+20x40"
-      - series: 'ratelimit_extractions_total{namespace="biz", pod="ratelimit-service-0", domain="gateway.private", key="sub"}'
+      - series: 'ratelimit_extractions_total{namespace="biz", pod="rate-limiter-0", domain="gateway.private", key="sub"}'
         values: "0x40"
     alert_rule_test:
       - eval_time: 40m
@@ -130,9 +130,9 @@ tests:
   - interval: 1m
     name: the domain budget warning level
     input_series:
-      - series: 'ratelimit_domain_decision_buckets{namespace="biz", pod="ratelimit-service-0", domain="gateway.public"}'
+      - series: 'ratelimit_domain_decision_buckets{namespace="biz", pod="rate-limiter-0", domain="gateway.public"}'
         values: "104x5"
-      - series: 'ratelimit_domain_decision_buckets{namespace="biz", pod="ratelimit-service-0", domain="gateway.private"}'
+      - series: 'ratelimit_domain_decision_buckets{namespace="biz", pod="rate-limiter-0", domain="gateway.private"}'
         values: "103x5"
     alert_rule_test:
       - eval_time: 5m
@@ -154,9 +154,9 @@ tests:
   - interval: 1m
     name: a vanished configuration beside one that comes back
     input_series:
-      - series: 'ratelimit_config_absent{namespace="biz", pod="ratelimit-service-0"}'
+      - series: 'ratelimit_config_absent{namespace="biz", pod="rate-limiter-0"}'
         values: "1x10"
-      - series: 'ratelimit_config_absent{namespace="biz", pod="ratelimit-service-1"}'
+      - series: 'ratelimit_config_absent{namespace="biz", pod="rate-limiter-1"}'
         values: "1x2 0x8"
     alert_rule_test:
       - eval_time: 4m
@@ -167,13 +167,13 @@ tests:
         exp_alerts:
           - exp_labels:
               namespace: biz
-              pod: ratelimit-service-0
+              pod: rate-limiter-0
               severity: warning
             exp_annotations:
               summary: A replica's mounted configuration is gone; nothing will change what it enforces
               description: >-
-                Service replica ratelimit-service-0 in biz finds no manifest in its mounted configuration. It
+                Service replica rate-limiter-0 in biz finds no manifest in its mounted configuration. It
                 keeps enforcing what it last applied, or stays NotReady if it never applied anything, and no
-                policy change reaches it. The ConfigMap ratelimit-config is written by the operator: check
+                policy change reaches it. The ConfigMap rate-limiter-config is written by the operator: check
                 that the operator release is installed and holds the Lease, and that its reconciles succeed
                 (RatelimitOperatorReconcileFailing, or a Reconciler error in the operator log).

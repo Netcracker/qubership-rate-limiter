@@ -18,7 +18,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // A replica the operator cannot reach is the case Stalled exists for: a pod

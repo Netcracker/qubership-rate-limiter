@@ -160,21 +160,21 @@ jobs:
 
       - name: Install the rate limit charts
         run: |
-          helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds \
+          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds \
             --namespace "${LOAD_NAMESPACE}" --wait --timeout 2m
-          helm upgrade --install ratelimit-operator helm-templates/ratelimit-operator \
+          helm upgrade --install rate-limiter-operator helm-templates/rate-limiter-operator \
             --namespace "${LOAD_NAMESPACE}" \
             --set NAMESPACE="${LOAD_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/ratelimit-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
             --set IMAGE_REPOSITORY=ratelimit-operator \
             --set TAG=kind \
             --wait --timeout 5m
-          helm upgrade --install ratelimit-service helm-templates/ratelimit-service \
+          helm upgrade --install rate-limiter helm-templates/rate-limiter \
             --namespace "${LOAD_NAMESPACE}" \
             --set NAMESPACE="${LOAD_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/ratelimit-service/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
             --set IMAGE_REPOSITORY=ratelimit-service \
             --set TAG=kind \
             --set redis.dbaas.enabled=false
@@ -188,12 +188,12 @@ jobs:
             '{host: $host, port: 6379, url: ("redis://" + $host + ":6379"), password: $password,
               role: "admin", service: "e2e-redis"}')"
           metadata="$(jq -cn --arg namespace "${LOAD_NAMESPACE}" \
-            '{classifier: {microserviceName: "ratelimit-service", namespace: $namespace, scope: "service"},
+            '{classifier: {microserviceName: "rate-limiter", namespace: $namespace, scope: "service"},
               type: "redis", name: "e2e-redis", namespace: $namespace}')"
-          kubectl create secret generic ratelimit-service-redis -n "${LOAD_NAMESPACE}" \
+          kubectl create secret generic rate-limiter-redis -n "${LOAD_NAMESPACE}" \
             --from-file=connectionProperties.json=<(printf '%s' "${connection}") \
             --from-file=metadata.json=<(printf '%s' "${metadata}")
-          kubectl rollout status deployment/ratelimit-service -n "${LOAD_NAMESPACE}" --timeout=5m
+          kubectl rollout status deployment/rate-limiter -n "${LOAD_NAMESPACE}" --timeout=5m
 
       - name: Deploy Keycloak
         run: |
@@ -311,6 +311,6 @@ jobs:
             -n "${LOAD_NAMESPACE}" -o wide || true
           kubectl describe pods -n "${LOAD_NAMESPACE}" || true
           kubectl get ratelimitpolicies -n "${LOAD_NAMESPACE}" -o yaml || true
-          kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=ratelimit-operator --tail=200 || true
-          kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=ratelimit-service --tail=200 || true
+          kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter-operator --tail=200 || true
+          kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter --tail=200 || true
           kubectl logs -n "${KEYCLOAK_NAMESPACE}" deployment/keycloak --tail=100 || true

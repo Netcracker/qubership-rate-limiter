@@ -18,8 +18,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/netcracker/qubership-ratelimit/api/contract"
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/api/contract"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // The composite model, end to end. A composite is one baseline namespace plus

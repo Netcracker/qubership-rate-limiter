@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/api/applied"
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/api/applied"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
 )
 
 // Domain is one domain in both of the forms the process needs it: the engine

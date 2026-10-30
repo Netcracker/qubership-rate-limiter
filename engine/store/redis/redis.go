@@ -26,8 +26,8 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 //go:embed script.lua
@@ -83,8 +83,9 @@ func (s *Store) run(ctx context.Context, mode string, buckets []store.Bucket) ([
 			argv = append(argv, b.Cost, int64(algo.GCRAID),
 				algo.EmissionMicros(b.Window), algo.TauMicros(b.Window), b.Window.Burst, boolArg(b.Shadow))
 		case algo.FixedWindowID:
+			period := algo.PeriodMicros(b.Window)
 			argv = append(argv, b.Cost, int64(algo.FixedWindowID),
-				algo.PeriodMicros(b.Window), b.Window.Requests, int64(0), boolArg(b.Shadow))
+				period, b.Window.Requests, lingerMicros(b.Key, period), boolArg(b.Shadow))
 		default:
 			return nil, fmt.Errorf("redis: unknown algorithm id %d", b.Algorithm)
 		}
@@ -286,6 +287,22 @@ func microsDuration(us int64) time.Duration {
 		return -1
 	}
 	return time.Duration(us) * time.Microsecond
+}
+
+// lingerMicros returns how long the key of a fixed window outlives the window,
+// in microseconds: less than a tenth of periodUS, the same for one key in every
+// window, and spread across keys by a hash of the key. The windows of a rate
+// share their boundaries, and Redis deletes expired keys on the thread that
+// runs commands, so thousands of keys expiring in one second delay every
+// command queued behind them.
+func lingerMicros(key string, periodUS int64) int64 {
+	// FNV-1a, 64-bit.
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(key); i++ {
+		h ^= uint64(key[i])
+		h *= 1099511628211
+	}
+	return int64(h % uint64(max(periodUS/10, 1)))
 }
 
 // boolArg encodes a flag the way the script reads it.

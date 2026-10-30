@@ -3,7 +3,7 @@
 
 image:
   # The image built from tests/load/Dockerfile.
-  repository: ghcr.io/netcracker/qubership-ratelimit-loadtest
+  repository: ghcr.io/netcracker/qubership-rate-limiter-loadtest
   # Required.
   tag: ""
   pullPolicy: IfNotPresent
@@ -14,7 +14,7 @@ gateway:
   # Its namespace; empty is the release namespace.
   namespace: ""
   # The rate limit domain this gateway sends, the gateways.<role>.domain of
-  # the ratelimit-service chart. The policy is named after it.
+  # the rate-limiter chart. The policy is named after it.
   domain: gateway.public
   # The host and port the generators connect to; an empty host is the
   # gateway's Service, <name>-istio.<namespace>.svc.cluster.local.
@@ -52,7 +52,7 @@ backend:
   # Answers 200 to every request of the test, so response times measure the
   # gateway and the rate limit rather than an application. It must not be the
   # ceiling of the run: the baseline scenario shows where its ceiling is.
-  image: nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
+  image: nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
   replicas: 2
   # nginx workers of one replica; keep it at the CPU limit. More workers
   # than CPUs leave every worker throttled, and the readiness probe then
@@ -143,7 +143,7 @@ load:
   checkLimits: true
   # Expect the rate limit service to decide every request. false is for the
   # baseline run with the rate limit off (runtime.enabledPercent: 0 in the
-  # ratelimit-service chart): the generator then waits for the route alone
+  # rate-limiter chart): the generator then waits for the route alone
   # and checks neither decisions nor limits.
   requireDecisions: true
   # More flags of loadkit verify, such as
@@ -186,11 +186,11 @@ metrics:
   # The port of Envoy's own statistics on the gateway pods.
   gatewayPort: 15090
   # The gateway's Envoy cluster of the rate limit service; empty is
-  # outbound|9000||ratelimit.<release namespace>.svc.cluster.local, the
-  # Service of the ratelimit-service chart. tests/load/gateway-stats.yaml
+  # outbound|9000||rate-limiter.<release namespace>.svc.cluster.local, the
+  # Service of the rate-limiter chart. tests/load/gateway-stats.yaml
   # keeps the statistics of that cluster; another one needs its own patch.
   rlsCluster: ""
   # The labels of the rate limit service pods and the port of their metrics.
   servicePodLabels:
-    name: ratelimit-service
+    name: rate-limiter
   servicePort: 8080

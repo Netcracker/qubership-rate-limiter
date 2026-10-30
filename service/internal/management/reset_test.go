@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // reset runs one addressed DELETE, with an Idempotency-Key unless it is empty.

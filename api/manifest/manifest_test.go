@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/netcracker/qubership-ratelimit/api/v1"
+	v1 "github.com/netcracker/qubership-rate-limiter/api/v1"
 )
 
 // update rewrites the goldens of the current format version: the manifest

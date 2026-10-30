@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/netcracker/qubership-ratelimit/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
 )
 
 // keyName constrains every descriptor key name — mapping keys, template

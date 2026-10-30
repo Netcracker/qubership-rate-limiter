@@ -39,7 +39,7 @@ func firstConnection() Connection {
 
 // ownDatabase is the classifier of the service's own database in the
 // namespace core.
-var ownDatabase = map[string]any{"microserviceName": "ratelimit-service", "scope": "service", "namespace": "core"}
+var ownDatabase = map[string]any{"microserviceName": "rate-limiter", "scope": "service", "namespace": "core"}
 
 // resolver stands in for the DBaaS client: it serves one redis database, the
 // one of ownDatabase, and refuses a lookup of any other.
@@ -80,7 +80,7 @@ func (blockingResolver) GetConnection(ctx context.Context, _ string, _ map[strin
 func openOwnDatabase(t *testing.T, properties map[string]any) (*Source, *resolver) {
 	t.Helper()
 	r := &resolver{properties: properties}
-	source, err := Open(context.Background(), r, Classifier("ratelimit-service", "core"), logr.Discard())
+	source, err := Open(context.Background(), r, Classifier("rate-limiter", "core"), logr.Discard())
 	require.NoError(t, err)
 	return source, r
 }
@@ -261,10 +261,10 @@ func TestOpen_failsWithTheClassifierItLookedFor(t *testing.T) {
 	refused := errors.New("403 from dbaas-agent")
 	r := &resolver{err: refused}
 
-	_, err := Open(context.Background(), r, Classifier("ratelimit-service", "core"), logr.Discard())
+	_, err := Open(context.Background(), r, Classifier("rate-limiter", "core"), logr.Discard())
 
 	assert.ErrorIs(t, err, refused)
-	assert.ErrorContains(t, err, "ratelimit-service")
+	assert.ErrorContains(t, err, "rate-limiter")
 }
 
 // A rotated password is taken up in place: the credentials provider returns
@@ -352,7 +352,7 @@ func TestSource_endsAResolutionThatDoesNotAnswerAtTheTimeout(t *testing.T) {
 	_, err := source.resolve(context.Background())
 
 	assert.Less(t, time.Since(start), time.Second, "the time the resolution took")
-	assert.ErrorContains(t, err, "ratelimit-service")
+	assert.ErrorContains(t, err, "rate-limiter")
 	assert.ErrorContains(t, err, "no mounted Secret matched it")
 }
 
@@ -380,7 +380,7 @@ func TestSource_resolvesThroughThePlatformPool(t *testing.T) {
 	mount := &provider{properties: adapterProperties("first")}
 	pool := dbaasbase.NewDbaaSPool(model.PoolOptions{LogicalDbProviders: []model.LogicalDbProvider{mount}})
 
-	source, err := Open(context.Background(), pool, Classifier("ratelimit-service", "core"), logr.Discard())
+	source, err := Open(context.Background(), pool, Classifier("rate-limiter", "core"), logr.Discard())
 
 	require.NoError(t, err)
 	assert.Equal(t, firstConnection(), source.Connection())

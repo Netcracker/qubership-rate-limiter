@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
 )
 
 // sampleCount reads how many observations the series of labels holds in a

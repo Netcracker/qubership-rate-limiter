@@ -28,9 +28,9 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	ratelimitv1 "github.com/netcracker/qubership-ratelimit/api/v1"
-	"github.com/netcracker/qubership-ratelimit/internal/process"
-	"github.com/netcracker/qubership-ratelimit/operator/internal/app"
+	ratelimitv1 "github.com/netcracker/qubership-rate-limiter/api/v1"
+	"github.com/netcracker/qubership-rate-limiter/internal/process"
+	"github.com/netcracker/qubership-rate-limiter/operator/internal/app"
 )
 
 // loggerName prefixes every log line this process writes.

@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
 )
 
 // Bucket is one counter taking part in a decision.
@@ -80,7 +80,8 @@ type Verdict struct {
 // Implementations take the current time from the store itself, never from the
 // caller: engine replicas disagree about the clock, and a bucket shared between
 // them must not. Counter state expires on its own — implementations bound its
-// lifetime by the window, and no external cleanup process exists. The storetest
+// lifetime by the window, plus up to a tenth of the period for a fixed window,
+// and no external cleanup process exists. The storetest
 // suite cannot verify expiry without waiting out a window, so this line is the
 // contract.
 type Store interface {

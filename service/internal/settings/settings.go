@@ -22,11 +22,11 @@ import (
 	"github.com/netcracker/qubership-core-lib-go/v3/security/token"
 	goredis "github.com/redis/go-redis/v9"
 
-	enginestore "github.com/netcracker/qubership-ratelimit/engine/store"
-	redisstore "github.com/netcracker/qubership-ratelimit/engine/store/redis"
-	"github.com/netcracker/qubership-ratelimit/service/internal/records"
-	"github.com/netcracker/qubership-ratelimit/service/internal/redisconn"
-	"github.com/netcracker/qubership-ratelimit/service/internal/rls"
+	enginestore "github.com/netcracker/qubership-rate-limiter/engine/store"
+	redisstore "github.com/netcracker/qubership-rate-limiter/engine/store/redis"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/redisconn"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
 )
 
 // Warn is what a function here says about a value it replaced. The platform

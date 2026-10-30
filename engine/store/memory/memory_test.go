@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	"github.com/netcracker/qubership-ratelimit/engine/store/storetest"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/storetest"
 )
 
 // The in-memory store is the first implementation to run the conformance

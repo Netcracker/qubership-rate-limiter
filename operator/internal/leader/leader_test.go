@@ -13,13 +13,13 @@ import (
 // Lease is the one the manager elects on (LeaseName), in the namespace the
 // caller passed. The config dials nothing: the lock is built lazily.
 func TestLock_signsTheLeaseInTheGivenNamespaceWithThePodName(t *testing.T) {
-	t.Setenv("POD_NAME", "ratelimit-operator-abc12")
+	t.Setenv("POD_NAME", "rate-limiter-operator-abc12")
 
 	lock, err := Lock(&rest.Config{Host: "https://127.0.0.1:1"}, "biz")
 
 	require.NoError(t, err)
-	require.NotNil(t, lock, "Lock(namespace=biz) with POD_NAME=ratelimit-operator-abc12")
-	assert.Equal(t, "ratelimit-operator-abc12", lock.Identity(), "Identity()")
+	require.NotNil(t, lock, "Lock(namespace=biz) with POD_NAME=rate-limiter-operator-abc12")
+	assert.Equal(t, "rate-limiter-operator-abc12", lock.Identity(), "Identity()")
 	assert.Equal(t, "biz/"+LeaseName, lock.Describe(), "Describe()")
 }
 

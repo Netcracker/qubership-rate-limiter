@@ -5,9 +5,9 @@ SERVICE_IMG ?= ratelimit-service:latest
 
 # The chart that ships the CRD; the lint runs it once, since it has no
 # profiles and no mode.
-CRD_CHART ?= helm-templates/ratelimit-crds
+CRD_CHART ?= helm-templates/rate-limiter-crds
 # The namespace charts, linted with every profile in every mode.
-CHART_DIRS ?= helm-templates/ratelimit-operator helm-templates/ratelimit-service
+CHART_DIRS ?= helm-templates/rate-limiter-operator helm-templates/rate-limiter
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -200,12 +200,12 @@ build: build-operator build-service ## Build both binaries of the delivery.
 
 .PHONY: build-operator
 build-operator: manifests generate fmt vet ## Build the operator binary.
-	go build -o bin/ratelimit-operator ./operator/cmd/
+	go build -o bin/rate-limiter-operator ./operator/cmd/
 
 .PHONY: build-service
 build-service: generate fmt vet ## Build the service binary and check it carries no Kubernetes client.
-	go build -o bin/ratelimit-service ./service/cmd/
-	@go version -m bin/ratelimit-service | grep -E '^\s+dep\s+(k8s.io/client-go|sigs.k8s.io/controller-runtime)\s' \
+	go build -o bin/rate-limiter ./service/cmd/
+	@go version -m bin/rate-limiter | grep -E '^\s+dep\s+(k8s.io/client-go|sigs.k8s.io/controller-runtime)\s' \
 	  && { echo "the service binary depends on a Kubernetes client"; exit 1; } || echo "service binary: no Kubernetes client"
 
 # Running from the host. Both processes read CLOUD_NAMESPACE, which has no
@@ -216,7 +216,7 @@ build-service: generate fmt vet ## Build the service binary and check it carries
 # its application.yaml through the platform's configloader, from the
 # directory in PROPERTY_FILE_PATH: the loader appends the file name to the
 # value, so the trailing slash is part of it.
-OPERATOR_DEPLOYMENT ?= ratelimit-operator
+OPERATOR_DEPLOYMENT ?= rate-limiter-operator
 # The directory the service reads as its mounted ConfigMap. service-config
 # fills it from the live object of CLOUD_NAMESPACE, the way the kubelet
 # would; any directory holding a manifest and its payloads works.
@@ -254,12 +254,12 @@ run-service: generate fmt vet local-redis ## Run the service from your host agai
 	PROPERTY_FILE_PATH=service/ go run ./service/cmd/ --config-dir=$(SERVICE_CONFIG_DIR) --redis-addr=$(LOCAL_REDIS_ADDR)
 
 .PHONY: service-config
-service-config: ## Export the ratelimit-config ConfigMap of CLOUD_NAMESPACE into SERVICE_CONFIG_DIR.
+service-config: ## Export the rate-limiter-config ConfigMap of CLOUD_NAMESPACE into SERVICE_CONFIG_DIR.
 	@test -n "$(CLOUD_NAMESPACE)" || { echo "CLOUD_NAMESPACE must be set"; exit 1; }
 	@mkdir -p "$(SERVICE_CONFIG_DIR)" && rm -f "$(SERVICE_CONFIG_DIR)"/*.json.gz "$(SERVICE_CONFIG_DIR)"/manifest
-	@"$(KUBECTL)" get configmap ratelimit-config -n "$(CLOUD_NAMESPACE)" -o jsonpath='{.data.manifest}' \
+	@"$(KUBECTL)" get configmap rate-limiter-config -n "$(CLOUD_NAMESPACE)" -o jsonpath='{.data.manifest}' \
 	  > "$(SERVICE_CONFIG_DIR)/manifest"
-	@"$(KUBECTL)" get configmap ratelimit-config -n "$(CLOUD_NAMESPACE)" \
+	@"$(KUBECTL)" get configmap rate-limiter-config -n "$(CLOUD_NAMESPACE)" \
 	  -o go-template='{{range $$k, $$v := .binaryData}}{{$$k}} {{$$v}}{{"\n"}}{{end}}' \
 	  | while read -r key value; do printf '%s' "$$value" | base64 -d > "$(SERVICE_CONFIG_DIR)/$$key"; done
 	@echo "exported $$(ls "$(SERVICE_CONFIG_DIR)" | wc -l | tr -d ' ') file(s) into $(SERVICE_CONFIG_DIR)"

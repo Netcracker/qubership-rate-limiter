@@ -14,7 +14,7 @@ no list needs `maxItems`.
 | **Policy** | buckets of one decision, the decision of one descriptor (worst case) | ≤ 128 | depth of one atomic Lua call, `MaxDomainDecisionBuckets` | the compiler, `DomainBudgetExceeded`; runtime backstop |
 | | object size | ~256 KiB under client-side `apply`, 1.5 MiB in etcd | the `last-applied-configuration` annotation, `--max-request-bytes` | the API server |
 | | blocks, rules, groups, group values, mapping keys | unbounded | object size only; the number of blocks is an observed metric | — |
-| **Namespace** | the compressed configuration of all domains, the ConfigMap `ratelimit-config` | ≤ 1 MiB compressed total | the Kubernetes object size limit of a ConfigMap | the operator before the write, `ConfigMapTooLarge`; last-good stays enforced |
+| **Namespace** | the compressed configuration of all domains, the ConfigMap `rate-limiter-config` | ≤ 1 MiB compressed total | the Kubernetes object size limit of a ConfigMap | the operator before the write, `ConfigMapTooLarge`; last-good stays enforced |
 | **Call** | descriptors of one gRPC check | ≤ 16 | every descriptor is its own decision and its own store trip; a gateway sends one | the adapter, `too_many_descriptors` → `OVER_LIMIT` |
 | | cost of one descriptor (`hits_addend`) | ≤ 1 000 000 000, not negative | Envoy's own ceiling; the engine gives no budget back | the adapter, `invalid_cost` → `OVER_LIMIT` |
 | | cost of the whole check, summed over its descriptors | ≤ 1 000 000 000 | spreading the largest cost over descriptors would multiply it | the adapter, `invalid_cost` → `OVER_LIMIT` |
@@ -64,7 +64,7 @@ walls are reached only by a domain that collects many APIs behind one gateway.
 
 ### The compressed configuration of a namespace
 
-The operator writes the validated spec of every domain of the namespace into one ConfigMap, `ratelimit-config`, as a
+The operator writes the validated spec of every domain of the namespace into one ConfigMap, `rate-limiter-config`, as a
 gzip-compressed `<domain>.json.gz` key per domain next to a plain `manifest` key. A ConfigMap holds at most 1 MiB
 (1048576 bytes) across its values, so the compressed total of all domains of the namespace, with the manifest, is
 bounded by 1 MiB. The wall is per namespace, not per policy, and compression decides how far away it is. Rules compress
@@ -145,11 +145,12 @@ the rule; last-good holds the traffic.
 ## Store and key capacity
 
 - **Redis** does not bound the keys: their number is determined by the axes (`counters: [sub]` gives one counter
-  per client), and the TTL by the window: a fixed-window key expires at the window boundary, at most `periodSeconds`
-  away, and a GCRA key when its bucket drains, at most `burst × periodSeconds / requests` away, so the period alone
-  bounds it only at the default `burst = requests`; the depth cap of 10¹⁵ µs holds for any `burst`. All keys of a
-  domain share one slot (hash tag `{ns/domain}`), so the domain's throughput is bounded by one shard, and the service
-  connects to one standalone Redis, the one DBaaS provisions, so every domain of an installation shares that server.
+  per client), and the TTL by the window: a fixed-window key expires up to a tenth of `periodSeconds` after the window
+  boundary, at most 1.1 × `periodSeconds` away, and a GCRA key when its bucket drains, at most
+  `burst × periodSeconds / requests` away, so the period alone bounds it only at the default `burst = requests`; the
+  depth cap of 10¹⁵ µs holds for any `burst`. All keys of a domain share one slot (hash tag `{ns/domain}`), so the
+  domain's throughput is bounded by one shard, and the service connects to one standalone Redis, the one DBaaS
+  provisions, so every domain of an installation shares that server.
   Two reference points, measured and not guaranteed: the loopback benchmark of the [engine](engine.md) (a laptop-class
   core, Redis 8 on one core, the store script's time alone) puts one domain at about 80000 decisions/s with one bucket
   and 38000/s with four; a load case run on 2026-09-29 (1000 clients, 5 API groups, minute, hour, and day windows,

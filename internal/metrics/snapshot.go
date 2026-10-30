@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
 )
 
 // ActiveSetOf lists the label values a set of snapshots can produce, for the

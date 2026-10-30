@@ -17,12 +17,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/netcracker/qubership-ratelimit/engine/algo"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/identity"
-	"github.com/netcracker/qubership-ratelimit/engine/match"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	"github.com/netcracker/qubership-ratelimit/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/algo"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/identity"
+	"github.com/netcracker/qubership-rate-limiter/engine/match"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/engine/store"
 )
 
 // Engine binds one domain's snapshot to a store. Its configuration is

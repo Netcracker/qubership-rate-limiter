@@ -19,14 +19,14 @@ import (
 	errs "github.com/netcracker/qubership-core-lib-go-error-handling/v3/errors"
 	"github.com/stretchr/testify/require"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	counters "github.com/netcracker/qubership-ratelimit/engine/store"
-	"github.com/netcracker/qubership-ratelimit/engine/store/memory"
-	"github.com/netcracker/qubership-ratelimit/service/internal/records"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
-	"github.com/netcracker/qubership-ratelimit/service/internal/store"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	counters "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/store"
 )
 
 // discardLogger drops what the handlers write. What the log says is not what

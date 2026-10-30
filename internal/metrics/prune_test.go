@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netcracker/qubership-ratelimit/engine/compile"
+	"github.com/netcracker/qubership-rate-limiter/engine/compile"
 )
 
 // pruneTestSet is the active set of the prune tests: the domain prune.alive,

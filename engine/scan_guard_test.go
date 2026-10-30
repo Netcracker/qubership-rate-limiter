@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/netcracker/qubership-ratelimit/engine/match"
+	"github.com/netcracker/qubership-rate-limiter/engine/match"
 )
 
 // TestMatchManyBlocks_scanStaysLinear is the CI guard on the target scan.

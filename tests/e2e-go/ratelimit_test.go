@@ -42,15 +42,15 @@ var _ = Describe("rate limiting through the gateways", Ordered, Label("ratelimit
 	// into the suites that need the domain unclaimed.
 	AfterAll(func() { deletePolicies(publicDomain, privateDomain) })
 
-	It("points the public gateway's filter at the ratelimit Service", func() {
+	It("points the public gateway's filter at the rate-limiter Service", func() {
 		// A wrong cluster name fails exactly like an unreachable service, so
 		// assert the configuration rather than inferring it from behaviour.
 		// The address is the Service's, and the Service has a fixed name:
 		// a satellite in another namespace computes this same address with
 		// nothing but the baseline's namespace to go on, so it cannot depend
 		// on what the release or the Deployment is called.
-		Expect(serviceHost()).To(HavePrefix("ratelimit."),
-			"the Service is not named ratelimit; satellites compute the RLS address from that name")
+		Expect(serviceHost()).To(HavePrefix("rate-limiter."),
+			"the Service is not named rate-limiter; satellites compute the RLS address from that name")
 		expected := "outbound|9000||" + serviceHost()
 		Eventually(func() string {
 			return rateLimitClusterOf(gatewayPod("public-gateway").Name)

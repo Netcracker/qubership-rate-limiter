@@ -5,7 +5,7 @@
 #
 #   docker build -f operator/Dockerfile .
 
-FROM --platform=$BUILDPLATFORM golang:1.27@sha256:898838c455eecb68ed7b0b6f0635630ebdd657e732f07a23d0ab475007a52c36 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS builder
 ARG TARGETOS
 ARG TARGETARCH
 # The build's own version stamp, and the fallback only: the pipeline passes
@@ -30,12 +30,12 @@ COPY . .
 # avoid QEMU emulation; Go cross-compiles through TARGETOS/TARGETARCH.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH}" \
-    go build -ldflags "-X main.version=${VERSION}" -o ratelimit-operator ./operator/cmd/
+    go build -ldflags "-X main.version=${VERSION}" -o rate-limiter-operator ./operator/cmd/
 
-FROM ghcr.io/netcracker/qubership-core-base:alpine-2.5.9@sha256:ab860790e4ecce56f8df673495cd5745ce587fffa7d7eb210d6d098563ccb26d
+FROM ghcr.io/netcracker/qubership-core-base:alpine-2.5.10@sha256:51173b982248bb866b236f504579b71c0a9c4a41975b957595f9faa9ab3fb5d6
 WORKDIR /app
-COPY --chown=10001:0 --chmod=555 --from=builder /app/ratelimit-operator /app/ratelimit-operator
+COPY --chown=10001:0 --chmod=555 --from=builder /app/rate-limiter-operator /app/rate-limiter-operator
 COPY --chown=10001:0 --chmod=444 --from=builder /app/operator/application.yaml /app/application.yaml
 USER 10001:10001
 
-CMD ["/app/ratelimit-operator"]
+CMD ["/app/rate-limiter-operator"]

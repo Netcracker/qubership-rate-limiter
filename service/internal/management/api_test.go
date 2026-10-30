@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	engine "github.com/netcracker/qubership-ratelimit/engine"
-	"github.com/netcracker/qubership-ratelimit/engine/model"
-	"github.com/netcracker/qubership-ratelimit/service/internal/ruleview"
+	engine "github.com/netcracker/qubership-rate-limiter/engine"
+	"github.com/netcracker/qubership-rate-limiter/engine/model"
+	"github.com/netcracker/qubership-rate-limiter/service/internal/ruleview"
 )
 
 func TestDomains_summarizesTheEnforcedDomain(t *testing.T) {

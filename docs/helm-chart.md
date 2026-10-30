@@ -1,18 +1,18 @@
-# The ratelimit Helm charts: values, schemas, templates
+# The rate-limiter Helm charts: values, schemas, templates
 
 The delivery contract: a reference for the values variables, their JSON schemas, and the structure of the templates.
 The delivery is **one application** of **three charts** and **two images** ([topology](deployment-topology.md)): one
-cluster chart and two namespace charts. The cluster chart, `ratelimit-crds` under `helm-templates/ratelimit-crds`,
+cluster chart and two namespace charts. The cluster chart, `rate-limiter-crds` under `helm-templates/rate-limiter-crds`,
 holds the cluster-scoped `RateLimitPolicy` CRD and is installed once per cluster, see "The CRD chart". The namespace
-charts are `ratelimit-operator` under `helm-templates/ratelimit-operator` with the image
-`qubership-ratelimit-operator`, and `ratelimit-service` under `helm-templates/ratelimit-service` with the image
-`qubership-ratelimit-service`. The platform installs the same pair in every namespace of an application. The set of
+charts are `rate-limiter-operator` under `helm-templates/rate-limiter-operator` with the image
+`qubership-rate-limiter-operator`, and `rate-limiter` under `helm-templates/rate-limiter` with the image
+`qubership-rate-limiter`. The platform installs the same pair in every namespace of an application. The set of
 objects each namespace chart renders is derived from the platform's `BASELINE_ORIGIN`: the whole stack where a domain
 lives, the gateway filters alone in a satellite.
 
 The operator chart owns the operator deployment; the service chart owns the service deployment, the Service
-`ratelimit`, and the Envoy configuration (the ratelimit filter on the gateways). The ConfigMap
-`ratelimit-config` between the two is written by the operator on every reconcile and rendered by neither chart. Helm
+`rate-limiter`, and the Envoy configuration (the ratelimit filter on the gateways). The ConfigMap
+`rate-limiter-config` between the two is written by the operator on every reconcile and rendered by neither chart. Helm
 and Argo CD overwrite what a chart renders on every sync. Rules, claim extraction, and groups do not live in
 values; they belong to `RateLimitPolicy`, one per domain, see the [resource specification](ratelimitpolicy-cr-spec.md).
 
@@ -21,10 +21,10 @@ values; they belong to `RateLimitPolicy`, one per domain, see the [resource spec
 The operator chart:
 
 ```text
-helm-templates/ratelimit-operator/templates/
+helm-templates/rate-limiter-operator/templates/
 ├── _helpers.tpl                   # mode (satellite iff BASELINE_ORIGIN; every template is wrapped in it, so a
 │                                  #   satellite release is empty)
-├── Deployment.yaml                # ratelimit-operator, one replica active; single namespace and baseline
+├── Deployment.yaml                # rate-limiter-operator, one replica active; single namespace and baseline
 │                                  #   only, as is every template
 ├── ServiceAccount.yaml            # bound to the only Role of the delivery
 ├── Role.yaml                      # policies and their status, leases, endpointslices, configmaps, events, all in
@@ -38,14 +38,14 @@ helm-templates/ratelimit-operator/templates/
 The service chart:
 
 ```text
-helm-templates/ratelimit-service/templates/
+helm-templates/rate-limiter/templates/
 ├── _helpers.tpl                   # mode (satellite iff BASELINE_ORIGIN; every template but EnvoyFilter.yaml is
 │                                  #   wrapped in it, so a satellite release holds the filters alone),
-│                                  #   serviceName (the constant ratelimit), grpcPort, serviceNamespace,
+│                                  #   serviceName (the constant rate-limiter), grpcPort, serviceNamespace,
 │                                  #   rlsAuthority/rlsCluster, rlsReferencedService, statPrefix, validateDomains
 │                                  #   (fails the render on a duplicate domain), dbaasNamespace, millicores (the
 │                                  #   autoscaler's CPU target)
-├── Deployment.yaml                # the Deployment ratelimit-service, REPLICAS replicas; mounts ratelimit-config
+├── Deployment.yaml                # the Deployment rate-limiter, REPLICAS replicas; mounts rate-limiter-config
 │                                  #   at /etc/ratelimit/config with optional: true and the counter store's
 │                                  #   Secret under /etc/secrets/dbaas-secrets without it; the ServiceAccount
 │                                  #   token only with management.enabled
@@ -56,7 +56,7 @@ helm-templates/ratelimit-service/templates/
 ├── InternalDatabase.yaml          # the counter store's Redis database, behind redis.dbaas.enabled
 ├── DatabaseSecretClaim.yaml       # the claim on the database's connection properties, which dbaas-operator
 │                                  #   writes into the Secret <SERVICE_NAME>-redis; behind redis.dbaas.enabled
-├── Service.yaml                   # FIXED name ratelimit; grpc 9000 (appProtocol: grpc is mandatory), metrics (the
+├── Service.yaml                   # FIXED name rate-limiter; grpc 9000 (appProtocol: grpc is mandatory), metrics (the
 │                                  #   operator's probe port), management behind management.enabled
 ├── ServiceAccount.yaml            # automountServiceAccountToken: false; no Role
 ├── AuthorizationPolicy.yaml       # DENY on the management port for every source but the callers, or the
@@ -76,7 +76,7 @@ installed in a satellite would wait for an operator that never comes, stay NotRe
 the deployment; rendering no service there protects against that mistake. The defaults are overridden by explicit
 values:
 
-| Deployment scheme | `ratelimit-operator` renders | `ratelimit-service` renders |
+| Deployment scheme | `rate-limiter-operator` renders | `rate-limiter` renders |
 | --- | --- | --- |
 | single namespace | the operator (Deployment, SA, Role/RoleBinding); with `MONITORING_ENABLED`, its PodMonitor and PrometheusRule | the service (Deployment, Service, SA, HPA, PDB) and the EnvoyFilters; with `redis.dbaas.enabled`, InternalDatabase and DatabaseSecretClaim; with `management.enabled`, the AuthorizationPolicy; with `MONITORING_ENABLED`, PodMonitor, PrometheusRule, and the dashboard |
 | composite, baseline | the same | the same |
@@ -88,10 +88,10 @@ The PodDisruptionBudget (PDB) renders only when the service runs more than one r
 The contract between the charts and the binaries is a set of constants in one Go package under `api/`, imported by
 both binaries:
 
-- the Service `ratelimit`;
+- the Service `rate-limiter`;
 - its gRPC port 9000, named `grpc`;
 - the probe port, published on the Service under the name `metrics` (the service's metrics port, 8080);
-- the ConfigMap `ratelimit-config`.
+- the ConfigMap `rate-limiter-config`.
 
 The mode rule, satellite iff `BASELINE_ORIGIN` is non-empty, is the `ratelimit.mode` helper in the `_helpers.tpl` of
 each namespace chart, and the two namespace charts are installed in one namespace; the CRD chart has neither.
@@ -99,7 +99,7 @@ each namespace chart, and the two namespace charts are installed in one namespac
 The templates of both charts carry the same names and ports as fixed strings. A CI test renders both charts and
 compares the rendered names and ports with the constants (see "Installation and upgrade"). A satellite release of the
 service chart uses the Service name and port to compute the RLS address from the baseline namespace, so the name is
-the constant `ratelimit` and depends on neither the release name nor `SERVICE_NAME`. The port is a contract
+the constant `rate-limiter` and depends on neither the release name nor `SERVICE_NAME`. The port is a contract
 constant, so `rls.port` exists in neither chart. The namespace half of that address is `BASELINE_ORIGIN`, or
 `BASELINE_CONTROLLER` when the platform sets it: the service chart reads it for parity with `control-plane`, which
 resolves the baseline the same way; on this platform the baseline is never Blue-Green'd, so it stays empty. Each
@@ -108,22 +108,22 @@ chart ships its own alert rules as a `PrometheusRule`, see "Alerts".
 ## The CRD chart
 
 The `RateLimitPolicy` CRD (the type definition) is a cluster-scoped object, the policies themselves are namespaced, and
-the namespace releases are many, so the CRD ships in a chart of its own, `ratelimit-crds`, with these rules:
+the namespace releases are many, so the CRD ships in a chart of its own, `rate-limiter-crds`, with these rules:
 
 ```text
-helm-templates/ratelimit-crds/templates/
+helm-templates/rate-limiter-crds/templates/
 └── crd-ratelimitpolicies.yaml     # generated by make sync-helm-crds from config/crd/bases; do NOT edit by hand;
                                    #   the helm CI job catches drift of the copy; helm.sh/resource-policy: keep
 ```
 
 - the platform installs it, one release per cluster in a platform namespace, before the namespace charts; application
-  pipelines do not install `ratelimit-crds`. The namespace charts carry no copy, so their releases do not contend for
+  pipelines do not install `rate-limiter-crds`. The namespace charts carry no copy, so their releases do not contend for
   its ownership, and an upgrade of an older namespace cannot put its older schema back for the whole cluster. The chart
   takes no values and renders the same in every namespace scheme;
 - an operator started before the CRD exists exits at manager creation and restarts until the CRD release is installed;
   it never serves `/readyz`, so the `--wait` of its install times out. Its log ends in
   `operator exited with an error: create manager: failed to determine if *unstructured.Unstructured is namespaced: ...`,
-  which contains `no matches for ratelimit.netcracker.com/v1`, and installing `ratelimit-crds` repairs it
+  which contains `no matches for ratelimit.netcracker.com/v1`, and installing `rate-limiter-crds` repairs it
   ([runbook](runbook.md), section 0);
 - the release's name and namespace are fixed for the cluster's lifetime: the CRD that `keep` leaves after
   `helm uninstall` still carries the `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace` annotations, and
@@ -137,7 +137,7 @@ helm-templates/ratelimit-crds/templates/
 - schema compatibility is the responsibility of development: changes are additive (new fields are optional, bounds are
   not tightened, schema rules are only relaxed), API server ratcheting lets unchanged fields of old objects through,
   and an old-version operator rejects a generation with unfamiliar fields (`InvalidSpec` from strict decoding of
-  the unstructured object) and leaves `ratelimit-config` on the last-good generation: neither half crashes, and
+  the unstructured object) and leaves `rate-limiter-config` on the last-good generation: neither half crashes, and
   nothing enforces the object partially.
 
 Two cases adopt an existing CRD with `--take-ownership` (Helm 3.17 and later), once; later upgrades of the release run
@@ -150,7 +150,8 @@ without it:
   "app.kubernetes.io/managed-by"`), and `--take-ownership` adopts it.
 
 ```bash
-helm upgrade --install ratelimit-crds helm-templates/ratelimit-crds --namespace <platform-namespace> --take-ownership
+helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds --namespace <platform-namespace> \
+  --take-ownership
 ```
 
 ## Platform parameters and resource profiles
@@ -166,10 +167,10 @@ only the keys its templates read:
 | `MONITORING_ENABLED` | both | enables the PodMonitor and the PrometheusRule of each chart and the GrafanaDashboard of the service chart; false by default, since all three need the CRDs of their operators |
 | `ISTIO_PUBLIC_GATEWAY_NAME` | the service chart | the name of the public Gateway object the filter targets; it must match the parameters of qubership-core-mesh-config, which creates the Gateways |
 | `ISTIO_PRIVATE_GATEWAY_NAME` | the service chart | the name of the private Gateway object the filter targets; it must match qubership-core-mesh-config the same way |
-| `BASELINE_ORIGIN` | both | the baseline namespace, set only in a satellite; empty renders the whole stack of each chart, non-empty renders only the service chart's filters, targeting `ratelimit.<BASELINE_ORIGIN>.svc:9000`, and nothing from the operator chart; the value of `NAMESPACE` fails both renders with `BASELINE_ORIGIN "<ns>" is this release's own namespace` |
+| `BASELINE_ORIGIN` | both | the baseline namespace, set only in a satellite; empty renders the whole stack of each chart, non-empty renders only the service chart's filters, targeting `rate-limiter.<BASELINE_ORIGIN>.svc:9000`, and nothing from the operator chart; the value of `NAMESPACE` fails both renders with `BASELINE_ORIGIN "<ns>" is this release's own namespace` |
 | `BASELINE_CONTROLLER` | the service chart | read for parity with `control-plane`; when set in a satellite it replaces `BASELINE_ORIGIN` as the namespace of the RLS address in the service chart; on this platform the baseline is never blue-green'd, so it stays empty |
 | `CLOUD_TOPOLOGY_KEY` | both | the node label each Deployment spreads its pods over, `kubernetes.io/hostname` by default: one topology spread constraint with `maxSkew: 1` and `whenUnsatisfiable: ScheduleAnyway`, selecting the Deployment's own pods |
-| `SERVICE_NAME` | both | the name of each chart's Deployment and ServiceAccount (and the operator's RBAC pair), its `app.kubernetes.io/name` and `name` labels, and in the service chart the DBaaS classifier's `microserviceName`; `ratelimit-operator` and `ratelimit-service` by default; the Service stays `ratelimit`; a DNS label of at most 63 characters, which the schema checks |
+| `SERVICE_NAME` | both | the name of each chart's Deployment and ServiceAccount (and the operator's RBAC pair), its `app.kubernetes.io/name` and `name` labels, and in the service chart the DBaaS classifier's `microserviceName`; `rate-limiter-operator` and `rate-limiter` by default; the Service stays `rate-limiter`; a DNS label of at most 63 characters, which the schema checks |
 | `NAMESPACE` | both | the namespace every object lands in, as on the platform's other services; required, and the schema refuses an empty one. The pods read their namespace back through the Downward API, so the installation's scope, the counter key prefix, and the DBaaS classifier follow it |
 | `IMAGE_REPOSITORY`, `TAG` | both | the image; `TAG` is required, and the schema refuses an empty one |
 | `LOG_LEVEL` | both | the root level of the platform logger, passed as `LOGGING_LEVEL_ROOT` in lower case; `debug`, `info`, `warn`, or `error`, in lower or upper case, which the schema checks |
@@ -216,14 +217,14 @@ it with `at '/DEPLOYMENT_SESSION_ID': got number, want string`. An install that 
 The full file of each chart, with comments, is the values contract; this is the map. Each key is listed with the
 template that reads it; a key one chart does not read does not exist in that chart.
 
-The operator chart, `helm-templates/ratelimit-operator/values.yaml`:
+The operator chart, `helm-templates/rate-limiter-operator/values.yaml`:
 
 ```yaml
-SERVICE_NAME: ratelimit-operator     # every template: the platform's parameters, see "Platform parameters"
+SERVICE_NAME: rate-limiter-operator  # every template: the platform's parameters, see "Platform parameters"
 NAMESPACE: ""                         # every template; required, the schema refuses it empty
-IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-ratelimit-operator   # Deployment.yaml
+IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-rate-limiter-operator   # Deployment.yaml
 TAG: ""                              # required, the schema refuses it empty; do not use floating tags
-APPLICATION_NAME: ratelimit          # every template's labels; an empty ARTIFACT_DESCRIPTOR_VERSION
+APPLICATION_NAME: rate-limiter       # every template's labels; an empty ARTIFACT_DESCRIPTOR_VERSION
 MANAGED_BY: Helm                     #   renders an empty version label
 ARTIFACT_DESCRIPTOR_VERSION: ""
 DEPLOYMENT_SESSION_ID: ""            # required, the schema refuses it empty
@@ -262,14 +263,14 @@ CLOUD_TOPOLOGY_KEY: kubernetes.io/hostname   # Deployment.yaml: topologySpreadCo
                                      #   per {topologyKey, maxSkew, whenUnsatisfiable} entry
 ```
 
-The service chart, `helm-templates/ratelimit-service/values.yaml`:
+The service chart, `helm-templates/rate-limiter/values.yaml`:
 
 ```yaml
-SERVICE_NAME: ratelimit-service      # every template; also the DBaaS classifier's microserviceName
+SERVICE_NAME: rate-limiter           # every template; also the DBaaS classifier's microserviceName
 NAMESPACE: ""                         # every template; required, the schema refuses it empty
-IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-ratelimit-service    # Deployment.yaml
+IMAGE_REPOSITORY: ghcr.io/netcracker/qubership-rate-limiter   # Deployment.yaml
 TAG: ""                              # required, the schema refuses it empty; do not use floating tags
-APPLICATION_NAME: ratelimit          # every template's labels, as in the operator chart
+APPLICATION_NAME: rate-limiter       # every template's labels, as in the operator chart
 MANAGED_BY: Helm
 ARTIFACT_DESCRIPTOR_VERSION: ""
 DEPLOYMENT_SESSION_ID: ""            # required, the schema refuses it empty
@@ -389,7 +390,7 @@ CLOUD_TOPOLOGY_KEY: kubernetes.io/hostname   # Deployment.yaml: topologySpreadCo
                                      #   per {topologyKey, maxSkew, whenUnsatisfiable} entry
 ```
 
-The service's resource profile, `helm-templates/ratelimit-service/resource-profiles/<profile>.yaml`, carries the
+The service's resource profile, `helm-templates/rate-limiter/resource-profiles/<profile>.yaml`, carries the
 `HPA_*` keys beside `REPLICAS` and the sizes, and `HorizontalPodAutoscaler.yaml` reads them. The values below are the
 `prod` profile's; `dev` sets `HPA_ENABLED: false` and `HPA_MIN_REPLICAS: 1`, and `prod-nonha` sets
 `HPA_MIN_REPLICAS: 1`:
@@ -428,9 +429,9 @@ What is **deliberately absent** from values:
 | --- | --- | --- |
 | limit rules, claim extraction, groups | `RateLimitPolicy` | a matter for the teams, not for the installation |
 | the descriptor list | hardwired in the EnvoyFilter template | the four fields `path`/`method`/`token`/`request_id` are a contract with the service; extending it is a deliberate chart change |
-| the Lease | always on, in the operator | the Lease holder alone writes the status and `ratelimit-config`, a standby takes over when it goes, and the Lease covers the overlap of two pods during a rollout |
-| the ConfigMap `ratelimit-config` | written by the operator | Helm and Argo CD overwrite what a chart renders on every sync; the channel to the service cannot come from a chart |
-| the Service name and port | contract constants (`ratelimit`, 9000) | fixed in the templates of both charts and checked against the Go constants by the CI render test; there is no `rls.port` value |
+| the Lease | always on, in the operator | the Lease holder alone writes the status and `rate-limiter-config`, a standby takes over when it goes, and the Lease covers the overlap of two pods during a rollout |
+| the ConfigMap `rate-limiter-config` | written by the operator | Helm and Argo CD overwrite what a chart renders on every sync; the channel to the service cannot come from a chart |
+| the Service name and port | contract constants (`rate-limiter`, 9000) | fixed in the templates of both charts and checked against the Go constants by the CI render test; there is no `rls.port` value |
 | `healthProbe.port`, `metrics.port`, `management.port` | fixed in the service chart's templates: probes 8081, metrics 8080, management 8082 | the operator chart and the charts of the qubership-core services fix their container ports too, and an `HTTPRoute` to the management API, which the installation adds (see "What the charts do not install"), names port 8082 |
 | sanity bounds (token size and the like) | constants in the binaries | not knobs: nobody tunes them |
 | `replicaCount`, `resources` | resource profiles (`REPLICAS`, `CPU_*`, `MEMORY_*`, and the service's `HPA_*`) | one source of truth with the platform |
@@ -486,14 +487,14 @@ developer loop, so no replica counts on its own.
 Both charts read the mode the same way: `mode` is `satellite` when `BASELINE_ORIGIN` is set and `baseline` otherwise; a
 single namespace and a baseline render the same objects, so there is no third value. In the service chart every template
 but the filters is wrapped in that check; in the operator chart every template is, so a satellite release of the
-operator chart is empty. `serviceName` is the constant `ratelimit` in both charts: the installation is namespace-scoped
-by construction (`CLOUD_NAMESPACE`), one per namespace, and a fixed name is a computable RLS address for the satellites.
-The operator discovers the service replicas through the EndpointSlice of the same Service the filters target. The
-templates write their names, namespaces, and labels inline, the way the platform's other services do: every object
-carries `app.kubernetes.io/name`, `part-of`, `managed-by`, and the deployment session; the Deployment and its pods add
-`name`, `app.kubernetes.io/instance` (the name and the namespace), the version, the component, and the technology, and
-`name: <SERVICE_NAME>` alone is the selector. The service chart also holds `serviceNamespace`: `NAMESPACE`, or in a
-satellite `BASELINE_CONTROLLER` when set and `BASELINE_ORIGIN` otherwise; `rlsAuthority`:
+operator chart is empty. `serviceName` is the constant `rate-limiter` in both charts: the installation is
+namespace-scoped by construction (`CLOUD_NAMESPACE`), one per namespace, and a fixed name is a computable RLS address
+for the satellites. The operator discovers the service replicas through the EndpointSlice of the same Service the
+filters target. The templates write their names, namespaces, and labels inline, the way the platform's other services
+do: every object carries `app.kubernetes.io/name`, `part-of`, `managed-by`, and the deployment session; the Deployment
+and its pods add `name`, `app.kubernetes.io/instance` (the name and the namespace), the version, the component, and the
+technology, and `name: <SERVICE_NAME>` alone is the selector. The service chart also holds `serviceNamespace`:
+`NAMESPACE`, or in a satellite `BASELINE_CONTROLLER` when set and `BASELINE_ORIGIN` otherwise; `rlsAuthority`:
 `<serviceName>.<serviceNamespace>.svc.cluster.local`; `rlsCluster`: `outbound|9000||<fqdn>`; `statPrefix`: the gateway
 name with `-` replaced by `_`; `validateDomains`, described above; `dbaasNamespace`, the namespace of the dbaas-operator
 that reconciles the counter store's claim; and `millicores` for the autoscaler's CPU target. The Secret of the counter
@@ -555,7 +556,7 @@ change and require the HTTPRoute to pin.
 
 ### Service.yaml (service chart): the critical detail
 
-The name is the constant `ratelimit` whatever the release is called, and `SERVICE_NAME` does not rename it. The
+The name is the constant `rate-limiter` whatever the release is called, and `SERVICE_NAME` does not rename it. The
 e2e install names the service release differently from the Service, so the suite exercises the fixed name. The `grpc`
 port carries `appProtocol: grpc`; without it, Istio decides the port is HTTP/1.1. The Service also publishes the
 service's metrics port under the name `metrics`: the operator takes the port number from the EndpointSlice by that
@@ -572,24 +573,24 @@ management API's callers, and its ServiceAccount has no Role:
 | `ratelimitpolicies` | get, list, watch | the policy informer of its own namespace |
 | `ratelimitpolicies/status` | update | the operator writes the status with an update, never a patch |
 | `leases` (coordination.k8s.io) | get, create, update | the Lease that keeps one writer while two operator pods overlap during a rollout |
-| `endpointslices` (discovery.k8s.io) | get, list, watch | the ready service replicas of the Service `ratelimit`, and the probe port by its name, for the strict `Ready` |
+| `endpointslices` (discovery.k8s.io) | get, list, watch | the ready service replicas of the Service `rate-limiter`, and the probe port by its name, for the strict `Ready` |
 | `configmaps` | create | the one verb RBAC cannot narrow by name: the object does not exist yet |
-| `configmaps`, `resourceNames: [ratelimit-config]` | get, list, watch, update | `ratelimit-config`, the configuration of the service and the last-good state of the namespace; list and watch pass under the name because the operator's cache selects the object by `metadata.name`; no delete, no patch, and nothing on the ConfigMaps of the other applications in the namespace |
-| `events` (core and events.k8s.io) | create, patch | `Warning` events; leader election records through the core group, the writer of `ratelimit-config` through events.k8s.io |
-| `deployments` (apps), `resourceNames: [<its own name>]` | get | the operator's own Deployment, read once at start: `ratelimit-config` carries an ownerReference to it, so the object goes with the operator; a Deployment the operator cannot read leaves the object without an owner, with a warning |
+| `configmaps`, `resourceNames: [rate-limiter-config]` | get, list, watch, update | `rate-limiter-config`, the configuration of the service and the last-good state of the namespace; list and watch pass under the name because the operator's cache selects the object by `metadata.name`; no delete, no patch, and nothing on the ConfigMaps of the other applications in the namespace |
+| `events` (core and events.k8s.io) | create, patch | `Warning` events; leader election records through the core group, the writer of `rate-limiter-config` through events.k8s.io |
+| `deployments` (apps), `resourceNames: [<its own name>]` | get | the operator's own Deployment, read once at start: `rate-limiter-config` carries an ownerReference to it, so the object goes with the operator; a Deployment the operator cannot read leaves the object without an owner, with a warning |
 
 ### Deployment.yaml of the operator chart: the essentials
 
-- `REPLICAS` replicas, 2 in `dev-ha` and `prod`: only the Lease holder writes the status and `ratelimit-config`, another
-  replica is a standby, and the Lease keeps one writer while two pods overlap during a rollout;
+- `REPLICAS` replicas, 2 in `dev-ha` and `prod`: only the Lease holder writes the status and `rate-limiter-config`,
+  another replica is a standby, and the Lease keeps one writer while two pods overlap during a rollout;
 - args: `--health-probe-bind-address=:8081`, `--metrics-bind-address=:8080`, and `--deployment=<SERVICE_NAME>`, the
-  operator's own Deployment, the owner of `ratelimit-config` (the `microservice.name` property when the flag is
+  operator's own Deployment, the owner of `rate-limiter-config` (the `microservice.name` property when the flag is
   empty); `-kubeconfig`, controller-runtime's flag, is not passed: the pod uses the in-cluster configuration, and the
   flag serves a run outside the cluster;
 - env: `LOGGING_LEVEL_ROOT` (not `--zap-log-level`), `CLOUD_NAMESPACE` from a fieldRef (the namespace scope is
   mandatory, the process does not start without it), `POD_NAME` from a fieldRef (the Lease identity);
-- the ConfigMap `ratelimit-config` is not rendered here either: the operator creates it on the first reconcile with an
-  ownerReference to this Deployment, so it goes away with the operator and never with a policy;
+- the ConfigMap `rate-limiter-config` is not rendered here either: the operator creates it on the first reconcile with
+  an ownerReference to this Deployment, so it goes away with the operator and never with a policy;
 - resources come from the profile; `ephemeral-storage` is limited in the template itself (the process writes no
   files); the metrics port is named `metrics` for the PodMonitor.
 
@@ -598,7 +599,7 @@ management API's callers, and its ServiceAccount has no Role:
 - `REPLICAS` replicas from the profile, or none rendered while `HPA_ENABLED` hands the count to the autoscaler; the pod
   sets `automountServiceAccountToken: false` and holds no Role: the process that parses tokens from the internet reaches
   no API server object;
-- the volume: the ConfigMap `ratelimit-config` mounted as a whole directory at `/etc/ratelimit/config` with
+- the volume: the ConfigMap `rate-limiter-config` mounted as a whole directory at `/etc/ratelimit/config` with
   `optional: true`, so the pod starts before the operator has written;
 - on the `..data` symlink swap the process decodes the manifest strictly, compiles every domain with the engine module,
   and swaps the snapshot atomically; a change reaches the replicas within the kubelet sync period, one minute by
@@ -710,13 +711,13 @@ own Redis:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ratelimit-service-redis        # <SERVICE_NAME>-redis
+  name: rate-limiter-redis             # <SERVICE_NAME>-redis
   namespace: <NAMESPACE>
 stringData:
   connectionProperties.json: |
     {"host": "<redis host>", "port": 6379, "password": "<password>"}
   metadata.json: |
-    {"classifier": {"microserviceName": "ratelimit-service", "namespace": "<NAMESPACE>", "scope": "service"},
+    {"classifier": {"microserviceName": "rate-limiter", "namespace": "<NAMESPACE>", "scope": "service"},
      "type": "redis"}
 ```
 
@@ -772,8 +773,8 @@ exclude.
 | `ratelimit_policy_generation_lag` | `domain` | how far activeGeneration lags behind the latest |
 | `ratelimit_policy_rule_problems` | `domain`, `severity: blocking\|info` | every problem of the latest generation by weight, past the 64 that `ruleProblems` lists too; alert on `blocking` |
 | `ratelimit_domain_blocks` / `ratelimit_domain_rules` / `ratelimit_domain_decision_buckets` | `domain` | domain facts: `decision_buckets` against 128, the headroom before `DomainBudgetExceeded`; `blocks` and `rules` are observed, with no bounds |
-| `ratelimit_config_write_errors_total` | `reason: size\|api\|read\|other` | failed writes of `ratelimit-config`: `size` a state too large even after the fit, `api` an API server answer, `read` a reconcile that could not read and wrote nothing, `other` the rest; the replicas keep their mounted configuration, the last-good fallback is not saved, and the status reports `ReplicaStale` 90 s later |
-| `ratelimit_config_write_failing` | `reason: size\|api\|read\|other` | 1 under each reason a write of `ratelimit-config` failed with since the last successful write, 0 once a write succeeds; `RatelimitConfigWriteErrors` reads it |
+| `ratelimit_config_write_errors_total` | `reason: size\|api\|read\|other` | failed writes of `rate-limiter-config`: `size` a state too large even after the fit, `api` an API server answer, `read` a reconcile that could not read and wrote nothing, `other` the rest; the replicas keep their mounted configuration, the last-good fallback is not saved, and the status reports `ReplicaStale` 90 s later |
+| `ratelimit_config_write_failing` | `reason: size\|api\|read\|other` | 1 under each reason a write of `rate-limiter-config` failed with since the last successful write, 0 once a write succeeds; `RatelimitConfigWriteErrors` reads it |
 | `ratelimit_leader` | none | 1 on the operator pod that holds the Lease, 0 on the other one while two overlap during a rollout; the fleet series exist only on the pod reporting 1 |
 
 ## Argo CD: how to read the status
@@ -825,10 +826,10 @@ re-applies what the release set.
 `make helm-lint` lints every resource profile of each chart in each of the three modes (single; baseline, with a
 variable the charts do not read, so that the pass exists by name; satellite, with `BASELINE_ORIGIN`). CI renders the
 satellite case of each chart on its own: from the service chart the filters alone, the authority
-`ratelimit.<BASELINE_ORIGIN>.svc.cluster.local`, and `BASELINE_CONTROLLER` taking precedence when set; from the operator
-chart an empty render. The service chart is also rendered for the management port never rendered without its
+`rate-limiter.<BASELINE_ORIGIN>.svc.cluster.local`, and `BASELINE_CONTROLLER` taking precedence when set; from the
+operator chart an empty render. The service chart is also rendered for the management port never rendered without its
 AuthorizationPolicy, for the principal that policy allows, and for the identity values in every mode (see "Management
-API port"). The CRD copy of the `ratelimit-crds` chart is checked for drift against `config/crd/bases`, and neither
+API port"). The CRD copy of the `rate-limiter-crds` chart is checked for drift against `config/crd/bases`, and neither
 namespace chart may render a CRD. Beyond the lint, a render test in Go renders both charts and compares the rendered
 names and ports (the Service and its ports, the address in the EnvoyFilters, the ConfigMap of the volume) with the
 constants of the contract package. A CI step reads the build information of the service binary and fails when client-go
@@ -844,7 +845,7 @@ chart's own switch (`policyAlerts.enabled` in the operator chart, `alerts.enable
 renders neither. The split follows the series: the service chart alerts on the data plane, the operator chart on the
 policy status, and every expression carries `namespace="<NAMESPACE>"`, so a namespace's rules judge its own pods.
 
-The service chart, group `ratelimit-service`:
+The service chart, group `rate-limiter`:
 
 | Alert | Severity | Fires when |
 | --- | --- | --- |
@@ -855,7 +856,7 @@ The service chart, group `ratelimit-service`:
 | `RatelimitDomainBudgetNearLimit` | warning | `ratelimit_domain_decision_buckets` reaches `domainBudgetWarnAt` of the budget of 128, with no hold: the next edit may stop compiling |
 | `RatelimitConfigurationAbsent` | warning | `ratelimit_config_absent == 1` on a replica for `configAbsentFor`: the operator's ConfigMap is gone, and the replica keeps what it applied |
 
-The operator chart, group `ratelimit-operator`:
+The operator chart, group `rate-limiter-operator`:
 
 | Alert | Severity | Fires when |
 | --- | --- | --- |
@@ -867,7 +868,7 @@ The operator chart, group `ratelimit-operator`:
 | `RatelimitRuleProblems` | warning | `ratelimit_policy_rule_problems{severity="blocking"} > 0` for `ruleProblemsFor`: the latest generation is not enforced and last-good runs instead |
 | `RatelimitConfigWriteErrors` | critical | `ratelimit_config_write_failing == 1` by `reason` for `configWriteFailingFor`: a write failed with that reason and none has succeeded since, so policy changes stop reaching the service; a write that succeeds on its retry clears it |
 | `RatelimitOperatorReconcileFailing` | critical | a controller of the operator's leader records reconcile errors and no completed reconcile (`success` or `requeue_after`) over `reconcileErrorsWindow`, for `reconcileFailingFor`: the leader holds the Lease, so `RatelimitNoOperatorLeader` stays quiet |
-| `RatelimitNoOperatorLeader` | critical | `absent(ratelimit_leader == 1)` for `noLeaderFor`: no operator pod holds the Lease, so nothing compiles policies or writes `ratelimit-config` |
+| `RatelimitNoOperatorLeader` | critical | `absent(ratelimit_leader == 1)` for `noLeaderFor`: no operator pod holds the Lease, so nothing compiles policies or writes `rate-limiter-config` |
 
 `RatelimitChecksStopped` sums the domain's checks over every gateway, so in a composite one gateway's disabled
 filter does not fire it while the other gateways keep sending.
@@ -960,12 +961,12 @@ what one replica enforces, for a human with a port-forward. The management role 
 
 ## What the charts do not install
 
-- **A `DestinationRule` for the Service `ratelimit`.** A dead replica leaves Endpoints through its readiness probe and
-  EDS updates the Envoy cluster; a replica that hangs while still passing the probe is cut off by the filter's 50 ms
+- **A `DestinationRule` for the Service `rate-limiter`.** A dead replica leaves Endpoints through its readiness probe
+  and EDS updates the Envoy cluster; a replica that hangs while still passing the probe is cut off by the filter's 50 ms
   timeout and the request is decided by the gateway's failure mode. Outlier detection would only shrink that second
-  share, and Istio's defaults make a naive configuration inert anyway: `maxEjectionPercent: 10%` never ejects one of
-  two or three replicas, and `consecutive5xxErrors` counts upstream 5xx, while the failure here is a local-origin
-  timeout. TLS is not configured in a traffic policy either way; ambient provides mTLS.
+  share, and Istio's defaults make a naive configuration inert anyway: `maxEjectionPercent: 10%` never ejects one of two
+  or three replicas, and `consecutive5xxErrors` counts upstream 5xx, while the failure here is a local-origin timeout.
+  TLS is not configured in a traffic policy either way; ambient provides mTLS.
 - **A redirect when a limit fires.** The filter's local reply is the plain `rateLimitedStatus` (429 by default) with
   `retry-after`, which is what an API client can act on. No `local_reply_config` mapper turns it into a 302.
 - **An `AuthorizationPolicy` or a `NetworkPolicy` on the RLS port 9000.** Neither namespace chart renders one; the
@@ -973,10 +974,10 @@ what one replica enforces, for a human with a port-forward. The management role 
   callers of the RLS must be restricted, the installation adds the policy ([engine](engine.md), "Token and identity").
 - **An `HTTPRoute` from a gateway to the management port 8082.** Neither namespace chart renders a route to the
   management API. Where the callers come through a gateway, the installation adds the route, with a `backendRefs` entry
-  for the Service `ratelimit` on port 8082, lists the gateway's ServiceAccount in
+  for the Service `rate-limiter` on port 8082, lists the gateway's ServiceAccount in
   `management.authorizationPolicy.allowedServiceAccounts`, and keeps the gateway's domain in
   `management.gatewayDomains` (see "Management API port"). Without the route, the gateway answers `404`, `NR` in its
   access log, whatever the AuthorizationPolicy admits. Where the mesh installs a catch-all fallback route, as
   Qubership's mesh configuration does, the call goes to the fallback route's service instead; where that service has
   no endpoints, as on the e2e stand, the gateway answers `503` with the body `no healthy upstream`, `UH` in its access
-  log. The same `503` through the installation's route means that no pod of the Service `ratelimit` is ready.
+  log. The same `503` through the installation's route means that no pod of the Service `rate-limiter` is ready.
