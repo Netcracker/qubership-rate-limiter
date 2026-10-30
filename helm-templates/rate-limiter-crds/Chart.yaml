@@ -1,8 +1,6 @@
 apiVersion: v2
 appVersion: "0.1.0"
 description: The RateLimitPolicy CRD of the rate limit delivery - the cluster-scoped type definition, installed once per cluster ahead of the namespace charts
-# The ratcheting validation the CRD's compatibility promise relies on is on by default from 1.30
-kubeVersion: ">=1.30.0-0"
 name: rate-limiter-crds
 type: application
 # The effective version is computed during Helm generation
