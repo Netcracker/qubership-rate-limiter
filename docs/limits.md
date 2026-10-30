@@ -145,11 +145,12 @@ the rule; last-good holds the traffic.
 ## Store and key capacity
 
 - **Redis** does not bound the keys: their number is determined by the axes (`counters: [sub]` gives one counter
-  per client), and the TTL by the window: a fixed-window key expires at the window boundary, at most `periodSeconds`
-  away, and a GCRA key when its bucket drains, at most `burst × periodSeconds / requests` away, so the period alone
-  bounds it only at the default `burst = requests`; the depth cap of 10¹⁵ µs holds for any `burst`. All keys of a
-  domain share one slot (hash tag `{ns/domain}`), so the domain's throughput is bounded by one shard, and the service
-  connects to one standalone Redis, the one DBaaS provisions, so every domain of an installation shares that server.
+  per client), and the TTL by the window: a fixed-window key expires up to a tenth of `periodSeconds` after the window
+  boundary, at most 1.1 × `periodSeconds` away, and a GCRA key when its bucket drains, at most
+  `burst × periodSeconds / requests` away, so the period alone bounds it only at the default `burst = requests`; the
+  depth cap of 10¹⁵ µs holds for any `burst`. All keys of a domain share one slot (hash tag `{ns/domain}`), so the
+  domain's throughput is bounded by one shard, and the service connects to one standalone Redis, the one DBaaS
+  provisions, so every domain of an installation shares that server.
   Two reference points, measured and not guaranteed: the loopback benchmark of the [engine](engine.md) (a laptop-class
   core, Redis 8 on one core, the store script's time alone) puts one domain at about 80000 decisions/s with one bucket
   and 38000/s with four; a load case run on 2026-09-29 (1000 clients, 5 API groups, minute, hour, and day windows,
