@@ -208,7 +208,8 @@ Errors are NC.TMFErrorResponse.v1.0: id (the instance UUID), code (the contract 
 title), message (detail, not a contract), status (as a string), meta.requestId (mandatory), an optional meta.fields
 (validation) and meta.partialReset (the partial disclosure of a failed bulk). The code catalog:
 
-- RLS-0400 invalid request (query/body/cursor/header patterns)
+- RLS-0400 invalid request (query/body/cursor/header patterns; a body over 1 MiB or sent with a `Content-Encoding`
+  other than `identity`)
 - RLS-0401 authentication required: no bearer token, or one the service does not accept (not well formed, expired or
   not valid yet, issued for another audience or by another issuer, signed with a key the cluster does not hold, a
   signature that does not verify, or not a Kubernetes ServiceAccount token); the message names which, and never quotes

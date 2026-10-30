@@ -884,6 +884,35 @@ func TestShouldRateLimit_aRefusalOfSeveralDescriptorsCarriesTheLongestRetryHint(
 		"retry-after of a check refused for 60 s on /minutely and for 3600 s on /hourly")
 }
 
+// A refusal whose cost never fits its window outranks one that waiting cures:
+// a retry hint would send the caller back after an hour only to be refused by
+// the first descriptor again. The response carries no retry hint, as a check
+// of that descriptor alone does.
+func TestShouldRateLimit_aRefusalOfSeveralDescriptorsPrefersACostThatNeverFits(t *testing.T) {
+	// The descriptor that never fits comes first in one check and last in the
+	// other, so neither keeping the first refusal nor taking the last passes.
+	for _, neverFitsFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("never-fitting descriptor first: %v", neverFitsFirst), func(t *testing.T) {
+			server, _ := newServerOver(ruleSetWith(t, hourAndMinutePolicy()))
+			resp := shouldRateLimit(t, server, request("gateway.public", map[string]string{"path": "/hourly"}))
+			require.Equal(t, envoyratelimit.RateLimitResponse_OK, resp.GetOverallCode(), "the first check of /hourly")
+
+			minutely, hourly := map[string]string{"path": "/minutely"}, map[string]string{"path": "/hourly"}
+			req, at := request("gateway.public", minutely, hourly), 0
+			if !neverFitsFirst {
+				req, at = request("gateway.public", hourly, minutely), 1
+			}
+			req.Descriptors[at].HitsAddend = wrapperspb.UInt64(5)
+			resp = shouldRateLimit(t, server, req)
+
+			require.Equal(t, envoyratelimit.RateLimitResponse_OVER_LIMIT, resp.GetOverallCode(),
+				"the check of /minutely at cost 5 and /hourly")
+			assert.NotContains(t, headerMap(resp), "retry-after",
+				"retry-after of a check refused at cost 5 on /minutely, which admits 1, and for 3600 s on /hourly")
+		})
+	}
+}
+
 // A direct consumer that sends no descriptor at all still meets the
 // domain-wide rules.
 func TestShouldRateLimit_limitsACheckWithoutDescriptorsByTheDomainWideRule(t *testing.T) {

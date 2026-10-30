@@ -147,19 +147,21 @@ func TestRunner_startFailsOnAnAddressInUse(t *testing.T) {
 	assert.Equal(t, "listen", opErr.Op)
 }
 
-// A check larger than maxCheckBytes, 128 KiB (131072 bytes), is refused by the
-// transport, so a direct caller cannot hand the engine a value of megabytes. A
-// check of ordinary size on the same connection is the control.
+// A check one byte larger than maxCheckBytes, 128 KiB (131072 bytes), is
+// refused by the transport, so a direct caller cannot hand the engine a value
+// of megabytes. A check of ordinary size on the same connection is the
+// control.
 func TestRunner_refusesACheckOverTheMessageSizeLimit(t *testing.T) {
 	server, _ := newServerOver(ruleSetOver(t, "gateway.public", nil, memory.New()))
 	runner, _ := startRunner(t, server, time.Second)
 	client := dialRunner(t, runner)
+	pastTheLimit := request("gateway.public", map[string]string{"path": "/" + strings.Repeat("a", 131038)})
+	require.Equal(t, 131073, proto.Size(pastTheLimit), "the encoded size of the check")
 	callCtx, callCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer callCancel()
 
-	_, err := client.ShouldRateLimit(callCtx, request("gateway.public",
-		map[string]string{"path": "/" + strings.Repeat("a", 131072)}))
-	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "status of a check with a path of 131073 bytes: %v", err)
+	_, err := client.ShouldRateLimit(callCtx, pastTheLimit)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "status of a check of 131073 bytes: %v", err)
 
 	_, err = client.ShouldRateLimit(callCtx, request("gateway.public", map[string]string{"path": "/api/v1/orders"}))
 	assert.NoError(t, err, "a check of ordinary size")

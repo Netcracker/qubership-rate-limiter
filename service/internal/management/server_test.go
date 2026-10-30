@@ -2,6 +2,8 @@ package management
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net"
@@ -187,4 +189,60 @@ func TestDecodeJSON_refusesAnythingAfterTheValue(t *testing.T) {
 		response := h.bulk(t, rawJSON(valid+"\n"), "key-1", listedCaller)
 		assert.Equal(t, http.StatusOK, response.Code, "body: %s", response.Body.String())
 	})
+}
+
+// A compressed body is refused before it is inflated: the body limit counts
+// the bytes on the wire, and 985 bytes of double gzip once grew past the
+// memory limit of a replica and got it OOMKilled. The body here is a valid
+// command, so only the encoding can refuse it.
+func TestDecodeJSON_refusesACompressedBody(t *testing.T) {
+	const valid = `{"selector":{"ruleIds":["orders"]},"dryRun":true}`
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	_, err := writer.Write([]byte(valid))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	for _, encoding := range []string{"gzip", "br", "GZIP"} {
+		t.Run(encoding, func(t *testing.T) {
+			h := newTestAPI(t)
+			target := BasePath + "/domains/" + testDomain + "/counter-resets"
+			response := h.callWith(t, http.MethodPost, target, listedCaller, rawJSON(compressed.String()),
+				func(request *http.Request) {
+					request.Header.Set("Idempotency-Key", "key-1")
+					request.Header.Set(fiber.HeaderContentEncoding, encoding)
+				})
+			requireError(t, response, http.StatusBadRequest, CodeInvalidRequest)
+			assert.Contains(t, response.Body.String(), fiber.HeaderContentEncoding, "the refusal names the header")
+		})
+	}
+
+	t.Run("identity is accepted", func(t *testing.T) {
+		h := newTestAPI(t)
+		target := BasePath + "/domains/" + testDomain + "/counter-resets"
+		response := h.callWith(t, http.MethodPost, target, listedCaller, rawJSON(valid),
+			func(request *http.Request) {
+				request.Header.Set("Idempotency-Key", "key-1")
+				request.Header.Set(fiber.HeaderContentEncoding, "identity")
+			})
+		assert.Equal(t, http.StatusOK, response.Code, "body: %s", response.Body.String())
+	})
+}
+
+// A media type is case-insensitive, so a client that spells it in capitals
+// sends the same request as one that does not.
+func TestDecodeJSON_readsTheContentTypeCaseInsensitively(t *testing.T) {
+	const valid = `{"selector":{"ruleIds":["orders"]},"dryRun":true}`
+	for _, contentType := range []string{"Application/JSON", "APPLICATION/JSON; charset=utf-8"} {
+		t.Run(contentType, func(t *testing.T) {
+			h := newTestAPI(t)
+			target := BasePath + "/domains/" + testDomain + "/counter-resets"
+			response := h.callWith(t, http.MethodPost, target, listedCaller, rawJSON(valid),
+				func(request *http.Request) {
+					request.Header.Set("Idempotency-Key", "key-1")
+					request.Header.Set(fiber.HeaderContentType, contentType)
+				})
+			assert.Equal(t, http.StatusOK, response.Code, "body: %s", response.Body.String())
+		})
+	}
 }

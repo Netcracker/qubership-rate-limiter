@@ -1393,6 +1393,29 @@ func TestCharts_readTheParametersInEveryObject(t *testing.T) {
 	}
 }
 
+// Every chart declares the oldest Kubernetes it runs on, 1.30, where
+// preStop.sleep and the ratcheting validation of the CRD are on by default:
+// an older cluster gets helm's refusal by name rather than an API error about
+// a field of the preStop handler. 1.29.0 is the version one minor below.
+func TestCharts_refuseAClusterOlderThanKubernetes130(t *testing.T) {
+	renderOn := func(chart, kubeVersion string) ([]byte, error) {
+		if chart == "ratelimit-crds" {
+			return helmTemplateArgs(chart, "biz", "--kube-version", kubeVersion)
+		}
+		return renderErr(chart, "biz", "--kube-version", kubeVersion)
+	}
+	for _, chart := range append([]string{"ratelimit-crds"}, namespaceCharts...) {
+		t.Run(chart, func(t *testing.T) {
+			out, err := renderOn(chart, "1.29.0")
+			require.Error(t, err, "helm template --kube-version 1.29.0")
+			assert.Contains(t, string(out), "chart requires kubeVersion: >=1.30.0-0", "the refusal on 1.29.0")
+
+			out, err = renderOn(chart, "1.30.0")
+			assert.NoError(t, err, "helm template --kube-version 1.30.0: %s", out)
+		})
+	}
+}
+
 // The CRD is cluster-scoped and has one owner, the ratelimit-crds release: it
 // renders exactly the CRD the operator is built against, with the annotation
 // that keeps an uninstall from taking every namespace's policies with it. The
