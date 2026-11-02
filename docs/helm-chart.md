@@ -16,6 +16,10 @@ The operator chart owns the operator deployment; the service chart owns the serv
 and Argo CD overwrite what a chart renders on every sync. Rules, claim extraction, and groups do not live in
 values; they belong to `RateLimitPolicy`, one per domain, see the [resource specification](ratelimitpolicy-cr-spec.md).
 
+All three charts declare `kubeVersion: ">=1.30.0-0"`, so Helm rejects an older cluster before installing resources.
+With `redis.dbaas.enabled`, the DBaaS operator additionally requires Kubernetes 1.32 or later; see the
+[installation prerequisites](../README.md#install).
+
 ## Chart contents
 
 The operator chart:
@@ -620,7 +624,9 @@ management API's callers, and its ServiceAccount has no Role:
   "Management API port");
 - the `maxSurge: 1 / maxUnavailable: 0` strategy unless `DEPLOYMENT_STRATEGY_TYPE` says otherwise: the gateways must
   not lose all RLS endpoints at once;
-- `lifecycle.preStop.sleep: 7s` (the native handler, needs k8s >= 1.30): on deletion the pod leaves Endpoints
+- `lifecycle.preStop.sleep: 7s` (the native handler, enabled by default from Kubernetes 1.30; the DBaaS prerequisite
+  requires Kubernetes 1.32 or later, as listed in the [installation prerequisites](../README.md#install)):
+  on deletion the pod leaves Endpoints
   immediately, but xDS takes seconds to reach the gateways; the pause keeps the process serving through that window, so
   a rolling restart drops nothing and lets nothing slip through; the SIGTERM drain picks up the tail, and
   `terminationGracePeriodSeconds: 30` covers everything with margin;
@@ -730,6 +736,10 @@ where either is missing; `password`, and `username` for a database that has one 
 adapter authenticate by password alone); and `tls`, which has to be absent or `false`. A Secret that does not match
 fails the start as above, and one without an address fails it with
 `the connection properties carry neither a host and a port nor a url`.
+A URL port containing a character other than a digit fails with `url does not parse as a URL`. A numeric port that
+overflows an integer fails with `url port is not a number`; other values outside 1 to 65535 fail with
+`url port is out of range`. Set a port from 1 to 65535 in the Secret. These errors omit the port value because an
+unescaped `/`, `?`, or `#` in a password can put part of the password there.
 
 ## Metrics: the naming contract
 

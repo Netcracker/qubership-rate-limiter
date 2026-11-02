@@ -34,8 +34,9 @@ info:
 
     Errors: every non-2xx the SERVICE forms is NC.TMFErrorResponse.v1.0 (see the TmfErrorResponse schema); clients branch on `code`, never on prose. The service answers an invalid or expired token itself, as RLS-0401. A refusal the mesh or a gateway writes before a request reaches the service has its own format - never parse an arbitrary 401 or 403 as TMF, and do not expect X-Request-Id on one.
     Catalog:
-    * RLS-0400 - invalid request (query, body, cursor, header patterns; a body over 1 MiB, 1048576 bytes; on
-      GET /rules, GET /counters, and DELETE /counters, a query parameter the endpoint does not define)
+    * RLS-0400 - invalid request (query, body, cursor, header patterns; a body over 1 MiB, 1048576 bytes; a body
+      sent with a Content-Encoding other than identity; on GET /rules, GET /counters, and DELETE /counters, a query
+      parameter the endpoint does not define)
     * RLS-0401 - authentication required
     * RLS-0403 - access denied
     * RLS-0404 - unknown resource (domain, rule, window)
@@ -2009,7 +2010,7 @@ components:
         pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$
   responses:
     Forbidden:
-      description: Access denied (RLS-0403) - the verified caller's ServiceAccount is not among the callers the release lists (management.callers), so it holds no role. The message names the subject, the role the endpoint requires, and the method and path.
+      description: Access denied (RLS-0403) - the verified caller's ServiceAccount is not among the callers the release lists (management.callers), so it holds no role. The message names the subject, management.callers, and the method and path.
       content:
         application/json:
           schema:
@@ -2018,7 +2019,7 @@ components:
             id: e4b19c6d-2a53-4f70-8d14-6b9e0c3a7f28
             code: RLS-0403
             reason: Access denied
-            message: subject system:serviceaccount:support-tools:support-console lacks the operator role for DELETE /ratelimit/v1/domains/gateway.public/counters
+            message: subject system:serviceaccount:support-tools:support-console is not among the callers of this release (management.callers), so it holds no role for DELETE /ratelimit/v1/domains/gateway.public/counters
             status: '403'
             '@type': NC.TMFErrorResponse.v1.0
             meta:
@@ -2700,6 +2701,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          maximum: 1000000000
           default: 1
           description: The request's own cost. The windows of a block are judged
             using it unless the block's matched route reads a cost from the query
@@ -2738,6 +2740,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          maximum: 1000000000
           default: 1
           description: The request's own cost. The windows of a block are judged
             using it unless the block's matched route reads a cost from the query
@@ -2775,6 +2778,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          maximum: 1000000000
           default: 1
           description: The request's own cost. The windows of a block are judged
             using it unless the block's matched route reads a cost from the query

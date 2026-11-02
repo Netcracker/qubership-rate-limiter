@@ -131,8 +131,12 @@ func TestAuthorization_grantsOperatorToTheListedCallersAlone(t *testing.T) {
 		listed := h.call(t, http.MethodGet, BasePath+"/domains", listedCaller, nil)
 		require.Equal(t, http.StatusOK, listed.Code, "GET /domains as %s: %s", listedCaller, listed.Body.String())
 
-		requireError(t, h.call(t, http.MethodGet, BasePath+"/domains", unlistedCaller, nil),
+		body := requireError(t, h.call(t, http.MethodGet, BasePath+"/domains", unlistedCaller, nil),
 			http.StatusForbidden, CodeForbidden)
+		// The caller's team asks for what the message names, and a role by
+		// name is nothing the release can grant.
+		assert.Contains(t, body.Message, "is not among the callers of this release (management.callers)",
+			"the refusal of GET /domains as %s", unlistedCaller)
 	})
 
 	t.Run("a reset", func(t *testing.T) {

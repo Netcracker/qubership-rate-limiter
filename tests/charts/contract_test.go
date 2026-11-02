@@ -1402,6 +1402,27 @@ func TestCharts_readTheParametersInEveryObject(t *testing.T) {
 	}
 }
 
+// The charts refuse Kubernetes 1.29 and render on 1.30, where their required
+// feature gates are enabled by default.
+func TestCharts_refuseAClusterOlderThanKubernetes130(t *testing.T) {
+	renderOn := func(chart, kubeVersion string) ([]byte, error) {
+		if chart == "rate-limiter-crds" {
+			return helmTemplateArgs(chart, "biz", "--kube-version", kubeVersion)
+		}
+		return renderErr(chart, "biz", "--kube-version", kubeVersion)
+	}
+	for _, chart := range append([]string{"rate-limiter-crds"}, namespaceCharts...) {
+		t.Run(chart, func(t *testing.T) {
+			out, err := renderOn(chart, "1.29.0")
+			require.Error(t, err, "helm template --kube-version 1.29.0")
+			assert.Contains(t, string(out), "chart requires kubeVersion: >=1.30.0-0", "the refusal on 1.29.0")
+
+			out, err = renderOn(chart, "1.30.0")
+			assert.NoError(t, err, "helm template --kube-version 1.30.0: %s", out)
+		})
+	}
+}
+
 // The CRD is cluster-scoped and has one owner, the rate-limiter-crds release:
 // it renders exactly the CRD the operator is built against, with the
 // annotation that keeps an uninstall from taking every namespace's policies

@@ -1,4 +1,5 @@
 apiVersion: v2
+kubeVersion: ">=1.30.0-0"
 appVersion: "0.1.0"
 description: The RateLimitPolicy CRD of the rate limit delivery - the cluster-scoped type definition, installed once per cluster ahead of the namespace charts
 name: rate-limiter-crds

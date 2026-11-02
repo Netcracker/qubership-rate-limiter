@@ -16,13 +16,13 @@ import (
 // an existing cluster to use, or fails it instead when REQUIRE_ENVTEST is non-empty.
 // binDir is the result of Dir. Call it from BeforeSuite.
 func SkipUnlessConfigured(binDir string) {
-	if configured(binDir) {
-		return
-	}
-	if os.Getenv("REQUIRE_ENVTEST") != "" {
+	_, err := os.Stat("/usr/local/kubebuilder/bin/kube-apiserver")
+	switch decide(binDir, os.Getenv, err == nil) {
+	case failSuite:
 		ginkgo.Fail("envtest binaries not found: set KUBEBUILDER_ASSETS or run make setup-envtest", 1)
+	case skipSuite:
+		ginkgo.Skip("envtest binaries not found, skipping the envtest suite", 1)
 	}
-	ginkgo.Skip("envtest binaries not found, skipping the envtest suite", 1)
 }
 
 // Dir returns the first directory under bin/k8s, where make setup-envtest puts the binaries,
@@ -42,22 +42,27 @@ func Dir() string {
 	return ""
 }
 
-// configured reports whether envtest has a control plane to use: an existing cluster
-// when USE_EXISTING_CLUSTER is true, or binaries from any source envtest reads them
-// from. A set variable counts even when its path is wrong, so a misconfiguration fails
-// the suite instead of skipping it.
-func configured(binDir string) bool {
-	if strings.EqualFold(os.Getenv("USE_EXISTING_CLUSTER"), "true") {
-		return true
+type suiteAction uint8
+
+const (
+	runSuite suiteAction = iota
+	skipSuite
+	failSuite
+)
+
+// decide selects whether to run, skip, or fail a suite from its environment and assets.
+// An explicit path counts even when it is wrong, so envtest reports the misconfiguration.
+func decide(binDir string, getenv func(string) string, defaultAPIServerExists bool) suiteAction {
+	if strings.EqualFold(getenv("USE_EXISTING_CLUSTER"), "true") || binDir != "" || defaultAPIServerExists {
+		return runSuite
 	}
 	for _, env := range []string{"TEST_ASSET_KUBE_APISERVER", "TEST_ASSET_ETCD", "KUBEBUILDER_ASSETS"} {
-		if os.Getenv(env) != "" {
-			return true
+		if getenv(env) != "" {
+			return runSuite
 		}
 	}
-	if binDir != "" {
-		return true
+	if getenv("REQUIRE_ENVTEST") != "" {
+		return failSuite
 	}
-	_, err := os.Stat("/usr/local/kubebuilder/bin/kube-apiserver")
-	return err == nil
+	return skipSuite
 }
