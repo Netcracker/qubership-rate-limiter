@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/netcracker/qubership-rate-limiter/engine/algo"
 	enginestore "github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/internal/redisclient"
 	"github.com/netcracker/qubership-rate-limiter/service/internal/redisconn"
 	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
 )
@@ -385,6 +387,97 @@ func TestDecisionOptions_failAtOnceOnARefusedConnection(t *testing.T) {
 	var opErr *net.OpError
 	assert.ErrorAs(t, err, &opErr, "the dial error")
 	assert.Less(t, time.Since(start), 50*time.Millisecond)
+}
+
+func TestDecisionOptions_resolvesItsConfiguredAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	options := DecisionOptions(net.JoinHostPort("localhost", port), nil)
+	assert.Equal(t, decisionTimeout, options.PoolTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	conn, err := options.Dialer(ctx, "tcp4", "ignored.invalid:1")
+	require.NoError(t, err, "the dialer resolves the configured host and ignores go-redis's address")
+	_ = conn.Close()
+}
+
+// TCP acceptance spends the budget even when the Redis handshake or command
+// fails. These failures used to create a new connection for every check.
+func TestDecisionOptions_boundsConnectionChurnAndRecovers(t *testing.T) {
+	for _, mode := range []string{"accept and close", "wrong password", "silent store"} {
+		t.Run(mode, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			var accepted atomic.Int64
+			var healthy atomic.Bool
+			var servers sync.WaitGroup
+			servers.Go(func() {
+				for {
+					conn, err := listener.Accept()
+					if err != nil {
+						return
+					}
+					accepted.Add(1)
+					servers.Go(func() {
+						defer func() { _ = conn.Close() }()
+						if healthy.Load() {
+							answerCommands(conn)
+							return
+						}
+						switch mode {
+						case "wrong password":
+							_, _ = readCommand(bufio.NewReader(conn))
+							_, _ = io.WriteString(conn, "-WRONGPASS invalid username-password pair\r\n")
+						case "silent store":
+							_, _ = io.Copy(io.Discard, conn)
+						}
+					})
+				}
+			})
+			options := DecisionOptions(listener.Addr().String(), func() (string, string) { return "", "password" })
+			start := time.Now()
+			client := goredis.NewUniversalClient(options)
+			t.Cleanup(func() {
+				_ = client.Close()
+				_ = listener.Close()
+				servers.Wait()
+			})
+			var throttled atomic.Int64
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			var workers sync.WaitGroup
+			for range 128 {
+				workers.Go(func() {
+					for ctx.Err() == nil {
+						check, stop := context.WithTimeout(ctx, 30*time.Millisecond)
+						err := client.Ping(check).Err()
+						stop()
+						if errors.Is(err, redisclient.ErrDialThrottled) {
+							throttled.Add(1)
+						}
+						time.Sleep(time.Millisecond)
+					}
+				})
+			}
+			workers.Wait()
+			elapsed := time.Since(start)
+			attempts := accepted.Load()
+			assert.Positive(t, attempts, "the workload reached the TCP server")
+			assert.LessOrEqual(t, attempts, int64(decisionDialRate)+int64(elapsed.Seconds()*decisionDialRate),
+				"TCP accepts during %s of degradation", elapsed)
+			assert.Positive(t, throttled.Load(), "checks report the exhausted connection budget")
+			t.Logf("mode=%s accepted=%d elapsed=%s throttled=%d", mode, attempts, elapsed, throttled.Load())
+			healthy.Store(true)
+			require.Eventually(t, func() bool {
+				check, stop := context.WithTimeout(t.Context(), 100*time.Millisecond)
+				defer stop()
+				return client.Ping(check).Err() == nil
+			}, 4*time.Second, 20*time.Millisecond, "the client reconnects after the store recovers")
+		})
+	}
 }
 
 // A decision without a deadline of its own is bounded by the client.

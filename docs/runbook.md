@@ -244,6 +244,17 @@ ratelimit_store_errors_total{domain="gateway.public",reason="timeout"} 25
 The management API answers every call that needs the store with `RLS-0503`, and the gateway's clients see no `429` at
 all while `failClosed` is off.
 
+`reason="dial_throttled"` means the decision client's connection budget is exhausted. Each replica permits 50 TCP
+attempts per second with a burst of 50, including background replacements and attempts that connect but fail during
+the Redis handshake or a command. Further attempts fail immediately with `redis: connection creation rate exceeded`;
+checks that reuse healthy connections continue. Restore Redis connectivity, credentials, or latency. The budget
+refills automatically, and the pool retries connections after its backoff; the gateway's failure mode decides failed
+checks throughout recovery.
+
+`reason="port_exhausted"` reports `EADDRNOTAVAIL`: the pod cannot allocate a local address for a new connection.
+Check connection churn from every client sharing its network namespace. The decision client's connection budget
+bounds its own churn; it cannot recover ports held by another client or process.
+
 Where the platform routes it through the private gateway (an HTTPRoute to port 8082, with the gateway listed in
 `management.authorizationPolicy.allowedServiceAccounts`), the API itself stays reachable there, also with
 `failClosed: true` on it: the service admits the checks of `/ratelimit/v1` in the domains of `management.gatewayDomains`
