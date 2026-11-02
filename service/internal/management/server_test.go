@@ -217,6 +217,20 @@ func TestDecodeJSON_refusesACompressedBody(t *testing.T) {
 		})
 	}
 
+	// A repeated encoding header must not cause the compressed body to be
+	// inflated when the first header names identity.
+	t.Run("identity, then gzip", func(t *testing.T) {
+		h := newTestAPI(t)
+		target := BasePath + "/domains/" + testDomain + "/counter-resets"
+		response := h.callWith(t, http.MethodPost, target, listedCaller, rawJSON(compressed.String()),
+			func(request *http.Request) {
+				request.Header.Set("Idempotency-Key", "key-1")
+				request.Header.Add(fiber.HeaderContentEncoding, "identity")
+				request.Header.Add(fiber.HeaderContentEncoding, "gzip")
+			})
+		requireError(t, response, http.StatusBadRequest, CodeInvalidRequest)
+	})
+
 	t.Run("identity is accepted", func(t *testing.T) {
 		h := newTestAPI(t)
 		target := BasePath + "/domains/" + testDomain + "/counter-resets"

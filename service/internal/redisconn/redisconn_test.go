@@ -202,6 +202,10 @@ func TestParse_leavesThePasswordOfAURLOutOfItsError(t *testing.T) {
 		// part then parses as the host and the port.
 		{"redis://:s3cr/3t-pw@h:6379", "s3cr"},
 		{"redis://:4242/3t-pw@h", "4242"},
+		{"redis://:70000/3t-pw@h", "70000"},
+		{"redis://:70000?3t-pw@h", "70000"},
+		{"redis://:70000#3t-pw@h", "70000"},
+		{"redis://:999999999999999999999999/3t-pw@h", "999999999999999999999999"},
 	}
 	for _, c := range cases {
 		t.Run(c.url, func(t *testing.T) {

@@ -401,12 +401,15 @@ jobs:
             done
           done
 
-      - name: Regenerate the manifests and the chart CRDs
-        run: make sync-helm-crds
+      # The DeepCopy methods are generated too, and the Dockerfiles build the
+      # committed ones: a field added without them builds, vets, and shares
+      # its slices or maps between a copy and the object in the cache.
+      - name: Regenerate the DeepCopy methods, the manifests, and the chart CRDs
+        run: make generate sync-helm-crds
       - name: Fail on drift between the generated files and the commit
         run: |
-          paths=(config/rbac config/crd/bases helm-templates/rate-limiter-crds/templates)
+          paths=(api config/rbac config/crd/bases helm-templates/rate-limiter-crds/templates)
           if ! git diff --exit-code -- "${paths[@]}" || [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
-            echo "::error::generated manifests drifted from the commit: run 'make sync-helm-crds' and commit the result"
+            echo "::error::generated files drifted: run 'make generate sync-helm-crds' and commit the result"
             exit 1
           fi

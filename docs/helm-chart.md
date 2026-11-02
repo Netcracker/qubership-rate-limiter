@@ -620,8 +620,9 @@ management API's callers, and its ServiceAccount has no Role:
   "Management API port");
 - the `maxSurge: 1 / maxUnavailable: 0` strategy unless `DEPLOYMENT_STRATEGY_TYPE` says otherwise: the gateways must
   not lose all RLS endpoints at once;
-- `lifecycle.preStop.sleep: 7s` (the native handler, enabled by default from Kubernetes 1.30; on Kubernetes 1.29,
-  enable `PodLifecycleSleepAction` on the API server and kubelets): on deletion the pod leaves Endpoints
+- `lifecycle.preStop.sleep: 7s` (the native handler, enabled by default from Kubernetes 1.30; the DBaaS prerequisite
+  requires Kubernetes 1.32 or later, as listed in the [installation prerequisites](../README.md#install)):
+  on deletion the pod leaves Endpoints
   immediately, but xDS takes seconds to reach the gateways; the pause keeps the process serving through that window, so
   a rolling restart drops nothing and lets nothing slip through; the SIGTERM drain picks up the tail, and
   `terminationGracePeriodSeconds: 30` covers everything with margin;
@@ -731,6 +732,8 @@ where either is missing; `password`, and `username` for a database that has one 
 adapter authenticate by password alone); and `tls`, which has to be absent or `false`. A Secret that does not match
 fails the start as above, and one without an address fails it with
 `the connection properties carry neither a host and a port nor a url`.
+An invalid URL port fails with `url port is not a number` or `url port is out of range`; set a port from 1 to 65535
+in the Secret. URL errors omit the port value because an unescaped delimiter in a password can put credentials there.
 
 ## Metrics: the naming contract
 

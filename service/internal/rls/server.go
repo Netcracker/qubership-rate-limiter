@@ -544,13 +544,7 @@ func strictestDecision(decisions []engine.Decision, allowed bool) engine.Decisio
 			if d.Headers.Remaining*best.Headers.Cost < best.Headers.Remaining*d.Headers.Cost {
 				best = d
 			}
-		} else if d.CostExceedsCapacity != best.CostExceedsCapacity {
-			// A retry hint would send the caller back after a wait that cures
-			// only the other refusal, so a cost that never fits wins.
-			if d.CostExceedsCapacity {
-				best = d
-			}
-		} else if d.Headers.RetryAfter > best.Headers.RetryAfter {
+		} else if refusalBinds(d, best) {
 			best = d
 		}
 	}
@@ -558,6 +552,15 @@ func strictestDecision(decisions []engine.Decision, allowed bool) engine.Decisio
 		best.Allowed = allowed
 	}
 	return best
+}
+
+// refusalBinds reports whether d is stricter than best: a cost that never
+// fits wins, then the longer retry delay.
+func refusalBinds(d, best engine.Decision) bool {
+	if d.CostExceedsCapacity != best.CostExceedsCapacity {
+		return d.CostExceedsCapacity
+	}
+	return d.Headers.RetryAfter > best.Headers.RetryAfter
 }
 
 // responseHeaders turns the strictest-rule numbers into the response headers:

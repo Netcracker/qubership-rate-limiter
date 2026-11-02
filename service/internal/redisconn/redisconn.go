@@ -159,9 +159,9 @@ func checkPort(port int) (int, error) {
 }
 
 // fillFromURL takes the host and the port the properties left out from the
-// redis:// URL. The URL may carry the password in its userinfo, and a password
-// with an unescaped / or @ parses into the host or the port, so no error
-// quotes any part of the URL but its scheme.
+// redis:// URL. An unescaped /, ?, or # in a password ends the authority early,
+// so part of the password parses as the host or the port. Errors omit every
+// part of the URL but its scheme to keep credentials out of diagnostics.
 func fillFromURL(connection *Connection) error {
 	if connection.URL == "" {
 		return errors.New("the connection properties carry neither a host and a port nor a url")
@@ -182,7 +182,7 @@ func fillFromURL(connection *Connection) error {
 			return errors.New("url port is not a number")
 		}
 		if connection.Port, err = checkPort(port); err != nil {
-			return err
+			return errors.New("url port is out of range")
 		}
 	}
 	if connection.Host == "" || connection.Port == 0 {
