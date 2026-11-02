@@ -1,4 +1,5 @@
 apiVersion: v2
+kubeVersion: ">=1.30.0-0"
 appVersion: "0.1.0"
 description: The Envoy rate limit service for Istio ambient gateways - the data plane that enforces the configuration the rate-limiter-operator writes, and the gateway filters that call it
 name: rate-limiter

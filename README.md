@@ -185,12 +185,12 @@ Prerequisites, which the charts do not install:
   the counter store below);
 - the Prometheus Operator CRDs behind `PodMonitor` and `PrometheusRule`, when `MONITORING_ENABLED` is set.
 
-The charts require Kubernetes 1.30 or later with the default feature gates: `PodLifecycleSleepAction` for the service's
-native `lifecycle.preStop.sleep` handler and `CRDValidationRatcheting` for schema upgrades. The DBaaS operator listed
-above raises the installation requirement to Kubernetes 1.32 or later. No chart declares a `kubeVersion`, because a
-single version bound cannot express both feature-gate requirements and whether DBaaS is installed. The service pauses
-for 7 seconds before shutdown, allowing gateways to stop routing requests to the terminating pod
+Every chart declares `kubeVersion: ">=1.30.0-0"`, so Helm rejects an older cluster before installing any resources.
+Kubernetes 1.30 enables `PodLifecycleSleepAction` for the service's native `lifecycle.preStop.sleep` handler and
+`CRDValidationRatcheting` for schema upgrades by default
 ([Kubernetes feature gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)).
+The DBaaS operator listed above raises the installation requirement to Kubernetes 1.32 or later. The service pauses
+for 7 seconds before shutdown, allowing gateways to stop routing requests to the terminating pod.
 
 CI runs the envtest suites against a Kubernetes 1.37 API server, and the e2e workflow installs on a kind cluster from
 `helm/kind-action` v1.15.1 with its default node image, Gateway API v1.4.0, and qubership-istio from its `main` branch.

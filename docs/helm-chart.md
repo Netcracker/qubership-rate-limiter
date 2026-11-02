@@ -16,6 +16,10 @@ The operator chart owns the operator deployment; the service chart owns the serv
 and Argo CD overwrite what a chart renders on every sync. Rules, claim extraction, and groups do not live in
 values; they belong to `RateLimitPolicy`, one per domain, see the [resource specification](ratelimitpolicy-cr-spec.md).
 
+All three charts declare `kubeVersion: ">=1.30.0-0"`, so Helm rejects an older cluster before installing resources.
+With `redis.dbaas.enabled`, the DBaaS operator additionally requires Kubernetes 1.32 or later; see the
+[installation prerequisites](../README.md#install).
+
 ## Chart contents
 
 The operator chart:
@@ -732,8 +736,10 @@ where either is missing; `password`, and `username` for a database that has one 
 adapter authenticate by password alone); and `tls`, which has to be absent or `false`. A Secret that does not match
 fails the start as above, and one without an address fails it with
 `the connection properties carry neither a host and a port nor a url`.
-An invalid URL port fails with `url port is not a number` or `url port is out of range`; set a port from 1 to 65535
-in the Secret. URL errors omit the port value because an unescaped delimiter in a password can put credentials there.
+A URL port containing a character other than a digit fails with `url does not parse as a URL`. A numeric port that
+overflows an integer fails with `url port is not a number`; other values outside 1 to 65535 fail with
+`url port is out of range`. Set a port from 1 to 65535 in the Secret. These errors omit the port value because an
+unescaped `/`, `?`, or `#` in a password can put part of the password there.
 
 ## Metrics: the naming contract
 

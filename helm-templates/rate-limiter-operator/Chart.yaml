@@ -1,4 +1,5 @@
 apiVersion: v2
+kubeVersion: ">=1.30.0-0"
 appVersion: "0.1.0"
 description: The rate limit operator for Istio ambient gateways - the controller that compiles RateLimitPolicy objects into the service's configuration; the CRD ships in the rate-limiter-crds chart
 name: rate-limiter-operator
