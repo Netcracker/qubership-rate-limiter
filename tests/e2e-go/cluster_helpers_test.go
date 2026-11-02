@@ -482,18 +482,24 @@ func (f *fleetScale) restore() {
 	helmScale(f.release, f.original)
 }
 
-// scaleDeployment sets a Deployment's replica count through the scale
-// subresource and waits for the count to settle. It is for the operator,
+// setDeploymentReplicas sets a Deployment's replica count through the scale
+// subresource without waiting for readiness. It is for the operator,
 // which the suites stop and start again outside its release: the scale
 // subresource leaves its own field manager on .spec.replicas, and a later
 // helm upgrade that applies the same value as the profile's REPLICAS meets
 // no conflict, so a suite that puts the count back leaves the release clean.
-func scaleDeployment(name string, replicas int32) {
+func setDeploymentReplicas(name string, replicas int32) {
 	scale, err := clientset.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred())
 	scale.Spec.Replicas = replicas
 	_, err = clientset.AppsV1().Deployments(namespace).UpdateScale(ctx, name, scale, metav1.UpdateOptions{})
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// scaleDeployment sets a Deployment's replica count and waits for its pods
+// to reach that count and become Ready.
+func scaleDeployment(name string, replicas int32) {
+	setDeploymentReplicas(name, replicas)
 	Eventually(func(g Gomega) {
 		var d appsv1.Deployment
 		g.Expect(k8s.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &d)).To(Succeed())
