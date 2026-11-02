@@ -42,7 +42,7 @@ limit below 1 is an error.
 | A duplicate key in one decision is an error | two evaluations of one state in one commit lose one charge |
 | An empty bucket list is not passed | a request outside the rules is allowed without a trip to the store |
 | Time is taken from the store, not from the caller | engine replicas drift apart in their clocks; a shared bucket must not |
-| State expires on its own: a fixed-window key at the window boundary, a GCRA key when its bucket drains | there is no separate cleaner |
+| State expires on its own: a fixed-window key at most a tenth of the period after the window boundary, a GCRA key when its bucket drains | there is no separate cleaner; the Redis store spreads its fixed-window keys over that tenth, so the keys of a rate do not all expire in one second |
 | `Reset` of missing keys is a successful no-op | management operations are retried |
 | Windows arrive resolved and having passed `algo.Check` | the store does not re-validate; an unchecked window is undefined behavior |
 | `Remaining` is non-negative; `CostExceedsCapacity` tells "will never fit" from "wait" | for a cost that can never fit, retry headers would be a lie |
@@ -117,7 +117,8 @@ effort.
 
 **In-memory** (`store/memory`) is the reference client of the suite and serves tests only: counters live in one
 process's memory, so N replicas over it would give an N-fold limit, and the service never counts there. Its math
-mirrors the server-side script formula for formula; expiry is lazy (stale state is discarded on touch and in `Scan`).
+mirrors the server-side script formula for formula; expiry is lazy (stale state is discarded on touch and in `Scan`),
+and a fixed window expires at its boundary, without the per-key delay the Redis store adds.
 
 **Redis** (`store/redis`) is one Lua script per decision: evaluate all buckets, commit only if no enforcing bucket
 refused. The server has to be Redis 5.0 or later: the script reads the clock with `TIME` before it writes

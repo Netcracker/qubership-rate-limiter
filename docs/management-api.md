@@ -98,6 +98,10 @@ the snapshot: ruleIds/algorithm/period parse the key itself and therefore reach 
 the window budgets) and see enforced counters only; an addressed DELETE on an orphan is 404. Bulk execution resolves the
 selector once, at the start of the sweep.
 
+A fixed-window counter whose window has ended keeps its key for up to a tenth of its period. Until the key expires, the
+listing shows the counter with its whole limit remaining, and a bulk selector without limited matches it, so a preview
+and resetCount count it too.
+
 Rule set versions: ruleSetVersion is the opaque identity of the enforced set, PER DOMAIN (other domains do not disturb a
 pin). It lives in RuleSetView and DomainSummary (required), in the addressed DELETE responses (required), and in /status
 as a map by domain. DELETE accepts an optional expectedRuleSetVersion (a mismatch is 409); it is optional on purpose:

@@ -4,7 +4,7 @@
 #
 #   docker build -f tests/load/Dockerfile .
 
-FROM --platform=$BUILDPLATFORM golang:1.27@sha256:b76020929b709ddb6202afc05410a0faefae20ae05e27ad548b3870092688a69 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS builder
 ARG TARGETOS
 ARG TARGETARCH
 # Allow Go toolchain auto-download when the image patch is older than the
@@ -45,7 +45,7 @@ RUN chmod 755 /opt/loadtest \
     && chmod 444 /opt/loadtest/ratelimit-load.jmx /opt/loadtest/loadtest.properties /opt/loadtest/pick.groovy \
     && chmod 555 /opt/loadtest/run.sh
 
-FROM eclipse-temurin:21-jre-alpine-3.24@sha256:b48e02e0ea88d7bfb305335df94923bdef394905f4147dccd52e873cf17b1088
+FROM eclipse-temurin:21-jre-alpine-3.24@sha256:82cf3d9ccbe1ed46252008d51b2f2329e6b9e8a2f4394c4bebefc3ea7f4b1372
 COPY --from=jmeter /opt/jmeter /opt/jmeter
 COPY --chmod=555 --from=builder /loadkit /usr/local/bin/loadkit
 COPY --from=jmeter /opt/loadtest /opt/loadtest
