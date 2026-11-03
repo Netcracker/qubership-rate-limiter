@@ -140,7 +140,9 @@ const decisionTimeout = 250 * time.Millisecond
 const decisionSpareConns = 4
 
 // decisionDialRate bounds sustained TCP attempts to 50 per second per decision
-// client. The burst covers one full pool, with a minimum of 50 attempts.
+// client. The burst covers one full pool, with a minimum of 50 attempts. At
+// most 3000 attempts in a minute, plus one burst, leave room in the pod's
+// ephemeral port range for management and mesh connections.
 const decisionDialRate = 50
 
 // DecisionOptions configures the client that decides the traffic's checks.
