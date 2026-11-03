@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,6 +19,7 @@ import (
 	engine "github.com/netcracker/qubership-rate-limiter/engine"
 	"github.com/netcracker/qubership-rate-limiter/engine/store"
 	"github.com/netcracker/qubership-rate-limiter/engine/store/memory"
+	"github.com/netcracker/qubership-rate-limiter/internal/redisclient"
 )
 
 // sampleCount reads how many observations the series of labels holds in a
@@ -154,7 +156,8 @@ func TestInstrumentStore_observesTheRoundtripOfADecision(t *testing.T) {
 
 // The reason separates what an operator does about a failed decision: timeout
 // is load or distance, server is the store answering an error, which no retry
-// cures, and other is connectivity. A new reason adds a row.
+// cures, dial_throttled is the client's connection budget, port_exhausted is
+// local address allocation failing, and other is connectivity. A new reason adds a row.
 func TestInstrumentStore_countsAFailedDecisionByReason(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -171,6 +174,10 @@ func TestInstrumentStore_countsAFailedDecisionByReason(t *testing.T) {
 		{"a redis error is a server answer", "errors.redis", goredis.ErrNoScript, "server"},
 		{"a wrapped redis error is a server answer", "errors.wrapped-redis",
 			fmt.Errorf("decide: %w", goredis.ErrNoScript), "server"},
+		{"a throttled dial has its own reason", "errors.dial-throttled",
+			fmt.Errorf("decide: %w", redisclient.ErrDialThrottled), "dial_throttled"},
+		{"port exhaustion has its own reason", "errors.port-exhausted",
+			&net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("connect: %w", syscall.EADDRNOTAVAIL)}, "port_exhausted"},
 		{"any other error is other", "errors.refused", errors.New("connection refused"), "other"},
 	}
 	for _, c := range cases {

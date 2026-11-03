@@ -74,8 +74,10 @@ tests:
               description: >-
                 The rate limit service in biz failed 15 store decisions in 5m with reason timeout. Every
                 failed check is decided by the gateway's failure mode, unlimited under fail-open. timeout is
-                no answer within the check's deadline: load, distance, or a store that stopped answering;
-                server is the store answering an error; other is a connection that failed outright, a store
+                no answer within the check's deadline: load, distance, or a store that stopped answering, including a
+                wait for a free pooled connection; server is the store answering an error; dial_throttled is
+                the decision client's connection budget being exhausted; port_exhausted is the pod failing to
+                allocate a local address (EADDRNOTAVAIL); other is a connection that failed outright, a store
                 that refuses connections or a name that does not resolve.
 
   # One error, retried and gone, never pages. This is the case storeErrorsFor
