@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -409,68 +410,21 @@ func TestDecisionOptions_resolvesItsConfiguredAddress(t *testing.T) {
 func TestDecisionOptions_boundsConnectionChurnAndRecovers(t *testing.T) {
 	for _, mode := range []string{"accept and close", "wrong password", "silent store"} {
 		t.Run(mode, func(t *testing.T) {
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
-			var accepted atomic.Int64
-			var healthy atomic.Bool
-			var servers sync.WaitGroup
-			servers.Go(func() {
-				for {
-					conn, err := listener.Accept()
-					if err != nil {
-						return
-					}
-					accepted.Add(1)
-					servers.Go(func() {
-						defer func() { _ = conn.Close() }()
-						if healthy.Load() {
-							answerCommands(conn)
-							return
-						}
-						switch mode {
-						case "wrong password":
-							_, _ = readCommand(bufio.NewReader(conn))
-							_, _ = io.WriteString(conn, "-WRONGPASS invalid username-password pair\r\n")
-						case "silent store":
-							_, _ = io.Copy(io.Discard, conn)
-						}
-					})
-				}
-			})
-			options := DecisionOptions(listener.Addr().String(), func() (string, string) { return "", "password" })
+			server := newChurnServer(t, mode)
+			options := DecisionOptions(server.listener.Addr().String(), func() (string, string) { return "", "password" })
 			start := time.Now()
 			client := goredis.NewUniversalClient(options)
-			t.Cleanup(func() {
-				_ = client.Close()
-				_ = listener.Close()
-				servers.Wait()
-			})
-			var throttled atomic.Int64
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-			defer cancel()
-			var workers sync.WaitGroup
-			for range 128 {
-				workers.Go(func() {
-					for ctx.Err() == nil {
-						check, stop := context.WithTimeout(ctx, 30*time.Millisecond)
-						err := client.Ping(check).Err()
-						stop()
-						if errors.Is(err, redisclient.ErrDialThrottled) {
-							throttled.Add(1)
-						}
-						time.Sleep(time.Millisecond)
-					}
-				})
-			}
-			workers.Wait()
+			t.Cleanup(func() { _ = client.Close() })
+			throttled := runDegradedChecks(t, client)
 			elapsed := time.Since(start)
-			attempts := accepted.Load()
+			attempts := server.accepted.Load()
 			assert.Positive(t, attempts, "the workload reached the TCP server")
-			assert.LessOrEqual(t, attempts, int64(decisionDialRate)+int64(elapsed.Seconds()*decisionDialRate),
+			burst := max(decisionDialRate, options.PoolSize)
+			assert.LessOrEqual(t, attempts, int64(burst)+int64(elapsed.Seconds()*decisionDialRate),
 				"TCP accepts during %s of degradation", elapsed)
-			assert.Positive(t, throttled.Load(), "checks report the exhausted connection budget")
-			t.Logf("mode=%s accepted=%d elapsed=%s throttled=%d", mode, attempts, elapsed, throttled.Load())
-			healthy.Store(true)
+			assert.Positive(t, throttled, "checks report the exhausted connection budget")
+			t.Logf("mode=%s accepted=%d elapsed=%s throttled=%d", mode, attempts, elapsed, throttled)
+			server.healthy.Store(true)
 			require.Eventually(t, func() bool {
 				check, stop := context.WithTimeout(t.Context(), 100*time.Millisecond)
 				defer stop()
@@ -478,6 +432,94 @@ func TestDecisionOptions_boundsConnectionChurnAndRecovers(t *testing.T) {
 			}, 4*time.Second, 20*time.Millisecond, "the client reconnects after the store recovers")
 		})
 	}
+}
+
+type churnServer struct {
+	listener net.Listener
+	accepted atomic.Int64
+	healthy  atomic.Bool
+	workers  sync.WaitGroup
+}
+
+func newChurnServer(t *testing.T, mode string) *churnServer {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &churnServer{listener: listener}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		server.workers.Wait()
+	})
+	server.workers.Go(func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			server.accepted.Add(1)
+			server.workers.Go(func() {
+				defer func() { _ = conn.Close() }()
+				server.answer(conn, mode)
+			})
+		}
+	})
+	return server
+}
+
+func (s *churnServer) answer(conn net.Conn, mode string) {
+	if s.healthy.Load() {
+		answerCommands(conn)
+		return
+	}
+	switch mode {
+	case "wrong password":
+		_, _ = readCommand(bufio.NewReader(conn))
+		_, _ = io.WriteString(conn, "-WRONGPASS invalid username-password pair\r\n")
+	case "silent store":
+		_, _ = io.Copy(io.Discard, conn)
+	}
+}
+
+func runDegradedChecks(t *testing.T, client goredis.UniversalClient) int64 {
+	t.Helper()
+	var throttled atomic.Int64
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	var workers sync.WaitGroup
+	for range 128 {
+		workers.Go(func() {
+			for ctx.Err() == nil {
+				check, stop := context.WithTimeout(ctx, 30*time.Millisecond)
+				err := client.Ping(check).Err()
+				stop()
+				if errors.Is(err, redisclient.ErrDialThrottled) {
+					throttled.Add(1)
+				}
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+	workers.Wait()
+	return throttled.Load()
+}
+
+// A healthy pool can fill from its initial connection budget even when the
+// CPU-derived pool size exceeds the sustained connection rate.
+func TestDecisionOptions_burstFillsAHealthyPool(t *testing.T) {
+	previous := runtime.GOMAXPROCS(10)
+	defer runtime.GOMAXPROCS(previous)
+	server := newChurnServer(t, "accept and close")
+	server.healthy.Store(true)
+	options := DecisionOptions(server.listener.Addr().String(), nil)
+	client := goredis.NewClient(options.Simple())
+	t.Cleanup(func() { _ = client.Close() })
+	require.Equal(t, 100, client.Options().PoolSize)
+	for range options.PoolSize {
+		held := client.Conn()
+		t.Cleanup(func() { _ = held.Close() })
+		require.NoError(t, held.Ping(t.Context()).Err(), "a check that holds a healthy connection")
+	}
+	assert.Equal(t, uint32(options.PoolSize), client.PoolStats().TotalConns)
 }
 
 // A decision without a deadline of its own is bounded by the client.

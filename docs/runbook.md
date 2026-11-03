@@ -244,17 +244,6 @@ ratelimit_store_errors_total{domain="gateway.public",reason="timeout"} 25
 The management API answers every call that needs the store with `RLS-0503`, and the gateway's clients see no `429` at
 all while `failClosed` is off.
 
-`reason="dial_throttled"` means the decision client's connection budget is exhausted. Each replica permits 50 TCP
-attempts per second with a burst of 50, including background replacements and attempts that connect but fail during
-the Redis handshake or a command. Further attempts fail immediately with `redis: connection creation rate exceeded`;
-checks that reuse healthy connections continue. Restore Redis connectivity, credentials, or latency. The budget
-refills automatically, and the pool retries connections after its backoff; the gateway's failure mode decides failed
-checks throughout recovery.
-
-`reason="port_exhausted"` reports `EADDRNOTAVAIL`: the pod cannot allocate a local address for a new connection.
-Check connection churn from every client sharing its network namespace. The decision client's connection budget
-bounds its own churn; it cannot recover ports held by another client or process.
-
 Where the platform routes it through the private gateway (an HTTPRoute to port 8082, with the gateway listed in
 `management.authorizationPolicy.allowedServiceAccounts`), the API itself stays reachable there, also with
 `failClosed: true` on it: the service admits the checks of `/ratelimit/v1` in the domains of `management.gatewayDomains`
@@ -285,12 +274,29 @@ kubectl logs -n "$NS" deploy/rate-limiter --since=10m | grep -E 'store error|fai
 
 The `reason` label tells the class: `timeout` is no answer within the check's deadline, latency or a partition, and
 includes a check the gateway stopped waiting for (`context canceled` in the log above) and a wait for a free pooled
-connection; `server` is Redis answering an
-error; `other` is connectivity, a connection refused or dropped (`EOF`) or a name that does not resolve. Once the
+connection; `server` is Redis answering an error; `dial_throttled` is the decision client exhausting its connection
+budget; `port_exhausted` is the pod failing to allocate a local address (`EADDRNOTAVAIL`); `other` is connectivity, a
+connection refused or dropped (`EOF`) or a name that does not resolve. Once the
 service's first lookup of the name has succeeded, a failed lookup keeps the last address and is not a store error. A
 decision is never retried, so a store that refuses connections shows as `other` at once rather than as a `timeout`. The
 `ratelimit_store_roundtrip_seconds` histogram shows whether the store was slow before it failed. The policy status does
 not move during the outage: it describes rules, not counters, and `Ready` stays `True`.
+
+`reason="dial_throttled"` means the decision client's connection budget is exhausted. Each replica permits 50 TCP
+attempts per second with a burst of `max(50, pool size)`. The pool holds `10 * GOMAXPROCS` connections; Go derives
+`GOMAXPROCS` from the pod's CPU limit. Background replacements and attempts that connect but fail during the Redis
+handshake or a command share the budget. Further attempts fail immediately with
+`redis: connection creation rate exceeded: more than 50 TCP attempts per second, burst <burst>`.
+
+When checks hit their deadline faster than the budget replaces their connections, more than 50 per second, the pool
+can empty and the replica can fail nearly every check until Redis answers within the deadline again. The budget
+limits port exhaustion and connection churn at the cost of successful checks during sustained latency degradation.
+Restore Redis connectivity, credentials, or latency. The budget refills automatically, and the pool retries connections
+after its backoff; the gateway's failure mode decides failed checks throughout recovery.
+
+`reason="port_exhausted"` reports `EADDRNOTAVAIL`: the pod cannot allocate a local address for a new connection.
+Check connection churn from every client sharing its network namespace. The decision client's connection budget
+bounds its own churn; it cannot recover ports held by another client or process.
 
 The pool series tell whether the checks wait for a connection to Redis on their own path.
 `ratelimit_store_pool_misses_total` counts the calls of the decision client that found no idle connection in the

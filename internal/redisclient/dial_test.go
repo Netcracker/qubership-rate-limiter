@@ -15,62 +15,75 @@ import (
 )
 
 func TestLimitDial_boundsSuccessfulAndFailedAttempts(t *testing.T) {
-	for _, fail := range []bool{false, true} {
+	for _, failure := range []error{nil, errors.New("connection refused")} {
 		name := "successful TCP connection"
-		if fail {
+		if failure != nil {
 			name = "failed TCP connection"
 		}
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				var attempts atomic.Int64
-				failure := errors.New("connection refused")
+				client, server := net.Pipe()
+				defer func() { _ = client.Close(); _ = server.Close() }()
 				dial := LimitDial(func(context.Context, string, string) (net.Conn, error) {
 					attempts.Add(1)
-					if fail {
-						return nil, failure
-					}
-					client, server := net.Pipe()
-					_ = server.Close()
-					return client, nil
+					return client, failure
 				}, 50, 50)
-				var throttled atomic.Int64
 				start := time.Now()
 				for second := range 60 {
-					var wg sync.WaitGroup
-					for range 128 {
-						wg.Go(func() {
-							for range 20 {
-								conn, err := dial(context.Background(), "tcp", "redis:6379")
-								switch {
-								case errors.Is(err, ErrDialThrottled):
-									throttled.Add(1)
-								case fail:
-									assert.ErrorIs(t, err, failure)
-								default:
-									assert.NoError(t, err)
-									if conn != nil {
-										_ = conn.Close()
-									}
-								}
-							}
-						})
-					}
-					wg.Wait()
+					exerciseDialBudget(t, dial, client, failure)
 					assert.Equal(t, int64((second+1)*50), attempts.Load(), "TCP attempts after second %d", second)
 					time.Sleep(time.Second)
 				}
 				assert.Equal(t, time.Minute, time.Since(start), "throttled calls return without waiting")
-				assert.Positive(t, throttled.Load())
 				conn, err := dial(context.Background(), "tcp", "redis:6379")
-				if fail {
-					require.ErrorIs(t, err, failure, "the refilled budget permits another TCP attempt")
-				} else {
-					require.NoError(t, err)
-					_ = conn.Close()
-				}
+				assert.ErrorIs(t, err, failure, "the refilled budget permits another TCP attempt")
+				assert.Same(t, client, conn)
 			})
 		})
 	}
+}
+
+func exerciseDialBudget(t *testing.T, dial func(context.Context, string, string) (net.Conn, error),
+	wantConn net.Conn, wantErr error,
+) {
+	t.Helper()
+	var throttled atomic.Int64
+	var wg sync.WaitGroup
+	for range 128 {
+		wg.Go(func() {
+			for range 20 {
+				conn, err := dial(context.Background(), "tcp", "redis:6379")
+				if errors.Is(err, ErrDialThrottled) {
+					throttled.Add(1)
+					assert.Nil(t, conn)
+					continue
+				}
+				assert.ErrorIs(t, err, wantErr)
+				assert.Same(t, wantConn, conn)
+			}
+		})
+	}
+	wg.Wait()
+	assert.Positive(t, throttled.Load())
+}
+
+func TestLimitDial_reportsItsBudgetWithoutAllocatingPerRejection(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		dial := LimitDial(func(context.Context, string, string) (net.Conn, error) {
+			return nil, errors.New("connection refused")
+		}, 50, 100)
+		for range 100 {
+			_, err := dial(context.Background(), "tcp", "redis:6379")
+			require.NotErrorIs(t, err, ErrDialThrottled)
+		}
+		_, err := dial(context.Background(), "tcp", "redis:6379")
+		require.ErrorIs(t, err, ErrDialThrottled)
+		assert.EqualError(t, err, "redis: connection creation rate exceeded: more than 50 TCP attempts per second, burst 100")
+		assert.Zero(t, testing.AllocsPerRun(100, func() {
+			_, _ = dial(context.Background(), "tcp", "redis:6379")
+		}))
+	})
 }
 
 func TestLimitDial_canceledCallsPreserveTheBudget(t *testing.T) {

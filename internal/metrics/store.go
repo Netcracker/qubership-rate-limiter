@@ -44,7 +44,12 @@ func (s instrumentedStore) Reset(ctx context.Context, keys []string) error {
 	return s.next.Reset(ctx, keys)
 }
 
-// storeErrorReason classifies failures for the store error counter.
+// storeErrorReason folds a store error into the fixed reason set. Timeout is
+// load or distance, a wait for a free pooled connection included; server means
+// the store answered an error, a script or command problem that no retry cures;
+// dial_throttled means the decision client spent its connection budget, and
+// port_exhausted means the pod cannot allocate a local address (EADDRNOTAVAIL);
+// other is any other connectivity failure.
 func storeErrorReason(err error) string {
 	var netErr net.Error
 	switch {

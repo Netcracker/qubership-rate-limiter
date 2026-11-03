@@ -156,7 +156,8 @@ func TestInstrumentStore_observesTheRoundtripOfADecision(t *testing.T) {
 
 // The reason separates what an operator does about a failed decision: timeout
 // is load or distance, server is the store answering an error, which no retry
-// cures, and other is connectivity. A new reason adds a row.
+// cures, dial_throttled is the client's connection budget, port_exhausted is
+// local address allocation failing, and other is connectivity. A new reason adds a row.
 func TestInstrumentStore_countsAFailedDecisionByReason(t *testing.T) {
 	cases := []struct {
 		name   string
