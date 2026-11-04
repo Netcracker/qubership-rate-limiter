@@ -35,7 +35,8 @@ env:
   E2E_SATELLITE_NAMESPACE: ratelimit-e2e-sat
   # The counter store's namespace. The DBaaS Redis adapter runs its databases
   # in the adapter's namespace, not in the release's, so the release reaches
-  # its store at <service>.<namespace>, and so does the suite.
+  # its store at <service>.<namespace>, and so does the suite. The log capture
+  # names this namespace in tests/e2e/manifests/fluent-bit.yaml.
   E2E_REDIS_NAMESPACE: ratelimit-e2e-redis
   OPERATOR_IMAGE: ratelimit-operator:e2e
   SERVICE_IMAGE: ratelimit-service:e2e

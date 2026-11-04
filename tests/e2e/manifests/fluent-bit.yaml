@@ -27,7 +27,7 @@ data:
     [INPUT]
         Name              tail
         Tag               kube.*
-        Path              /var/log/containers/*_ratelimit-e2e_*.log,/var/log/containers/*_istio-system_*.log
+        Path              /var/log/containers/*_ratelimit-e2e_*.log,/var/log/containers/*_ratelimit-e2e-redis_*.log,/var/log/containers/*_istio-system_*.log
         Path_Key          file
         Parser            cri
         Read_From_Head    On
