@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -24,23 +25,11 @@ var _ = Describe("identity extraction through the gateway", Ordered, Label("jwt"
 		probePath = "/e2e"
 		limit     = 2
 	)
-	var (
-		applied bool
-
-		// tokensBefore is the scrape taken before the first token of the
-		// per-client spec: the extraction series grow from it.
-		tokensBefore map[string]*dto.MetricFamily
-	)
+	// tokensBefore is the scrape taken before the first token of the latest
+	// attempt of the per-client spec: the extraction series grow from it.
+	var tokensBefore map[string]*dto.MetricFamily
 
 	BeforeAll(func() {
-		// The fixture half runs once even across flake retries: the budget
-		// is an hour long, and a retry that reapplied the policy would
-		// re-count from empty buckets.
-		if applied {
-			return
-		}
-		applied = true
-
 		// Warm-up probes carry no token, so the tenant rule cannot match
 		// them and the per-client budgets stay untouched - the order of
 		// warm-up and apply does not matter here.
@@ -63,7 +52,15 @@ var _ = Describe("identity extraction through the gateway", Ordered, Label("jwt"
 	It("counts each client in its own bucket", func() {
 		tokensBefore = scrapeAllReplicas()
 
-		clientA := map[string]string{"Authorization": "Bearer " + unsignedToken(map[string]string{"org_id": "acme-a"})}
+		// Each attempt counts under tenants of its own, so a --flake-attempts
+		// retry starts from unspent budgets: the buckets are per tenant and
+		// outlive the attempt, and the store can charge a check the gateway
+		// has already timed out.
+		suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+		clientA := map[string]string{
+			"Authorization": "Bearer " + unsignedToken(map[string]string{"org_id": "acme-a-" + suffix}),
+		}
 		codes := gatewayBurst("public-gateway", probePath, limit+1, clientA)
 		Expect(codes[:limit]).NotTo(ContainElement(429), "client A's requests within its budget of %d", limit)
 		Expect(codes[limit]).To(Equal(429),
@@ -71,7 +68,9 @@ var _ = Describe("identity extraction through the gateway", Ordered, Label("jwt"
 
 		// A different claim value is a different bucket: client B must be
 		// admitted while client A stands refused.
-		clientB := map[string]string{"Authorization": "Bearer " + unsignedToken(map[string]string{"org_id": "acme-b"})}
+		clientB := map[string]string{
+			"Authorization": "Bearer " + unsignedToken(map[string]string{"org_id": "acme-b-" + suffix}),
+		}
 		Expect(gatewayGet("public-gateway", probePath, clientB)).NotTo(Equal(429),
 			"client B was refused out of client A's bucket")
 	})
@@ -81,7 +80,8 @@ var _ = Describe("identity extraction through the gateway", Ordered, Label("jwt"
 		// arrived, and the declared key extracted values for them. Both are
 		// read with the domain label, which is what keeps one domain's
 		// traffic from answering for another domain's declared keys. The
-		// per-client spec sent limit+1 tokens of client A and one of client B.
+		// latest attempt of the per-client spec sent limit+1 tokens of client
+		// A and one of client B.
 		sent := float64(limit + 2)
 		extractions := map[string]string{"domain": domain, "key": "tenant"}
 		tokens := map[string]string{"domain": domain}
