@@ -48,7 +48,7 @@ spec:
                 secretKeyRef:
                   name: e2e-redis-auth
                   key: password
-            # redis-cli reads it, so the probe below authenticates.
+            # redis-cli reads it, so dump.sh in e2e-redis-diagnostics authenticates.
             - name: REDISCLI_AUTH
               valueFrom:
                 secretKeyRef:
@@ -57,9 +57,11 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          # The kubelet makes this check from outside the container. An exec probe
+          # runs in the cgroup of the container, so its CPU counts against the limit.
           readinessProbe:
-            exec:
-              command: ["redis-cli", "ping"]
+            tcpSocket:
+              port: redis
             initialDelaySeconds: 2
             periodSeconds: 5
           lifecycle:
