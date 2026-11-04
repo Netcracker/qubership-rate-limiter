@@ -183,11 +183,14 @@ var (
 	}, []string{"domain"})
 
 	// StoreErrors counts failed store decisions. The reason separates what an
-	// operator does about it: timeout is load or distance, server is the store
-	// answering an error (a script or command problem), other is connectivity.
+	// operator does about it: timeout is load or distance, including a wait for a
+	// free pooled connection; server is the store answering an error (a script or
+	// command problem); dial_throttled is the client's connection budget being
+	// exhausted; port_exhausted is local address allocation failing (EADDRNOTAVAIL);
+	// other is connectivity.
 	StoreErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "ratelimit_store_errors_total",
-		Help: "Failed counter store decisions by reason: timeout, server, other.",
+		Help: "Failed counter store decisions by reason: timeout, server, dial_throttled, port_exhausted, other.",
 	}, []string{"domain", "reason"})
 
 	// SnapshotRebuilds counts rule store rebuilds. Errors mean the engines

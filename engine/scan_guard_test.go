@@ -67,10 +67,10 @@ func TestMatchManyBlocks_scanStaysLinear(t *testing.T) {
 	fewCost, manyCost := cost(few), cost(many)
 	t.Logf("scan of %d blocks: %.0f ns; of %d blocks: %.0f ns (best of %d)", few, fewCost, many, manyCost, runs)
 
-	ratio := manyCost / fewCost
-	if ratio > float64(many/few)*1.5 {
-		t.Errorf("the target scan is no longer linear: %d blocks cost %.1fx what %d cost, want at most %dx",
-			many, ratio, few, many/few)
+	ratio, bound := manyCost/fewCost, float64(many/few)*1.5
+	if ratio > bound {
+		t.Errorf("the target scan is no longer linear: %d blocks cost %.1fx what %d cost, want at most %.0fx",
+			many, ratio, few, bound)
 	}
 	if perRoute := manyCost / float64(many*routesPerBlock); perRoute > ceilingPerRoute {
 		t.Errorf("the target scan costs %.1f ns per route, want under %.0f", perRoute, ceilingPerRoute)

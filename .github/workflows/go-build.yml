@@ -43,7 +43,7 @@ jobs:
       contents: read
       pull-requests: write
       packages: write
-    uses: Netcracker/qubership-core-infra/.github/workflows/generic-go-build.yaml@ed95ad948025728db1e613a3e1a4e6a11186f541 # v2.6.2
+    uses: Netcracker/qubership-core-infra/.github/workflows/generic-go-build.yaml@91f0316488bc6ab88d060261caa1ebddd6706094 # v2.7.0
     with:
       # Pinned to the root on purpose: module discovery would also run the
       # workflow's envtest step for engine/, and that step hard-fails on a
@@ -401,12 +401,15 @@ jobs:
             done
           done
 
-      - name: Regenerate the manifests and the chart CRDs
-        run: make sync-helm-crds
+      # The DeepCopy methods are generated too, and the Dockerfiles build the
+      # committed ones: a field added without them builds, vets, and shares
+      # its slices or maps between a copy and the object in the cache.
+      - name: Regenerate the DeepCopy methods, the manifests, and the chart CRDs
+        run: make generate sync-helm-crds
       - name: Fail on drift between the generated files and the commit
         run: |
-          paths=(config/rbac config/crd/bases helm-templates/rate-limiter-crds/templates)
+          paths=(api config/rbac config/crd/bases helm-templates/rate-limiter-crds/templates)
           if ! git diff --exit-code -- "${paths[@]}" || [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
-            echo "::error::generated manifests drifted from the commit: run 'make sync-helm-crds' and commit the result"
+            echo "::error::generated files drifted: run 'make generate sync-helm-crds' and commit the result"
             exit 1
           fi

@@ -146,6 +146,11 @@ E2E_NAMESPACE ?= core
 # suite; empty skips it. CI sets it in the job environment.
 E2E_SATELLITE_NAMESPACE ?=
 
+# golangci-lint reads the export data of the Go that runs it, and v2.8.0
+# cannot read what Go 1.27 writes, so the lint targets run on the exact
+# toolchain go.mod declares, fetched by GOTOOLCHAIN if it is not installed.
+lint lint-fix: export GOTOOLCHAIN = go$(shell go list -m -f '{{.GoVersion}}')
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter, the engine module included.
 	"$(GOLANGCI_LINT)" run

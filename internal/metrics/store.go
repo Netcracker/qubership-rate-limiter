@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"syscall"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/netcracker/qubership-rate-limiter/engine/store"
+	"github.com/netcracker/qubership-rate-limiter/internal/redisclient"
 )
 
 // InstrumentStore wraps a counter store with the roundtrip histogram and the
@@ -43,11 +45,18 @@ func (s instrumentedStore) Reset(ctx context.Context, keys []string) error {
 }
 
 // storeErrorReason folds a store error into the fixed reason set. Timeout is
-// load or distance, a wait for a free pooled connection included; server means the store answered an error — a script or
-// command problem, which no retry cures; other is connectivity.
+// load or distance, a wait for a free pooled connection included; server means
+// the store answered an error, a script or command problem that no retry cures;
+// dial_throttled means the decision client spent its connection budget, and
+// port_exhausted means the pod cannot allocate a local address (EADDRNOTAVAIL);
+// other is any other connectivity failure.
 func storeErrorReason(err error) string {
 	var netErr net.Error
 	switch {
+	case errors.Is(err, redisclient.ErrDialThrottled):
+		return "dial_throttled"
+	case errors.Is(err, syscall.EADDRNOTAVAIL):
+		return "port_exhausted"
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled),
 		errors.As(err, &netErr) && netErr.Timeout(), errors.Is(err, goredis.ErrPoolTimeout):
 		return "timeout"

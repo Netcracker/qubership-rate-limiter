@@ -119,17 +119,29 @@ func writeJSON(c *fiber.Ctx, body any) error {
 }
 
 // decodeJSON reads a request body, rejecting the shapes a client should hear
-// about rather than have silently ignored: a wrong content type, an unknown
-// field (usually a typo or a version mismatch), and trailing data.
+// about rather than have silently ignored: a wrong content type, a compressed
+// body, an unknown field (usually a typo or a version mismatch), and trailing
+// data.
 func decodeJSON(c *fiber.Ctx, v any) *apiError {
 	if contentType := c.Get(fiber.HeaderContentType); contentType != "" {
-		if media, _, _ := strings.Cut(contentType, ";"); strings.TrimSpace(media) != fiber.MIMEApplicationJSON {
+		// A media type is case-insensitive (RFC 9110, section 8.3.1).
+		media, _, _ := strings.Cut(contentType, ";")
+		if !strings.EqualFold(strings.TrimSpace(media), fiber.MIMEApplicationJSON) {
 			return invalid("the request body must be application/json; send it with that Content-Type",
 				fiber.HeaderContentType)
 		}
 	}
+	// The body limit counts the bytes on the wire, and a few hundred bytes of
+	// gzip expand to gigabytes, which fiber's Body would inflate whole before
+	// maxRequestBody is compared. Every body here is a small object, so a
+	// compressed one is refused and the raw bytes are read.
+	encoding := strings.TrimSpace(c.Get(fiber.HeaderContentEncoding))
+	if encoding != "" && !strings.EqualFold(encoding, "identity") {
+		return invalid("the request body must not be compressed; send it without a Content-Encoding",
+			fiber.HeaderContentEncoding)
+	}
 
-	body := c.Body()
+	body := c.Request().Body()
 	if len(body) > maxRequestBody {
 		return invalid("the request body is larger than the 1 MiB this endpoint accepts")
 	}

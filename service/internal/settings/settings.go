@@ -14,6 +14,7 @@ import (
 	"math"
 	"net"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 
 	enginestore "github.com/netcracker/qubership-rate-limiter/engine/store"
 	redisstore "github.com/netcracker/qubership-rate-limiter/engine/store/redis"
+	"github.com/netcracker/qubership-rate-limiter/internal/redisclient"
 	"github.com/netcracker/qubership-rate-limiter/service/internal/records"
 	"github.com/netcracker/qubership-rate-limiter/service/internal/redisconn"
 	"github.com/netcracker/qubership-rate-limiter/service/internal/rls"
@@ -137,6 +139,12 @@ const decisionTimeout = 250 * time.Millisecond
 // replacements connect, each spare lets one more check skip the dial.
 const decisionSpareConns = 4
 
+// decisionDialRate bounds sustained TCP attempts to 50 per second per decision
+// client. The burst covers one full pool, with a minimum of 50 attempts. At
+// most 3000 attempts in a minute, plus one burst, leave room in the pod's
+// ephemeral port range for management and mesh connections.
+const decisionDialRate = 50
+
 // DecisionOptions configures the client that decides the traffic's checks.
 //
 // A decision is never retried and its dial is attempted once: the gateway
@@ -167,11 +175,20 @@ const decisionSpareConns = 4
 // does not wait on DNS. The DBaaS Redis adapter writes a short host name,
 // <database>.<namespace>, which the pod's resolver expands through its search
 // domains before it finds the Service.
+//
+// Each TCP attempt, including a spare replacement or an address fallback,
+// spends the client's shared connection budget: [decisionDialRate] per
+// second, with a burst covering at least one full pool. Excess attempts fail
+// immediately with [redisclient.ErrDialThrottled], allowing the pool's dial backoff to run.
+// When timed-out checks drop connections faster than the budget replaces them,
+// the pool can empty and fail nearly every check until store latency recovers.
 func DecisionOptions(addr string, credentials func() (string, string)) *goredis.UniversalOptions {
+	poolSize := 10 * runtime.GOMAXPROCS(0)
 	dialer := &resolvingDialer{
 		addr:   addr,
 		lookup: net.DefaultResolver.LookupHost,
-		dial:   goredis.NewDialer(&goredis.Options{DialTimeout: decisionTimeout}),
+		dial: redisclient.LimitDial(goredis.NewDialer(&goredis.Options{DialTimeout: decisionTimeout}),
+			decisionDialRate, max(decisionDialRate, poolSize)),
 	}
 	return &goredis.UniversalOptions{
 		Addrs:                 []string{addr},
@@ -181,6 +198,7 @@ func DecisionOptions(addr string, credentials func() (string, string)) *goredis.
 		DialTimeout:           decisionTimeout,
 		DialerRetries:         1,
 		PoolTimeout:           decisionTimeout,
+		PoolSize:              poolSize,
 		ReadTimeout:           decisionTimeout,
 		WriteTimeout:          decisionTimeout,
 		MaxRetries:            -1,

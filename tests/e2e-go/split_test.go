@@ -9,6 +9,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gstruct"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/netcracker/qubership-rate-limiter/api/contract"
 	"github.com/netcracker/qubership-rate-limiter/api/manifest"
@@ -129,20 +132,33 @@ var _ = Describe("the seams of the split", Ordered, Label("split"), func() {
 			// refusal: ReplicaFormatUnsupported, at once and without a
 			// deadline. Then the kubelet projects the rewrite, the replicas
 			// apply the new generation, the refusals clear, and Ready comes
-			// back. The first window is the kubelet's sync, so the poll is
-			// fast.
+			// back. Observe the status before waiting for Deployment readiness:
+			// reconciliation can report the refusal and recover before the
+			// operator's readiness probe succeeds.
 			p, err := getPolicy(domain)
 			Expect(err).NotTo(HaveOccurred())
 			p.Spec.Limits[0].Rules[0].Rates[0].Requests++
 			Expect(k8s.Update(ctx, p)).To(Succeed())
 
-			scaleDeployment(operatorDeployment(), 1)
+			setDeploymentReplicas(operatorDeployment(), 1)
 			operatorOff = false
-			Eventually(readyReason(domain)).WithTimeout(time.Minute).WithPolling(200*time.Millisecond).
-				Should(Equal(v1.ReasonReplicaFormatUnsupported),
-					"the operator never reported the refusing replicas")
-			Expect(policyCondition(domain, v1.ConditionStalled)()).To(Equal("True"),
-				"a replica that will never take the generation up is stuck, not in progress")
+			Eventually(func(g Gomega) {
+				p, err := getPolicy(domain)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(p.Status.Conditions).To(gstruct.MatchElements(func(element any) string {
+					return element.(metav1.Condition).Type
+				}, gstruct.IgnoreExtras, gstruct.Elements{
+					v1.ConditionReady: gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+						"Status": Equal(metav1.ConditionFalse),
+						"Reason": Equal(v1.ReasonReplicaFormatUnsupported),
+					}),
+					v1.ConditionStalled: gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+						"Status": Equal(metav1.ConditionTrue),
+						"Reason": Equal(v1.ReasonReplicaFormatUnsupported),
+					}),
+				}))
+			}).WithTimeout(time.Minute).WithPolling(200*time.Millisecond).Should(Succeed(),
+				"the operator to report the refusing replicas as unsupported and stalled")
 			Eventually(func() int {
 				m, err := configManifest()
 				if err != nil {
