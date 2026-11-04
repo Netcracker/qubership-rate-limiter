@@ -3,6 +3,9 @@
 package e2e
 
 import (
+	"strconv"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gstruct"
@@ -29,6 +32,14 @@ var _ = Describe("the cost a route reads from the query string", Ordered, Label(
 	})
 	AfterAll(func() { deletePolicies(domain) })
 
+	// freshPath returns a path under prefix that nothing has charged yet. Each
+	// attempt of a spec takes its own, so a --flake-attempts retry starts from a
+	// full bucket: the counters are per path and outlive the attempt, and the
+	// store can charge a check the gateway has already timed out.
+	freshPath := func() string {
+		return prefix + "/" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+
 	// One request through the public gateway, with its status and the rate
 	// limit headers it was answered with.
 	get := func(path string) (int, map[string]string) {
@@ -37,7 +48,8 @@ var _ = Describe("the cost a route reads from the query string", Ordered, Label(
 	}
 
 	It("charges a page its limit and refuses the page that no longer fits", func() {
-		code, headers := get(prefix + "/pages?limit=60")
+		path := freshPath()
+		code, headers := get(path + "?limit=60")
 		Expect(code).To(beAdmitted(), "the first page of 60 items out of 100")
 		Expect(headers).To(gstruct.MatchKeys(gstruct.IgnoreExtras, gstruct.Keys{
 			"x-ratelimit-limit":     Equal("100"),
@@ -45,39 +57,41 @@ var _ = Describe("the cost a route reads from the query string", Ordered, Label(
 			"ratelimit-policy":      Equal(`"items/per-path";q=100;w=3600`),
 		}), "the headers of the first page of 60 items")
 
-		code, headers = get(prefix + "/pages?limit=60")
+		code, headers = get(path + "?limit=60")
 		Expect(code).To(Equal(429), "a second page of 60 items with 40 left")
 		Expect(headers).To(HaveKeyWithValue("retry-after", Not(BeEmpty())),
 			"a refusal that waiting cures carries a retry hint")
 
-		code, _ = get(prefix + "/pages?limit=40")
+		code, _ = get(path + "?limit=40")
 		Expect(code).To(beAdmitted(), "a page of the 40 items left")
 	})
 
 	It("charges the default of 20 for a request without a usable limit", func() {
-		code, headers := get(prefix + "/default")
+		path := freshPath()
+		code, headers := get(path)
 		Expect(code).To(beAdmitted(), "a request without limit")
 		Expect(headers).To(HaveKeyWithValue("x-ratelimit-remaining", "80"),
 			"the remaining items after a request without limit")
 
-		code, headers = get(prefix + "/default?limit=abc")
+		code, headers = get(path + "?limit=abc")
 		Expect(code).To(beAdmitted(), "a request with limit=abc")
 		Expect(headers).To(HaveKeyWithValue("x-ratelimit-remaining", "60"),
 			"the remaining items after a request with limit=abc")
 	})
 
 	It("refuses a limit above the window without a retry hint and charges nothing for it", func() {
-		code, headers := get(prefix + "/huge?limit=101")
+		path := freshPath()
+		code, headers := get(path + "?limit=101")
 		Expect(code).To(Equal(429), "a page of 101 items against a window of 100")
 		Expect(headers).To(HaveKeyWithValue("retry-after", BeEmpty()),
 			"no waiting cures a cost above the capacity of the window")
 
-		code, _ = get(prefix + "/huge?limit=100")
+		code, _ = get(path + "?limit=100")
 		Expect(code).To(beAdmitted(), "a page of 100 items after the refused one")
 	})
 
 	It("counts requests in a block whose route reads no cost", func() {
-		codes, answered := gatewayBurstWithHeaders("public-gateway", prefix+"/calls?limit=1", 11, nil)
+		codes, answered := gatewayBurstWithHeaders("public-gateway", freshPath()+"?limit=1", 11, nil)
 
 		Expect(codes[:10]).To(HaveEach(beAdmitted()), "ten pages of one item under ten calls an hour")
 		Expect(codes[10]).To(Equal(429), "the eleventh call of the hour")
