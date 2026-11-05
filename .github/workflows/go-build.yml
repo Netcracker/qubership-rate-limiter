@@ -413,3 +413,16 @@ jobs:
             echo "::error::generated files drifted: run 'make generate sync-helm-crds' and commit the result"
             exit 1
           fi
+
+  ci-gate:
+    name: CI Gate
+    needs: [build, golangci, load, service-binary, engine, helm]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require every build and test job to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$JOB_RESULTS"
