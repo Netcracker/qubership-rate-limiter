@@ -10,11 +10,8 @@
 name: Load test
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'tests/load/**'
-      - '.github/workflows/load-test.yml'
+  schedule:
+    - cron: '0 0 * * *' # Daily at 00:00 UTC (03:00 Moscow time).
   workflow_dispatch: {}
 
 concurrency:
@@ -314,3 +311,40 @@ jobs:
           kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter-operator --tail=200 || true
           kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter --tail=200 || true
           kubectl logs -n "${KEYCLOAK_NAMESPACE}" deployment/keycloak --tail=100 || true
+
+      - name: Check rate limiter latency
+        id: latency
+        if: ${{ !cancelled() }}
+        run: |
+          if [ ! -f load-results/summary.json ]; then
+            exit 0
+          fi
+          p99_ms=$(jq -r '[.rlsCalls[]? | select(.serviceChecks > 0) | .checkP99Ms | numbers]
+            | max | select(. > 5)' load-results/summary.json)
+          if [ -n "$p99_ms" ]; then
+            echo "::warning::Rate limiter check p99 reached ${p99_ms} ms, above 5 ms."
+            echo "p99_ms=$p99_ms" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Email the load test latency warning
+        if: >-
+          ${{ !cancelled() && github.ref_name == github.event.repository.default_branch
+              && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+              && steps.latency.outputs.p99_ms != '' && vars.EMAIL_TO != '' }}
+        continue-on-error: true
+        uses: netcracker/qubership-workflow-hub/actions/email-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        env:
+          EMAIL_SMTP_HOST: ${{ vars.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT: ${{ vars.EMAIL_SMTP_PORT }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          EMAIL_USERNAME: ${{ vars.EMAIL_FROM }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO: ${{ vars.EMAIL_TO }}
+        with:
+          subject: "[load test] Rate limiter p99 latency above 5 ms"
+          body: |
+            Rate limiter check p99 reached ${{ steps.latency.outputs.p99_ms }} ms in the slowest load test step.
+            The warning threshold is 5 ms.
+
+            See the run summary and load-results artifact at
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
