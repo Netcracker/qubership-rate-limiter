@@ -35,7 +35,7 @@ jobs:
   load-test:
     name: load test (kind)
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
@@ -246,6 +246,7 @@ jobs:
       # minutes renews them, and tokens.log records every rewrite of the file.
       - name: Wait for the run and collect the results
         id: run
+        shell: bash
         run: |
           selector=app.kubernetes.io/instance=loadtest,app.kubernetes.io/component=generator
           pod=""
@@ -255,7 +256,10 @@ jobs:
             sleep 2
           done
           [ -n "${pod}" ] || { echo "::error::no generator pod appeared within 120 seconds"; exit 1; }
-          deadline=$((SECONDS + 1500))
+          load_seconds=$(yq -o=json '.load.steps' tests/load/kind/values.yaml | jq -er 'map(.seconds) | add | select(. > 0)')
+          # Allow 21 minutes for the generator to start and write its reports.
+          wait_seconds=$((load_seconds + 21 * 60))
+          deadline=$((SECONDS + wait_seconds))
           until kubectl exec -n "${LOAD_NAMESPACE}" "${pod}" -- test -e /results/done 2>/dev/null; do
             phase="$(kubectl get pod -n "${LOAD_NAMESPACE}" "${pod}" -o jsonpath='{.status.phase}')"
             if [ "${phase}" = Failed ] || [ "${phase}" = Succeeded ]; then
@@ -265,7 +269,7 @@ jobs:
             fi
             if [ "${SECONDS}" -ge "${deadline}" ]; then
               kubectl logs -n "${LOAD_NAMESPACE}" "${pod}" --tail=200
-              echo "::error::the generator wrote no results within 25 minutes"
+              echo "::error::the generator wrote no results within ${wait_seconds} seconds"
               exit 1
             fi
             sleep 10

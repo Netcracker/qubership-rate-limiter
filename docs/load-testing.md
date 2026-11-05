@@ -12,8 +12,9 @@ checks its own results. It installs as one Helm chart beside the rate limit char
 The image, `ghcr.io/netcracker/qubership-rate-limiter-loadtest`, carries JMeter, the plan
 [`ratelimit-load.jmx`](../tests/load/jmeter/ratelimit-load.jmx) with its script `pick.groovy`, and `loadkit`. Its
 tags follow the operator and service images built from the same commit. The
-[load test workflow](../.github/workflows/load-test.yml) runs the whole kit on kind for every pull request that
-changes it.
+[load test workflow](../.github/workflows/load-test.yml) runs the kit on kind daily at 00:00 UTC and on manual dispatch.
+It runs three 20-minute stages at 10, 30, and 50 requests per second, plus the hot-user traffic. The workflow allows
+up to two hours for setup, traffic, and reporting.
 
 ## What a run does
 
@@ -54,8 +55,8 @@ shows.
 - **The test users exist.** With `tokens.source: keycloak`, the realm needs the test users and a client with Direct
   access grants enabled. [Creating the test users](#creating-the-test-users) shows how. The load test workflow runs
   on [`tests/load/kind/keycloak.yaml`](../tests/load/kind/keycloak.yaml), a Keycloak in dev mode with the realm
-  `loadtest` and its public client `loadtest`, and on [`tests/load/kind/values.yaml`](../tests/load/kind/values.yaml),
-  a few minutes at low rates; both are a working start for a stand of your own.
+  `loadtest` and its public client `loadtest`, and on [`tests/load/kind/values.yaml`](../tests/load/kind/values.yaml).
+  For a shorter run on your own stand, reduce the durations in `load.steps`.
 - **The gateway keeps the statistics of its calls to the rate limit service.** Istio drops them by default; patch the
   Gateway once as [timing the call](#timing-the-call-to-the-rate-limit-service) shows. Without them the gateway's
   columns of the summary's table of those calls show `-`, and every other check works.
