@@ -312,25 +312,29 @@ jobs:
           kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter --tail=200 || true
           kubectl logs -n "${KEYCLOAK_NAMESPACE}" deployment/keycloak --tail=100 || true
 
-      - name: Check rate limiter latency
+      - name: Check Gateway p99 latency
         id: latency
         if: ${{ !cancelled() }}
         run: |
           if [ ! -f load-results/summary.json ]; then
             exit 0
           fi
-          p99_ms=$(jq -r '[.rlsCalls[]? | select(.serviceChecks > 0) | .checkP99Ms | numbers]
-            | max | select(. > 5)' load-results/summary.json)
-          if [ -n "$p99_ms" ]; then
-            echo "::warning::Rate limiter check p99 reached ${p99_ms} ms, above 5 ms."
-            echo "p99_ms=$p99_ms" >> "$GITHUB_OUTPUT"
+          gateway_p99=$(jq -r '
+            [.rlsCalls[]? | select(.gatewayCalls > 0) | .gatewayP99UnderMs | numbers]
+            | if index(-1) != null then "past the largest histogram bucket"
+              else max | select(. > 5) | "<\(.) ms"
+              end
+          ' load-results/summary.json)
+          if [ -n "$gateway_p99" ]; then
+            echo "::warning::Gateway p99 reported ${gateway_p99}. The warning threshold is a 5 ms upper bound."
+            echo "gateway_p99=$gateway_p99" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Email the load test latency warning
         if: >-
           ${{ !cancelled() && github.ref_name == github.event.repository.default_branch
               && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-              && steps.latency.outputs.p99_ms != '' && vars.EMAIL_TO != '' }}
+              && steps.latency.outputs.gateway_p99 != '' && vars.EMAIL_TO != '' }}
         continue-on-error: true
         uses: netcracker/qubership-workflow-hub/actions/email-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
         env:
@@ -341,10 +345,10 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ vars.EMAIL_TO }}
         with:
-          subject: "[load test] Rate limiter p99 latency above 5 ms"
+          subject: "[load test] Gateway p99 latency warning"
           body: |
-            Rate limiter check p99 reached ${{ steps.latency.outputs.p99_ms }} ms in the slowest load test step.
-            The warning threshold is 5 ms.
+            The slowest load test step reported Gateway p99 as ${{ steps.latency.outputs.gateway_p99 }}.
+            The warning threshold is a 5 ms upper bound.
 
             See the run summary and load-results artifact at
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
