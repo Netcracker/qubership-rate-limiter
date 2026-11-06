@@ -31,14 +31,24 @@ spec:
           image: redis:8-alpine
           # No snapshots and no append-only file: the data is counters with a TTL,
           # and writing them to disk buys nothing while costing IO on every window.
-          args: ["--save", "", "--appendonly", "no", "--requirepass", "$(REDIS_PASSWORD)"]
+          # The latency monitor records nothing until it has a threshold; 10 ms is
+          # the slowlog's default threshold, and a fifth of the gateway's filter.timeout.
+          args:
+            - "--save"
+            - ""
+            - "--appendonly"
+            - "no"
+            - "--latency-monitor-threshold"
+            - "10"
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
           env:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: e2e-redis-auth
                   key: password
-            # redis-cli reads it, so the probe below authenticates.
+            # redis-cli reads it, so dump.sh in e2e-redis-diagnostics authenticates.
             - name: REDISCLI_AUTH
               valueFrom:
                 secretKeyRef:
@@ -47,11 +57,25 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          # The kubelet makes this check from outside the container. An exec probe
+          # runs in the cgroup of the container, so its CPU counts against the limit.
           readinessProbe:
-            exec:
-              command: ["redis-cli", "ping"]
+            tcpSocket:
+              port: redis
             initialDelaySeconds: 2
             periodSeconds: 5
+          lifecycle:
+            # Both hooks run the scripts of the ConfigMap e2e-redis-diagnostics
+            # and write to the stdout of Redis, where the e2e log capture keeps
+            # the output after the pod has stopped. The preStop hook is there
+            # for the outage suites: they scale the store to zero, and dump.sh
+            # reports only on the container it runs in.
+            postStart:
+              exec:
+                command: ["sh", "-c", "sh /diagnostics/sample.sh > /proc/1/fd/1 2>&1 &"]
+            preStop:
+              exec:
+                command: ["sh", "-c", "sh /diagnostics/dump.sh > /proc/1/fd/1 2>&1"]
           securityContext:
             runAsNonRoot: true
             runAsUser: 999
@@ -66,6 +90,9 @@ spec:
             # Redis wants a writable working directory even with persistence off.
             - name: data
               mountPath: /data
+            - name: diagnostics
+              mountPath: /diagnostics
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -78,6 +105,9 @@ spec:
       volumes:
         - name: data
           emptyDir: {}
+        - name: diagnostics
+          configMap:
+            name: e2e-redis-diagnostics
 ---
 apiVersion: v1
 kind: Service
@@ -92,3 +122,54 @@ spec:
     - port: 6379
       targetPort: redis
       name: redis
+---
+# These scripts explain a stall of the store from the e2e artifact. dump.sh
+# reports what Redis and the cgroup of the container recorded, and both the
+# preStop hook of e2e-redis and .github/scripts/collect-e2e-pod-logs.sh run it.
+# Redis times a command only while it executes, so a stall between two commands
+# reaches neither SLOWLOG nor LATENCY. sample.sh logs the time of a stall that
+# comes from waiting for CPU, which the limit of 200m makes plausible: it gives
+# Redis 20 ms of CPU in every 100 ms. The totals in cpu.stat give no time, and
+# startup alone already adds to them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-redis-diagnostics
+  labels:
+    app: e2e-redis
+data:
+  dump.sh: |
+    cli() {
+      echo "--- redis-cli $*"
+      timeout 5 redis-cli --no-raw "$@" 2>&1 | tr -d '\r'
+    }
+
+    # Redis reports Unix seconds; this line gives the same moment in both forms.
+    echo "=== $(hostname) at $(date -u +%Y-%m-%dT%H:%M:%SZ), Unix time $(date +%s)"
+    cli SLOWLOG GET -1
+    cli LATENCY LATEST
+    # The event names are the only JSON strings in this reply.
+    for event in $(timeout 5 redis-cli --json LATENCY LATEST 2>/dev/null | grep -o '"[a-z-]*"' | tr -d '"'); do
+      cli LATENCY HISTORY "${event}"
+    done
+    cli INFO all
+    echo "--- cgroup"
+    grep . /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/cpu.pressure \
+      /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory.pressure 2>&1
+  sample.sh: |
+    # Logs each second in which the container waited 10 ms or more for CPU, for
+    # any reason: its own limit, the limit of the pod, or no free CPU on the node.
+    # The first field is the word to grep for. A rise in the cpu.stat fields from
+    # one line to the next points at the container's limit; no rise leaves the
+    # other two reasons open, because the pod's cgroup is not visible from here.
+    read -r _ _ _ _ total < /sys/fs/cgroup/cpu.pressure
+    waited="${total#total=}"
+    while sleep 1; do
+      previous="${waited}"
+      read -r _ _ _ _ total < /sys/fs/cgroup/cpu.pressure
+      waited="${total#total=}"
+      if [ "$((waited - previous))" -ge 10000 ]; then
+        echo "cpu-wait $(date -u +%Y-%m-%dT%H:%M:%SZ) $(((waited - previous) / 1000)) ms in the last second," \
+          "$(grep throttled /sys/fs/cgroup/cpu.stat | tr '\n' ' ')"
+      fi
+    done
