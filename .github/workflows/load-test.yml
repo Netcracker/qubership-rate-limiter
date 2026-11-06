@@ -1,11 +1,10 @@
 # Load test kit
 #
-# Proves the kit under tests/load end to end before anyone takes it to a real
-# stand: stands up a kind cluster with the platform's mesh and gateways, the
-# three rate limit charts, and a Keycloak with test users, installs the load
-# test chart with tests/load/kind/values.yaml, and fails when the generator's
-# own check (loadkit verify) fails. The rates are low on purpose: a shared
-# runner measures the kit, not the capacity of the rate limit.
+# Runs the load kit on kind with the platform mesh, the rate limit charts,
+# and Keycloak. Pull requests that change the kit run four minutes of load.
+# Scheduled and manual runs use the one-hour profile. On the default branch,
+# email reports nightly failures and warns when the gateway's p99 bound for
+# calls to the rate limit service exceeds 5 ms.
 
 name: Load test
 
@@ -15,6 +14,8 @@ on:
     paths:
       - 'tests/load/**'
       - '.github/workflows/load-test.yml'
+  schedule:
+    - cron: '0 0 * * *' # Daily at 00:00 UTC (03:00 Moscow time).
   workflow_dispatch: {}
 
 concurrency:
@@ -38,7 +39,7 @@ jobs:
   load-test:
     name: load test (kind)
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 50 || 120 }}
     permissions:
       contents: read
     steps:
@@ -235,11 +236,20 @@ jobs:
           rm -rf "${secrets}"
 
       - name: Install the load test chart
+        id: install
+        shell: bash
         run: |
-          helm lint tests/load/chart -f tests/load/kind/values.yaml
+          steps_file=tests/load/kind/values.yaml
+          values=(-f "$steps_file")
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            steps_file=tests/load/kind/values-pr.yaml
+            values+=(-f "$steps_file")
+          fi
+          load_seconds=$(yq -o=json '.load.steps' "$steps_file" | jq -er 'map(.seconds) | add | select(. > 0)')
+          echo "load_seconds=$load_seconds" >> "$GITHUB_OUTPUT"
+          helm lint tests/load/chart "${values[@]}"
           helm upgrade --install loadtest tests/load/chart \
-            --namespace "${LOAD_NAMESPACE}" \
-            -f tests/load/kind/values.yaml
+            --namespace "${LOAD_NAMESPACE}" "${values[@]}"
           kubectl wait ratelimitpolicies.ratelimit.netcracker.com/gateway.public -n "${LOAD_NAMESPACE}" \
             --for=condition=Ready --timeout=180s
 
@@ -249,6 +259,9 @@ jobs:
       # minutes renews them, and tokens.log records every rewrite of the file.
       - name: Wait for the run and collect the results
         id: run
+        shell: bash
+        env:
+          LOAD_SECONDS: ${{ steps.install.outputs.load_seconds }}
         run: |
           selector=app.kubernetes.io/instance=loadtest,app.kubernetes.io/component=generator
           pod=""
@@ -258,7 +271,9 @@ jobs:
             sleep 2
           done
           [ -n "${pod}" ] || { echo "::error::no generator pod appeared within 120 seconds"; exit 1; }
-          deadline=$((SECONDS + 1500))
+          # Allow 21 minutes for the generator to start and write its reports.
+          wait_seconds=$((LOAD_SECONDS + 21 * 60))
+          deadline=$((SECONDS + wait_seconds))
           until kubectl exec -n "${LOAD_NAMESPACE}" "${pod}" -- test -e /results/done 2>/dev/null; do
             phase="$(kubectl get pod -n "${LOAD_NAMESPACE}" "${pod}" -o jsonpath='{.status.phase}')"
             if [ "${phase}" = Failed ] || [ "${phase}" = Succeeded ]; then
@@ -268,7 +283,7 @@ jobs:
             fi
             if [ "${SECONDS}" -ge "${deadline}" ]; then
               kubectl logs -n "${LOAD_NAMESPACE}" "${pod}" --tail=200
-              echo "::error::the generator wrote no results within 25 minutes"
+              echo "::error::the generator wrote no results within ${wait_seconds} seconds"
               exit 1
             fi
             sleep 10
@@ -314,3 +329,46 @@ jobs:
           kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter-operator --tail=200 || true
           kubectl logs -n "${LOAD_NAMESPACE}" -l app.kubernetes.io/name=rate-limiter --tail=200 || true
           kubectl logs -n "${KEYCLOAK_NAMESPACE}" deployment/keycloak --tail=100 || true
+
+      - name: Check Gateway p99 latency
+        id: latency
+        if: ${{ !cancelled() }}
+        run: |
+          if [ ! -f load-results/summary.json ]; then
+            exit 0
+          fi
+          gateway_p99=$(jq -r '
+            [.rlsCalls[]? | select(.gatewayCalls > 0) | .gatewayP99UnderMs | numbers]
+            | if index(-1) != null then "past the largest histogram bucket"
+              else max | select(. > 5) | "<\(.) ms"
+              end
+          ' load-results/summary.json)
+          if [ -n "$gateway_p99" ]; then
+            echo "::warning::The gateway reported p99 as ${gateway_p99} for calls to the rate limit service. The warning threshold is a 5 ms upper bound."
+            echo "gateway_p99=$gateway_p99" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Email load test failures and latency warnings
+        if: >-
+          ${{ !cancelled() && github.ref_name == github.event.repository.default_branch
+              && vars.EMAIL_TO != ''
+              && ((github.event_name == 'schedule' && failure())
+                  || ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+                      && steps.latency.outputs.gateway_p99 != '')) }}
+        continue-on-error: true
+        uses: netcracker/qubership-workflow-hub/actions/email-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        env:
+          EMAIL_SMTP_HOST: ${{ vars.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT: ${{ vars.EMAIL_SMTP_PORT }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          EMAIL_USERNAME: ${{ vars.EMAIL_FROM }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO: ${{ vars.EMAIL_TO }}
+        with:
+          subject: "[load test] ${{ job.status == 'failure' && 'failed' || 'rate limit service p99 warning' }} - ${{ github.repository }}"
+          body: |
+            The load test ${{ job.status == 'failure' && 'failed' || 'reported a latency warning' }}.
+            ${{ steps.latency.outputs.gateway_p99 != '' && format('In the slowest step, p99 latency for calls from the gateway to the rate limit service was reported as {0}. The warning threshold is a 5 ms upper bound. Compare this measurement with earlier runs.', steps.latency.outputs.gateway_p99) || '' }}
+
+            See the run summary and load-results artifact at
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
