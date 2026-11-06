@@ -12,6 +12,7 @@ targets:
 dependencies:
   apm:
     - Netcracker/qubership-ai-packages/agent-packages/qubership-repo-essentials#v1.2.0  # marketplace release
+    - Netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge#v1.2.0
   mcp: []
 includes: auto
 scripts: {}

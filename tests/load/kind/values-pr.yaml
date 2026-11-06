@@ -1,0 +1,6 @@
+load:
+  steps:
+    - rate: 10
+      seconds: 120
+    - rate: 30
+      seconds: 120
