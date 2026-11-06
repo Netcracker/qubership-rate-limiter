@@ -1,6 +1,5 @@
-# Values of the load test chart for the kind cluster of the load test
-# workflow: a few minutes at low rates on a shared runner, enough to prove
-# that the kit works end to end, not to measure capacity.
+# Values for the one-hour load test on kind. Modest rates keep it suitable
+# for a shared runner.
 image:
   repository: ratelimit-loadtest
   tag: kind
@@ -45,9 +44,11 @@ load:
   hotRatePerMinute: 75
   steps:
     - rate: 10
-      seconds: 120
+      seconds: 1200
     - rate: 30
-      seconds: 120
+      seconds: 1200
+    - rate: 50
+      seconds: 1200
   warmupSeconds: 15
   startDelaySeconds: 60
   threads: 20

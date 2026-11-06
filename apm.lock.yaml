@@ -3,6 +3,25 @@ apm_version: 0.35.0
 dependencies:
 - repo_url: netcracker/qubership-ai-packages
   materialization_repo_url: Netcracker/qubership-ai-packages
+  name: enable-renovate-automerge
+  host: github.com
+  resolved_commit: 3eee3aa9452514738d1936e79cbeca1748046b74
+  resolved_ref: v1.2.0
+  version: 1.0.0
+  virtual_path: agent-packages/enable-renovate-automerge
+  is_virtual: true
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/enable-renovate-automerge
+  - .agents/skills/enable-renovate-automerge/SKILL.md
+  - .claude/skills/enable-renovate-automerge
+  - .claude/skills/enable-renovate-automerge/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/enable-renovate-automerge/SKILL.md: sha256:a1285379ee4406fd00c9f46ef3269333109f21e24d31852d53f80d7b70336af1
+    .claude/skills/enable-renovate-automerge/SKILL.md: sha256:a1285379ee4406fd00c9f46ef3269333109f21e24d31852d53f80d7b70336af1
+  content_hash: sha256:a27828ee603c0599838c08cd7e3fb93d549831400efeba331f90557c6848ecce
+- repo_url: netcracker/qubership-ai-packages
+  materialization_repo_url: Netcracker/qubership-ai-packages
   name: qubership-repo-essentials
   host: github.com
   resolved_commit: 3eee3aa9452514738d1936e79cbeca1748046b74
@@ -356,6 +375,24 @@ deployments:
   content_hash: sha256:b68881e4c799851da18d76605829f0cf8fecf338eb0fe815f52d70884d97d3b2
 - kind: project-relative
   target: claude
+  value: .claude/skills/enable-renovate-automerge
+  runtime: null
+  scope: project
+  owners:
+  - netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  active_owner: netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/enable-renovate-automerge/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  active_owner: netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  content_hash: sha256:a1285379ee4406fd00c9f46ef3269333109f21e24d31852d53f80d7b70336af1
+- kind: project-relative
+  target: claude
   value: .claude/skills/english-developer-style
   runtime: null
   scope: project
@@ -624,6 +661,24 @@ deployments:
   - netcracker/qubership-ai-packages/agent-packages/docs-page-authoring
   active_owner: netcracker/qubership-ai-packages/agent-packages/docs-page-authoring
   content_hash: sha256:b68881e4c799851da18d76605829f0cf8fecf338eb0fe815f52d70884d97d3b2
+- kind: project-relative
+  target: codex
+  value: .agents/skills/enable-renovate-automerge
+  runtime: null
+  scope: project
+  owners:
+  - netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  active_owner: netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/enable-renovate-automerge/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  active_owner: netcracker/qubership-ai-packages/agent-packages/enable-renovate-automerge
+  content_hash: sha256:a1285379ee4406fd00c9f46ef3269333109f21e24d31852d53f80d7b70336af1
 - kind: project-relative
   target: codex
   value: .agents/skills/english-developer-style

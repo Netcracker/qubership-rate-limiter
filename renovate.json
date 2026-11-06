@@ -1,6 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "assignAutomerge": true,
+  "assignAutomerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": true,
   "assigneesFromCodeOwners": true,
   "reviewersFromCodeOwners": true,
   "extends": [
@@ -8,6 +10,15 @@
     ":semanticCommitTypeAll(chore)"
   ],
   "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "The load test runs JMeter on eclipse-temurin and uses nginx-unprivileged as its backend. Review the load test result before merging updates to these images.",
+      "matchPackageNames": ["eclipse-temurin", "nginxinc/nginx-unprivileged"],
+      "automerge": false
+    },
     {
       "description": "The Kubernetes libraries and controller-runtime move as a set: controller-runtime pins the k8s.io minor it was built against, and the Makefile derives the envtest control-plane version from k8s.io/api. Upgrading one alone gives a build that compiles against one version and tests against another.",
       "matchManagers": ["gomod"],
@@ -19,6 +30,18 @@
         "sigs.k8s.io/controller-runtime"
       ],
       "groupName": "kubernetes"
+    },
+    {
+      "description": "Kubernetes minor upgrades need a matching CI control plane and documented Kubernetes version. Review these updates manually so both can be updated with the libraries.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "k8s.io/api",
+        "k8s.io/apimachinery",
+        "k8s.io/client-go",
+        "sigs.k8s.io/controller-runtime"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false
     },
     {
       "description": "fiber stays on v2 until qubership-core-lib-go-fiber-server-utils publishes its /v3 module. The management server is built by that library: fiberserver.New takes a fiber v2 Config and its builder returns a fiber v2 App, so the service cannot move to fiber v3 alone. Remove this rule in the change that moves the library and fiber to v3 together.",
