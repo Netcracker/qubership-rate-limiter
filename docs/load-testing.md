@@ -13,8 +13,13 @@ The image, `ghcr.io/netcracker/qubership-rate-limiter-loadtest`, carries JMeter,
 [`ratelimit-load.jmx`](../tests/load/jmeter/ratelimit-load.jmx) with its script `pick.groovy`, and `loadkit`. Its
 tags follow the operator and service images built from the same commit. The
 [load test workflow](../.github/workflows/load-test.yml) runs the kit on kind daily at 00:00 UTC and on manual dispatch.
-It runs three 20-minute stages at 10, 30, and 50 requests per second, plus the hot-user traffic. The workflow allows
-up to two hours for setup, traffic, and reporting.
+These runs use three 20-minute stages at 10, 30, and 50 requests per second, plus the hot-user traffic. The workflow
+allows up to two hours for setup, traffic, and reporting. Pull requests that change the kit or workflow use the
+[four-minute profile](../tests/load/kind/values-pr.yaml) with two-minute stages at 10 and 30 requests per second.
+
+On the default branch, the workflow emails `EMAIL_TO` when a scheduled run fails. Scheduled and manual runs also
+warn when the gateway p99 for calls to the rate limit service has an upper bound above 5 ms or falls beyond the
+largest histogram bucket. The email links to the run summary and the `load-results` artifact.
 
 ## What a run does
 
