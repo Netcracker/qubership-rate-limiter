@@ -70,7 +70,9 @@ authored as the `RateLimitPolicy` of the namespace, one object per domain, and r
 - Direct gRPC consumers get the same contract. They may send pre-extracted descriptor entries and no token; the engine
   matches on whatever keys are present. Those values meet the rules a token's values meet: a key past the value length
   or the array bound is absent and counted as an extraction skip, and a key the domain lowercases is lowercased, so a
-  direct `sub=Alice` and a token whose `sub` claim is `Alice` charge one counter.
+  direct `sub=Alice` and a token whose `sub` claim is `Alice` charge one counter. A backend that counts the items of a
+  bulk request in its body checks them this way, with `hits_addend` set to the count
+  ([bulk requests](ratelimitpolicy-cr-spec.md#bulk-requests-with-the-item-count-in-the-body)).
 - The standard gRPC health service is exposed for direct gRPC consumers. Deployment readiness and liveness use HTTP
   `readyz` and `healthz` on port 8081, and `readyz` opens after the first manifest is applied from the ConfigMap volume;
   the probes do not use the gRPC health service.
