@@ -72,6 +72,16 @@ func (r *Runner) Start(ctx context.Context) error {
 	grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(maxCheckBytes))
 	envoyratelimit.RegisterRateLimitServiceServer(grpcServer, r.Server)
 
+	// The audit worker must collect refusals from checks that finish during the gRPC drain.
+	auditCtx, stopAudit := context.WithCancel(context.WithoutCancel(ctx))
+	auditDone := make(chan struct{})
+	defer func() { <-auditDone }()
+	defer stopAudit()
+	go func() {
+		defer close(auditDone)
+		r.Server.audit.run(auditCtx, r.Server.log, auditInterval)
+	}()
+
 	healthServer := health.NewServer()
 	healthpb.RegisterHealthServer(grpcServer, healthServer)
 	// A probe may name the server, the empty name, or the service it checks.

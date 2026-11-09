@@ -174,6 +174,10 @@ type RuleOutcome struct {
 	Shadow  bool
 	Allowed bool
 
+	// Axes maps counter names to the refusing bucket's values. It is nil for
+	// admissions and for refusals by a bucket without axes.
+	Axes map[string]string
+
 	// Cost is the amount the rule's windows were judged at, and charged when
 	// the decision admitted the request.
 	Cost int64
@@ -214,6 +218,9 @@ type Decision struct {
 	Headers *Headers
 
 	Rules []RuleOutcome
+
+	// Subject is the resolved sub key on a refusal, empty if absent or ambiguous.
+	Subject string
 
 	// Targeted reports that at least one block targets the request, which is
 	// when identity is resolved: a request outside every target reports no
@@ -293,8 +300,25 @@ func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decis
 		Skips:         skips,
 		ExtractedKeys: e.keyNames(keys),
 	}
+	if !decision.Allowed {
+		decision.Subject = singleSubject(keys)
+	}
 	decision.Headers, decision.CostExceedsCapacity = aggregate(matched, buckets, verdicts, decision.Allowed)
 	return decision, nil
+}
+
+// Subject resolves the request's sub key without matching rules or charging counters.
+// It returns an empty string when sub is absent or ambiguous.
+func (e *Engine) Subject(req Request) string {
+	keys, _ := e.extractKeys(req)
+	return singleSubject(keys)
+}
+
+func singleSubject(keys map[string][]string) string {
+	if sub := keys[model.KeySub]; len(sub) == 1 {
+		return sub[0]
+	}
+	return ""
 }
 
 // algorithmName renders an algorithm the way the counter key and the API do:
@@ -357,14 +381,10 @@ func ruleOutcomes(matched match.Result, buckets []store.Bucket, verdicts []store
 		i = to
 
 		outcome := RuleOutcome{Block: m.Block, Rule: m.Rule, Shadow: m.Shadow, Cost: m.Cost, Allowed: true}
-		for j := from; j < to; j++ {
-			if !verdicts[j].Allowed {
+		for _, verdict := range verdicts[from:to] {
+			if !verdict.Allowed {
 				outcome.Allowed = false
-			}
-		}
-		for j := from; j < to; j++ {
-			if !verdicts[j].Allowed && verdicts[j].CostExceedsCapacity {
-				outcome.CostExceedsCapacity = true
+				outcome.CostExceedsCapacity = outcome.CostExceedsCapacity || verdict.CostExceedsCapacity
 			}
 		}
 		if best := strictestIndex(buckets, verdicts, from, to, outcome.Allowed, false); best >= 0 {
@@ -374,6 +394,12 @@ func ruleOutcomes(matched match.Result, buckets []store.Bucket, verdicts []store
 			outcome.RetryAfter = verdicts[best].RetryAfter
 			outcome.Algorithm = algorithmName(buckets[best].Algorithm)
 			outcome.PeriodSeconds = int64(buckets[best].Window.Period / time.Second)
+		}
+		if !outcome.Allowed && len(m.Axes) > 0 {
+			outcome.Axes = make(map[string]string, len(m.Axes))
+			for j, axis := range m.Axes {
+				outcome.Axes[axis] = m.AxisValues[j]
+			}
 		}
 		out = append(out, outcome)
 	}

@@ -474,6 +474,11 @@ rate limit check carries is_negative_hits on descriptor <i> domain=<domain> ...
 rate limit decision over the bucket budget domain=<domain> path=<path> error=<error> suppressed=<n>
 ```
 
+**Trace a refused caller.** Search the service log for `rate limit exceeded` by domain and resolved `sub`. The
+[security audit](audit.md) lists the rule or hard-refusal cause, the bucket axes, and the first request ID in the
+10-second interval. If `ratelimit_audit_dropped_total` increases, find `rate limit audit overflow` on the same replica
+to see how many keys were omitted. Use the gateway access log for individual requests in an interval with overflow.
+
 **The limit fires for nobody.** Two counters say whether the domain is wired at all:
 
 ```promql
@@ -1292,6 +1297,7 @@ of section 7.
 | `ratelimit_decisions_total{domain, rule, outcome}` | service pods | `shadow_over_limit` while introducing a limit (section 6) |
 | `ratelimit_near_limit_total{domain, rule}` | service pods | clients close to a limit before it fires; the margin is a share of the window's capacity, `burst` for GCRA |
 | `ratelimit_refusals_total{domain, cause}` | service pods | refusals that are no limit at work: `too_many_descriptors`, `invalid_cost`, `too_many_buckets`; the gateway answers `429` without headers (section 2) |
+| `ratelimit_audit_dropped_total` | service pods | refusal contributions omitted from the [security audit](audit.md) because the interval buffer filled |
 | `ratelimit_unknown_domain_checks_total` | service pods | a domain typo between the gateway and the policy, or a policy that enforces no generation (section 2) |
 | `ratelimit_extractions_total{domain, key}`, `ratelimit_tokens_seen_total{domain}` | service pods | the extraction detector (section 2) |
 | `ratelimit_store_errors_total{domain, reason}`, `ratelimit_store_roundtrip_seconds{domain}` | service pods | the store (section 1) |

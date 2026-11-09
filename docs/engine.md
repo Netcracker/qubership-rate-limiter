@@ -400,7 +400,9 @@ diagnostics with no mutations and no authentication.
   component and the version it runs. The full table of names and labels is in the [chart document](helm-chart.md).
 - **Label cardinality is bounded by configuration**: domains and rule names only. There are no per-axis-value metrics,
   and no field in the schema asks for them.
-- **Structured logs with redaction**, at most one line per rejected request, sampled if volume requires.
+- **Security audit.** On a refusal, `Decision.Subject` holds the resolved `sub`, when present, and each refusing
+  `RuleOutcome.Axes` maps axis names to the values used for its bucket. The service aggregates enforcing refusals in
+  the [security audit](audit.md) and also emits sampled operational logs.
 - **The conditions that mean silent misconfiguration or degradation** are `ratelimit_unknown_domain_checks_total > 0`,
   storage errors above zero, a decision p99 above budget, the extraction detector firing, blocking `ruleProblems`
   entries on a policy, `Stalled: True` (a lagging replica, schema skew, a generation stuck on last-good, a namespace
