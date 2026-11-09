@@ -973,3 +973,108 @@ func TestEachBlockOfARequestChargesItsOwnCost(t *testing.T) {
 		t.Errorf("GET /api/items?limit=50: bucket costs of items, calls, domain = %v, want %v", got, want)
 	}
 }
+
+func TestMatchChecksExclusionsBeforeInclusionRoutes(t *testing.T) {
+	exclusion := model.ExcludedRoute{
+		Path:    model.PathMatch{Type: model.PathTemplate, Value: "/api/{resource}"},
+		Methods: []string{"GET"},
+	}
+	snap := mustCompile(t, model.Policy{Domain: domain, Blocks: []model.Block{
+		{
+			Name:   "defaults",
+			Target: model.Target{ExcludedRoutes: []model.ExcludedRoute{exclusion}},
+			Rules:  []model.Rule{{Name: "r", Rates: minuteRate()}},
+		},
+		{
+			Name: "api",
+			Target: model.Target{
+				ExcludedRoutes: []model.ExcludedRoute{exclusion},
+				Routes: []model.Route{
+					{
+						Path: model.PathMatch{Type: model.PathTemplate, Value: "/api/{item}"},
+						Cost: &model.RouteCost{Source: model.CostQueryParameter, Name: "limit"},
+					},
+					{Path: model.PathMatch{Type: model.PathPrefix, Value: "/api"}},
+				},
+			},
+			Rules: []model.Rule{{Name: "r", Counters: []string{"item"}, Rates: minuteRate()}},
+		},
+	}})
+	for _, tc := range []struct {
+		name, path, method string
+		blocks, excluded   []string
+	}{
+		{"both lists match", "/api/orders?limit=8", "GET", nil, []string{"defaults", "api"}},
+		{"other method", "/api/orders?limit=8", "POST", []string{"defaults", "api"}, nil},
+		{"other path", "/admin", "GET", []string{"defaults"}, nil},
+		{"longer path", "/api/orders/42", "GET", []string{"defaults"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cands, excluded := MatchWithExclusions(snap, tc.path, tc.method)
+			result := cands.Evaluate(nil, 1)
+			if got := matchedBlocks(result); !slices.Equal(got, tc.blocks) {
+				t.Errorf("Evaluate(%q, %q) blocks = %v, want %v", tc.path, tc.method, got, tc.blocks)
+			}
+			if !slices.Equal(excluded, tc.excluded) {
+				t.Errorf("MatchWithExclusions(%q, %q) exclusions = %v, want %v", tc.path, tc.method, excluded, tc.excluded)
+			}
+			if got := matchedBlocks(Match(snap, tc.path, tc.method).Evaluate(nil, 1)); !slices.Equal(got, tc.blocks) {
+				t.Errorf("Match(%q, %q) blocks = %v, want %v", tc.path, tc.method, got, tc.blocks)
+			}
+			if tc.method == "POST" && len(result.Rules) == 2 {
+				if got := result.Rules[1].Buckets[0].Cost; got != 8 {
+					t.Errorf("Evaluate(%q, %q) cost = %d, want 8", tc.path, tc.method, got)
+				}
+				if got := cands.Targets()[1].Captures["item"]; got != "orders" {
+					t.Errorf("Targets(%q, %q) capture item = %q, want orders", tc.path, tc.method, got)
+				}
+			}
+		})
+	}
+}
+
+func TestInspectPathUsesOnlyMethodsThatSurviveExclusions(t *testing.T) {
+	path := model.PathMatch{Type: model.PathPrefix, Value: "/api"}
+	get := model.Route{Path: path, Methods: []string{"GET"}}
+	exclusion := model.ExcludedRoute{Path: path, Methods: []string{"GET"}}
+	snap := mustCompile(t, model.Policy{Domain: domain, Blocks: []model.Block{
+		{
+			Name: "api",
+			Target: model.Target{
+				ExcludedRoutes: []model.ExcludedRoute{exclusion},
+				Routes: []model.Route{
+					get,
+					{Path: model.PathMatch{Type: model.PathTemplate, Value: "/api/{item}"}, Methods: []string{"POST"}},
+				},
+			},
+			Rules: []model.Rule{{Name: "r", Rates: minuteRate()}},
+		},
+		{
+			Name: "read-only",
+			Target: model.Target{
+				ExcludedRoutes: []model.ExcludedRoute{exclusion},
+				Routes:         []model.Route{get},
+			},
+			Rules: []model.Rule{{Name: "r", Rates: minuteRate()}},
+		},
+		{
+			Name: "all-methods",
+			Target: model.Target{ExcludedRoutes: []model.ExcludedRoute{{
+				Path: model.PathMatch{Type: model.PathExact, Value: "/api/orders"},
+			}}},
+			Rules: []model.Rule{{Name: "r", Rates: minuteRate()}},
+		},
+	}})
+
+	targets, excluded := InspectPath(snap, "/api/orders?limit=8")
+
+	if got := targetNames(targets); !slices.Equal(got, []string{"api"}) {
+		t.Fatalf("InspectPath() targets = %v, want [api]", got)
+	}
+	if got := targets[0].Captures; !maps.Equal(got, map[string]string{"item": "orders"}) {
+		t.Errorf("InspectPath() captures = %v, want map[item:orders]", got)
+	}
+	if !slices.Equal(excluded, []string{"read-only", "all-methods"}) {
+		t.Errorf("InspectPath() exclusions = %v, want [read-only all-methods]", excluded)
+	}
+}

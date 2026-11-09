@@ -98,6 +98,9 @@ spec:
       - path: { type: Prefix, value: /api/v1/order-management/ }
         methods: [GET]                       # optional, OR over the list; absent = any method
       - path: { type: Template, value: "/api/v1/orders/{orderId}/items" }
+      excludedRoutes:
+      - path: { type: Exact, value: /api/v1/order-management/list }
+        methods: [GET]
     mode: FirstMatch                         # All (default) | FirstMatch
     rules:
     - name: internal-bypass                  # Bypass: matched -> the cascade ends with an allow,
@@ -202,12 +205,30 @@ responsibility. The compiler adds no normalization of its own.
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | string, required | unique within the policy; part of the counter key |
-| `target.routes` | list of routes, at least one when `target` is set | an OR list; no `target` = the block sees all traffic of the domain |
+| `target` | optional object with at least one of `routes` and `excludedRoutes` | with no target, the block sees all traffic of the domain |
+| `target.routes` | optional, nonempty list of routes | a request must match at least one route when the list is present |
 | `target.routes[].path` | `{type, value}`, required with both fields | `type: Exact \| Prefix \| Template`; `value` starts with `/` |
 | `target.routes[].methods` | list of enum values: `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `CONNECT`, `OPTIONS`, `TRACE` | OR over the values; absent = any method |
 | `target.routes[].cost` | `{source, name, default}` | the cost of a request matched through the route, read from a query parameter; absent = one unit; see [Request cost](#request-cost) |
+| `target.excludedRoutes` | optional, nonempty list of routes with `path` and optional `methods` | a match skips every rule in the block; template placeholders produce no descriptor keys |
 | `mode` | `All` (default) \| `FirstMatch` | how the block's rules combine |
 | `rules` | list of rules, required, at least one | the block's counters |
+
+To limit all traffic in a domain except GET requests to list endpoints, set only `excludedRoutes` on the target.
+
+```yaml
+limits:
+- name: api-defaults
+  target:
+    excludedRoutes:
+    - path: { type: Template, value: "/api/v1/{resource}" }
+      methods: [GET]
+  rules:
+  - name: per-user
+    counters: [sub]
+    rates:
+    - { requests: 300, periodSeconds: 60 }
+```
 
 ### The rules[] rule
 
@@ -360,7 +381,7 @@ A `Template` matches as many segments as it names, so a collection and a single 
 without listing the resources. Where the list cannot separate them, a `cost` with `default` left at 1 is the
 alternative: a request without the parameter costs one unit, and only a request that names a page size pays for it.
 
-A block without a target has no routes and charges the request's own cost.
+A block without inclusion routes charges the request's own cost.
 
 ### What the rules of the block see
 
@@ -390,7 +411,7 @@ A route's `cost` replaces the request's `hits_addend` for the buckets of its blo
 has no `cost` keep charging `hits_addend`, with the descriptor's own value taking precedence. A descriptor whose
 `hits_addend` is an explicit zero is still checked without charging anything: that zero is a mode of the check, not a
 cost. A direct gRPC consumer that sends `path` with a query string gets the same treatment as a gateway, and a check
-without `path` matches no block that has a target, so no route's `cost` applies to it.
+without `path` cannot match an inclusion route, so no route's `cost` applies to it.
 
 ### Why the route carries the cost
 
@@ -428,7 +449,9 @@ require a token; a gateway filter such as `jwt_authn` can, and this delivery ins
 ## Evaluation semantics
 
 1. **Blocks are additive with each other.** A request that falls into several blocks must fit within the verdict of
-   each. `mode` acts only inside a block; the effect of `behavior: Bypass` does not leave its own block: in `FirstMatch`
+   each. The engine strips the query string, then skips a block if any excluded route matches the path and method.
+   If the block has inclusion routes, the first matching route in list order supplies the cost and captures. A skipped
+   block evaluates no rules and charges no counters. `mode` acts only inside a block; the effect of `behavior: Bypass` does not leave its own block: in `FirstMatch`
    it ends the cascade with an allow, in `All` it frees the matched requests from the rules named in its
    `replacedRules` and from nothing else.
 2. **`mode: All`** applies all matched rules of the block; `replacedRules` is available for targeted overrides.

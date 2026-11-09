@@ -85,11 +85,17 @@ func payloadSample() v1.RateLimitPolicySpec {
 		Groups: []v1.Group{{Name: "partners", Values: []string{"partner-a"}}},
 		Limits: []v1.LimitBlock{{
 			Name: "orders",
-			Target: &v1.Target{Routes: []v1.Route{{
-				Path:    v1.PathMatch{Type: v1.PathMatchTemplate, Value: "/api/v1/orders/{id}"},
-				Methods: []v1.HTTPMethod{"GET", "POST"},
-				Cost:    &v1.RouteCost{Source: v1.CostSourceQueryParameter, Name: "limit", Default: &defaultCost},
-			}}},
+			Target: &v1.Target{
+				Routes: []v1.Route{{
+					Path:    v1.PathMatch{Type: v1.PathMatchTemplate, Value: "/api/v1/orders/{id}"},
+					Methods: []v1.HTTPMethod{"GET", "POST"},
+					Cost:    &v1.RouteCost{Source: v1.CostSourceQueryParameter, Name: "limit", Default: &defaultCost},
+				}},
+				ExcludedRoutes: []v1.ExcludedRoute{{
+					Path:    v1.PathMatch{Type: v1.PathMatchExact, Value: "/api/v1/orders/summary"},
+					Methods: []v1.HTTPMethod{"GET"},
+				}},
+			},
 			Mode: v1.BlockModeAll,
 			Rules: []v1.Rule{{
 				Name: "per-tenant",

@@ -194,7 +194,9 @@ func (a *API) handleRules(c *fiber.Ctx) error {
 		view.EffectiveKeys = []string{}
 	}
 
-	for _, target := range selectTargets(snapshot, path, method) {
+	targets, excluded := selectTargets(snapshot, path, method)
+	view.SkippedBlocks = excludedBlockSkips(excluded)
+	for _, target := range targets {
 		rendered := ruleview.Block(target.Block)
 		if sc.present {
 			question := sc
@@ -211,27 +213,33 @@ func (a *API) handleRules(c *fiber.Ctx) error {
 	return writeJSON(c, view)
 }
 
-// selectTargets filters the snapshot to the blocks targeting one request, using
-// the engine's own route matcher: a second implementation of segment-based
-// prefixes and template captures is exactly where a filter drifts from what is
-// enforced. With a path each target also carries what the matched route decided
-// about the block's captures; without one every block is listed and no capture
-// is decided.
-func selectTargets(snapshot *compile.Snapshot, path, method string) []match.Target {
+// selectTargets returns the blocks and captures that apply to the path, plus
+// the names of blocks skipped by exclusions. Without a path it lists all blocks
+// and leaves captures undecided.
+func selectTargets(snapshot *compile.Snapshot, path, method string) ([]match.Target, []string) {
 	if path == "" {
 		out := make([]match.Target, 0, len(snapshot.Blocks))
 		for i := range snapshot.Blocks {
 			out = append(out, match.Target{Block: &snapshot.Blocks[i]})
 		}
-		return out
+		return out, nil
 	}
 	if method == "" {
-		// An absent method is "any method" here. Match would read it as the
-		// empty method no request carries, and drop every block whose routes
-		// name theirs.
-		return match.TargetsByPath(snapshot, path)
+		return match.InspectPath(snapshot, path)
 	}
-	return match.Match(snapshot, path, method).Targets()
+	candidates, excluded := match.MatchWithExclusions(snapshot, path, method)
+	return candidates.Targets(), excluded
+}
+
+func excludedBlockSkips(names []string) []ruleview.BlockSkip {
+	if len(names) == 0 {
+		return nil
+	}
+	skips := make([]ruleview.BlockSkip, len(names))
+	for i, name := range names {
+		skips[i] = ruleview.BlockSkip{Block: name, Reason: "excluded_route"}
+	}
+	return skips
 }
 
 // handleCounters lists live counters without charging them.

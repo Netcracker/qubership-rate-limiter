@@ -114,6 +114,8 @@ type SimulationResponse struct {
 	// reporting what they would have done.
 	Rules []RuleOutcomeView `json:"rules"`
 
+	SkippedBlocks []ruleview.BlockSkip `json:"skippedBlocks,omitempty"`
+
 	// Skips are identity-extraction anomalies; they never carry claim values.
 	Skips []SkipView `json:"skips,omitempty"`
 
@@ -294,6 +296,7 @@ func simulationResponse(decision engine.Decision, at time.Time) SimulationRespon
 		Allowed:       decision.Allowed,
 		EvaluatedAt:   at,
 		Rules:         make([]RuleOutcomeView, 0, len(decision.Rules)),
+		SkippedBlocks: excludedBlockSkips(decision.ExcludedBlocks),
 		ExtractedKeys: decision.ExtractedKeys,
 	}
 	if !decision.Allowed {

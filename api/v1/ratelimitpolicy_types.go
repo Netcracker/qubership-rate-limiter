@@ -113,8 +113,8 @@ type PathMatch struct {
 	// segments and stops at a slash or at the end of the path: /api/v1/orders
 	// covers /api/v1/orders/42 but not /api/v1/orders-archive, unlike the
 	// character prefix match of an Envoy route. Template compares segment by
-	// segment, where {name} matches exactly one non-empty segment and becomes
-	// a descriptor key of the block.
+	// segment, where {name} matches exactly one non-empty segment. An inclusion
+	// route exposes the value as a descriptor key of the block.
 	Type PathMatchType `json:"type"`
 
 	// value is the path, the prefix, or the template. It starts with a slash;
@@ -185,12 +185,34 @@ type RouteCost struct {
 	Default *int32 `json:"default,omitempty"`
 }
 
+// ExcludedRoute identifies requests that skip a block.
+type ExcludedRoute struct {
+	// path selects request paths. Template placeholders match one non-empty
+	// segment and produce no descriptor keys.
+	Path PathMatch `json:"path"`
+
+	// methods accepts any of the listed methods. An absent list accepts any method.
+	// +optional
+	// +listType=set
+	Methods []HTTPMethod `json:"methods,omitempty"`
+}
+
 // Target restricts a block to part of the traffic of its domain.
+// +kubebuilder:validation:XValidation:rule="has(self.routes) || has(self.excludedRoutes)",message="a target requires routes or excludedRoutes"
 type Target struct {
-	// routes is an OR-list. A block without a target sees the whole domain.
+	// routes accepts requests matching any listed route. When omitted, every
+	// request in the domain is eligible before exclusions.
+	// +optional
 	// +kubebuilder:validation:MinItems=1
 	// +listType=atomic
-	Routes []Route `json:"routes"`
+	Routes []Route `json:"routes,omitempty"`
+
+	// excludedRoutes skips the block for requests matching any listed route,
+	// even when the request also matches routes.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +listType=atomic
+	ExcludedRoutes []ExcludedRoute `json:"excludedRoutes,omitempty"`
 }
 
 // Predicate is one condition on the identity of the caller. Paths and methods
