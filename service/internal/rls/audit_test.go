@@ -33,15 +33,18 @@ func auditLines(log *recorder, message string) []string {
 func TestRefusalAudit_groupsByDomainRuleSubjectAndAxes(t *testing.T) {
 	var audit refusalAudit
 	log := &recorder{}
-	base := auditKey{domain: "public", rule: "b/r", sub: "alice", axes: auditAxes(map[string]string{"tenant": "a"})}
-	first := auditSample{path: "/first", method: "GET", requestID: "first-id", window: "gcra:60"}
+	values := map[string]string{"tenant": "a"}
+	base := auditKey{domain: "public", rule: "b/r", sub: "alice", axesFingerprint: fingerprintAxes(values)}
+	first := auditSample{path: "/first", method: "GET", requestID: "first-id", window: "gcra:60", axisValues: values}
 	audit.record(auditBatch{base: first})
 	otherDomain, otherRule, otherSub, otherAxes := base, base, base, base
 	otherDomain.domain, otherRule.rule, otherSub.sub = "private", "b/s", "bob"
-	otherAxes.axes = auditAxes(map[string]string{"tenant": "b"})
 	later := auditSample{path: "/later", method: "POST", requestID: "later-id", window: "fixedwindow:3600",
-		costExceedsCapacity: true}
-	audit.record(auditBatch{base: later, otherDomain: later, otherRule: later, otherSub: later, otherAxes: later})
+		costExceedsCapacity: true, axisValues: values}
+	otherSample := later
+	otherSample.axisValues = map[string]string{"tenant": "b"}
+	otherAxes.axesFingerprint = fingerprintAxes(otherSample.axisValues)
+	audit.record(auditBatch{base: later, otherDomain: later, otherRule: later, otherSub: later, otherAxes: otherSample})
 
 	audit.flush(log)
 
@@ -72,7 +75,7 @@ func TestRefusalAudit_limitsKeysAndReportsOverflowOnce(t *testing.T) {
 	audit.flush(log)
 
 	assert.Len(t, auditLines(log, refusalAuditMessage), maxAuditKeys)
-	assert.Contains(t, log.output(), `sub=0 axes= path="" method="" refusals=2`)
+	assert.Contains(t, log.output(), `sub=0 axes={} path="" method="" refusals=2`)
 	assert.Equal(t, []string{refusalOverflowMessage + " keysDropped=2 countCapped=false"},
 		auditLines(log, refusalOverflowMessage))
 	assert.Equal(t, float64(3), dropped()-before)
@@ -108,15 +111,18 @@ func TestRefusalAudit_reportsOverflowAtTheSerializedAxesBudget(t *testing.T) {
 	require.Less(t, fit+1, maxAuditKeys)
 	dropped := valueOf(metrics.AuditDropped)
 	before := dropped()
+	key := auditKey{axesFingerprint: fingerprintAxes(values)}
 	for i := range fit + 1 {
-		audit.record(auditBatch{{sub: strconv.Itoa(i), axes: axes}: {}})
+		key.sub = strconv.Itoa(i)
+		audit.record(auditBatch{key: {axisValues: values}})
 	}
+	audit.record(auditBatch{key: {axisValues: values}})
 	audit.flush(log)
 
 	assert.Len(t, auditLines(log, refusalAuditMessage), fit)
 	assert.Equal(t, []string{refusalOverflowMessage + " keysDropped=1 countCapped=false"},
 		auditLines(log, refusalOverflowMessage))
-	assert.Equal(t, float64(1), dropped()-before)
+	assert.Equal(t, float64(2), dropped()-before)
 }
 
 func TestRefusalAudit_omitsOversizedAxesButRetainsTheirFingerprint(t *testing.T) {
@@ -124,18 +130,33 @@ func TestRefusalAudit_omitsOversizedAxesButRetainsTheirFingerprint(t *testing.T)
 	for i := range 40 {
 		values["axis"+strconv.Itoa(i)] = strings.Repeat("v", maxLoggedValueLength)
 	}
-	axes := auditAxes(values)
-	values["axis0"] = "different"
-	other := auditAxes(values)
-	assert.True(t, axes.omitted)
-	assert.True(t, other.omitted)
-	assert.NotEqual(t, axes.fingerprint, other.fingerprint)
-
 	var audit refusalAudit
 	log := &recorder{}
-	audit.record(auditBatch{{axes: axes}: {}})
+	for _, value := range []string{"first", "second"} {
+		values["axis0"] = value
+		audit.record(auditBatch{{axesFingerprint: fingerprintAxes(values)}: {axisValues: values}})
+	}
 	audit.flush(log)
-	assert.Contains(t, log.output(), `axesOmitted=true axes={}`)
+	lines := auditLines(log, refusalAuditMessage)
+	require.Len(t, lines, 2)
+	for _, line := range lines {
+		assert.Contains(t, line, "axesFingerprint=")
+		assert.Contains(t, line, `axesOmitted=true axes={}`)
+		assert.Contains(t, line, "refusals=1 ")
+	}
+}
+
+func TestAuditAxes_stripsUnicodeControlCharacters(t *testing.T) {
+	axes := auditAxes(map[string]string{"path": "/a\u0085b\u009bc\nd"})
+	assert.Equal(t, loggedAxes{values: `{"path":"/abcd"}`, changed: true}, axes)
+}
+
+func TestAuditAxes_appliesTheRecordBudgetAfterJSONEscaping(t *testing.T) {
+	values := make(map[string]string)
+	for i := range 8 {
+		values["axis"+strconv.Itoa(i)] = strings.Repeat("&", maxLoggedValueLength)
+	}
+	assert.Equal(t, loggedAxes{values: "{}", omitted: true}, auditAxes(values))
 }
 
 func TestRefusalAudit_writesTheIntervalWhileTheServiceIsRunning(t *testing.T) {

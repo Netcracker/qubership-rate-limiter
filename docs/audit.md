@@ -26,7 +26,7 @@ If writing the log stalls across a flush boundary, the next record can span more
 | --- | --- |
 | `window` | Algorithm and period in seconds of the strictest bucket for the first refusal. If a cost exceeds capacity, this names the window of the first such refusal. |
 | `sub` | The `sub` key resolved from the token or a direct descriptor under the domain's key mapping. Omitted when the check has no single resolved `sub`. |
-| `axes` | JSON object with the refusing bucket's axes. Each value is limited to its first 256 bytes, with control characters removed. `[truncated]` marks a shortened value. If the serialized object exceeds 8 KiB, the service writes `axesOmitted=true axes={}`. |
+| `axes` | JSON object with the refusing bucket's axes. Each value is limited to its first 256 bytes, with Unicode control characters removed. `[truncated]` marks a shortened value. If the serialized object exceeds 8 KiB, the service writes `axesOmitted=true axes={}`. |
 | `axesFingerprint` | Distinguishes original axis combinations within a replica process when the displayed values are shortened, sanitized, or omitted. |
 | `path`, `method`, `requestId` | Values from the first refusal of the interval. The path's query string is redacted. |
 | `refusals`, `first`, `last` | Number of checks refused for the key and UTC times of the first and last refusal. |

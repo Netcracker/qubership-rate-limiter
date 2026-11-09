@@ -28,12 +28,13 @@ const (
 
 type auditKey struct {
 	domain, rule, sub, cause string
-	axes                     loggedAxes
+	axesFingerprint          uint64
 }
 
 type auditSample struct {
 	path, method, requestID, window string
 	costExceedsCapacity             bool
+	axisValues                      map[string]string
 }
 
 type auditBatch map[auditKey]auditSample
@@ -54,7 +55,8 @@ func (b *auditBatch) addDecision(domain string, c check, decision engine.Decisio
 			continue
 		}
 		key := auditKey{domain: domain, rule: metrics.RuleID(rule.Block, rule.Rule), sub: decision.Subject,
-			axes: auditAxes(rule.Axes)}
+			axesFingerprint: fingerprintAxes(rule.Axes)}
+		sample.axisValues = rule.Axes
 		sample.window = rule.Algorithm + ":" + strconv.FormatInt(rule.PeriodSeconds, 10)
 		sample.costExceedsCapacity = rule.CostExceedsCapacity
 		b.add(key, sample)
@@ -62,7 +64,7 @@ func (b *auditBatch) addDecision(domain string, c check, decision engine.Decisio
 }
 
 func (b *auditBatch) addViolation(domain, cause string, c check, eng *engine.Engine) {
-	b.add(auditKey{domain: domain, sub: eng.Subject(c.Request), axes: auditAxes(nil), cause: cause}, c.auditSample())
+	b.add(auditKey{domain: domain, sub: eng.Subject(c.Request), cause: cause}, c.auditSample())
 }
 
 func (b *auditBatch) add(key auditKey, sample auditSample) {
@@ -85,9 +87,9 @@ func (c check) auditSample() auditSample {
 }
 
 type loggedAxes struct {
-	values      string
-	fingerprint uint64
-	omitted     bool
+	values  string
+	changed bool
+	omitted bool
 }
 
 func auditAxes(axes map[string]string) loggedAxes {
@@ -96,28 +98,37 @@ func auditAxes(axes map[string]string) loggedAxes {
 	}
 	logged := make(map[string]string, len(axes))
 	changed := false
+	size := len("{}")
 	for name, value := range axes {
-		logged[name] = auditAxisValue(value)
-		changed = changed || logged[name] != value
+		clean := auditAxisValue(value)
+		// Quoting and escaping may add more bytes. The raw lengths already rule out large objects.
+		size += len(name) + len(clean)
+		if size > maxAuditRecordAxesBytes {
+			return loggedAxes{values: "{}", omitted: true}
+		}
+		logged[name] = clean
+		changed = changed || clean != value
 	}
 	// A map of string values always marshals. JSON sorts its keys and escapes controls.
 	encoded, _ := json.Marshal(logged)
 	if len(encoded) > maxAuditRecordAxesBytes {
-		return loggedAxes{values: "{}", fingerprint: fingerprintAxes(axes), omitted: true}
+		return loggedAxes{values: "{}", omitted: true}
 	}
-	result := loggedAxes{values: string(encoded)}
-	if changed {
-		result.fingerprint = fingerprintAxes(axes)
-	}
-	return result
+	return loggedAxes{values: string(encoded), changed: changed}
 }
 
 func auditAxisValue(value string) string {
-	if len(value) <= maxLoggedValueLength {
-		return sanitizeValue(value)
+	suffix := ""
+	if len(value) > maxLoggedValueLength {
+		value = strings.ToValidUTF8(value[:maxLoggedValueLength], "")
+		suffix = valueTruncated
 	}
-	prefix := strings.ToValidUTF8(value[:maxLoggedValueLength], "")
-	return sanitizeValue(prefix) + valueTruncated
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, value) + suffix
 }
 
 var axisFingerprintSeed = maphash.MakeSeed()
@@ -133,6 +144,7 @@ func fingerprintAxes(axes map[string]string) uint64 {
 
 type auditEntry struct {
 	auditSample
+	axes             loggedAxes
 	first, last      time.Time
 	refusals         uint64
 	costExceedsCount uint64
@@ -165,23 +177,40 @@ func (a *refusalAudit) record(batch auditBatch) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.entries == nil {
+		a.entries = make(map[auditKey]auditEntry)
+	}
 	now := time.Now()
 	for key, sample := range batch {
 		entry, found := a.entries[key]
 		if !found {
-			if len(a.entries) >= maxAuditKeys || a.axesBytes+len(key.axes.values) > maxAuditAxesBytes {
+			entry, found = a.newEntry(key, sample, now)
+			if !found {
 				a.drop(key)
 				continue
 			}
-			if a.entries == nil {
-				a.entries = make(map[auditKey]auditEntry)
-			}
-			a.axesBytes += len(key.axes.values)
-			entry = auditEntry{auditSample: sample, first: now}
 		}
 		entry.add(sample, now)
 		a.entries[key] = entry
 	}
+}
+
+func (a *refusalAudit) newEntry(key auditKey, sample auditSample, now time.Time) (auditEntry, bool) {
+	if len(a.entries) >= maxAuditKeys {
+		return auditEntry{}, false
+	}
+	if a.dropped != nil {
+		if _, seen := a.dropped[maphash.Comparable(a.seed, key)]; seen {
+			return auditEntry{}, false
+		}
+	}
+	axes := auditAxes(sample.axisValues)
+	if a.axesBytes+len(axes.values) > maxAuditAxesBytes {
+		return auditEntry{}, false
+	}
+	a.axesBytes += len(axes.values)
+	sample.axisValues = nil // Retain only the bounded rendering in the interval buffer.
+	return auditEntry{auditSample: sample, axes: axes, first: now}, true
 }
 
 func (a *refusalAudit) drop(key auditKey) {
@@ -251,14 +280,14 @@ func (e auditEntry) write(ctx context.Context, log Logger, key auditKey) {
 	if e.costExceedsCount > 0 {
 		fields += " cause=" + costExceedsCapacity + " costExceedsCapacity=" + strconv.FormatUint(e.costExceedsCount, 10)
 	}
-	if key.axes.fingerprint != 0 {
-		fields += " axesFingerprint=" + strconv.FormatUint(key.axes.fingerprint, 16)
+	if e.axes.changed || e.axes.omitted {
+		fields += " axesFingerprint=" + strconv.FormatUint(key.axesFingerprint, 16)
 	}
-	if key.axes.omitted {
+	if e.axes.omitted {
 		fields += " axesOmitted=true"
 	}
 	log.InfoC(ctx, "%s domain=%s%s axes=%s path=%s method=%s refusals=%d first=%s last=%s requestId=%s",
-		refusalAuditMessage, key.domain, fields, key.axes.values, auditValue(e.path), auditValue(e.method), e.refusals,
+		refusalAuditMessage, key.domain, fields, e.axes.values, auditValue(e.path), auditValue(e.method), e.refusals,
 		e.first.UTC().Format(time.RFC3339Nano), e.last.UTC().Format(time.RFC3339Nano), auditValue(e.requestID))
 }
 
