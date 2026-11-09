@@ -103,6 +103,25 @@ func TestRunner_servesChecksOnceStarted(t *testing.T) {
 	assert.Equal(t, envoyratelimit.RateLimitResponse_OK, resp.GetOverallCode())
 }
 
+func TestRunner_writesPendingRefusalsWhenItDrains(t *testing.T) {
+	server, log := newServerOver(ruleSetWith(t, domainWidePolicy(1, time.Hour)))
+	runner, stop := startRunner(t, server, 2*time.Second)
+	client := dialRunner(t, runner)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	req := request("gateway.public", map[string]string{"path": "/orders", "request_id": "drain-test"})
+	req.HitsAddend = 2
+
+	resp, err := client.ShouldRateLimit(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, envoyratelimit.RateLimitResponse_OVER_LIMIT, resp.GetOverallCode())
+	require.NoError(t, stop())
+
+	lines := auditLines(log, refusalAuditMessage)
+	require.Len(t, lines, 1)
+	assert.Contains(t, lines[0], "requestId=drain-test")
+}
+
 // The health service answers for the server and for the rate limit service by
 // name, serving while the runner serves.
 func TestRunner_answersHealthChecksForTheServiceByName(t *testing.T) {

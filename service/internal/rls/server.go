@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoycommon "github.com/envoyproxy/go-control-plane/envoy/extensions/common/ratelimit/v3"
 	envoyratelimit "github.com/envoyproxy/go-control-plane/envoy/service/ratelimit/v3"
 	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/baseproviders/xrequestid"
 	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/ctxmanager"
@@ -84,6 +85,7 @@ type Server struct {
 
 	store *store.Store
 	log   Logger
+	audit refusalAudit
 
 	nearLimitRatio float64
 
@@ -194,19 +196,21 @@ func (s *Server) ShouldRateLimit(
 		}
 		return &envoyratelimit.RateLimitResponse{OverallCode: envoyratelimit.RateLimitResponse_OK}, nil
 	}
+	var audit auditBatch
 	defer func() {
+		s.audit.record(audit)
 		metrics.CheckDuration.WithLabelValues(domain).Observe(time.Since(start).Seconds())
 	}()
 
-	requests := engineRequests(req)
-	if len(requests) > maxDescriptorsPerCheck {
+	if len(req.GetDescriptors()) > maxDescriptorsPerCheck {
 		// A check carrying more descriptors than any sanctioned caller sends
 		// is a protocol violation, not unavailability: refusing keeps it off
 		// the fail-open path an abuser could otherwise ride through.
 		metrics.Refusals.WithLabelValues(domain, metrics.CauseTooManyDescriptors).Inc()
 		metrics.Checks.WithLabelValues(domain, metrics.VerdictOverLimit).Inc()
 		s.logViolation(ctx, "rate limit check carries %v descriptors, over the limit of %v domain=%v path=%v",
-			len(requests), maxDescriptorsPerCheck, domain, path)
+			len(req.GetDescriptors()), maxDescriptorsPerCheck, domain, path)
+		audit.addRequestViolation(req, eng, metrics.CauseTooManyDescriptors)
 		return &envoyratelimit.RateLimitResponse{
 			OverallCode: envoyratelimit.RateLimitResponse_OVER_LIMIT,
 		}, nil
@@ -218,11 +222,12 @@ func (s *Server) ShouldRateLimit(
 		metrics.Refusals.WithLabelValues(domain, metrics.CauseInvalidCost).Inc()
 		metrics.Checks.WithLabelValues(domain, metrics.VerdictOverLimit).Inc()
 		s.logViolation(ctx, "rate limit check carries %v domain=%v path=%v", violation, domain, path)
+		audit.addRequestViolation(req, eng, metrics.CauseInvalidCost)
 		return &envoyratelimit.RateLimitResponse{
 			OverallCode: envoyratelimit.RateLimitResponse_OVER_LIMIT,
 		}, nil
 	}
-	requests = s.withoutExempt(domain, requests)
+	requests := s.withoutExempt(domain, engineRequests(req))
 	if len(requests) == 0 {
 		// Every descriptor was exempt, so nothing was decided and the store
 		// was not read: the answer is OK whatever state the store is in.
@@ -249,6 +254,7 @@ func (s *Server) ShouldRateLimit(
 				metrics.Checks.WithLabelValues(domain, metrics.VerdictOverLimit).Inc()
 				s.logViolation(ctx, "rate limit decision over the bucket budget domain=%v path=%v error=%v",
 					domain, path, err)
+				audit.addViolation(domain, metrics.CauseTooManyBuckets, c, eng)
 				return &envoyratelimit.RateLimitResponse{
 					OverallCode: envoyratelimit.RateLimitResponse_OVER_LIMIT,
 				}, nil
@@ -282,6 +288,9 @@ func (s *Server) ShouldRateLimit(
 		allowed = allowed && decision.Allowed
 		decisions = append(decisions, decision)
 		s.observeDecision(domain, decision)
+		if !decision.Allowed {
+			audit.addDecision(domain, c, decision)
+		}
 	}
 
 	code := envoyratelimit.RateLimitResponse_OK
@@ -342,43 +351,47 @@ func engineRequests(req *envoyratelimit.RateLimitRequest) []check {
 	}
 	out := make([]check, 0, len(descriptors))
 	for _, descriptor := range descriptors {
-		er := engine.Request{Cost: cost}
-		free := false
-		if addend := descriptor.GetHitsAddend(); addend != nil {
-			er.Cost = int64(addend.GetValue())
-			free = er.Cost == 0
-		}
-		for _, entry := range descriptor.GetEntries() {
-			value := entry.GetValue()
-			if value == "" {
-				continue
-			}
-			switch entry.GetKey() {
-			case descriptorKeyPath:
-				er.Path = value
-			case descriptorKeyMethod:
-				er.Method = value
-			case descriptorKeyToken:
-				er.Token = value
-			case descriptorKeyRequestID:
-			default:
-				key := entry.GetKey()
-				if er.Keys == nil {
-					er.Keys = map[string][]string{}
-				}
-				er.Keys[key] = append(er.Keys[key], value)
-			}
-		}
-		out = append(out, check{Request: er, free: free})
+		out = append(out, engineRequest(descriptor, cost))
 	}
 	return out
+}
+
+func engineRequest(descriptor *envoycommon.RateLimitDescriptor, cost int64) check {
+	c := check{Request: engine.Request{Cost: cost}}
+	if addend := descriptor.GetHitsAddend(); addend != nil {
+		c.Cost = int64(addend.GetValue())
+		c.free = c.Cost == 0
+	}
+	for _, entry := range descriptor.GetEntries() {
+		value := entry.GetValue()
+		if value == "" {
+			continue
+		}
+		switch key := entry.GetKey(); key {
+		case descriptorKeyPath:
+			c.Path = value
+		case descriptorKeyMethod:
+			c.Method = value
+		case descriptorKeyToken:
+			c.Token = value
+		case descriptorKeyRequestID:
+			c.requestID = value
+		default:
+			if c.Keys == nil {
+				c.Keys = map[string][]string{}
+			}
+			c.Keys[key] = append(c.Keys[key], value)
+		}
+	}
+	return c
 }
 
 // check is one descriptor's engine request, and whether it is decided without
 // charging: free is set for a descriptor whose hits_addend is an explicit zero.
 type check struct {
 	engine.Request
-	free bool
+	free      bool
+	requestID string
 }
 
 // costViolation describes a descriptor cost the engine does not charge, and is

@@ -394,6 +394,11 @@ type MatchedRule struct {
 	// Cost is the amount every bucket of the rule charges.
 	Cost int64
 
+	// Axes and AxisValues hold the counter names and their resolved values in key order.
+	// Axes belongs to the snapshot and is read-only.
+	Axes       []string
+	AxisValues []string
+
 	Buckets []store.Bucket
 }
 
@@ -648,11 +653,13 @@ func matchedRule(block *compile.Block, rule *compile.Rule, ctx *blockCtx) Matche
 	}
 
 	out := MatchedRule{
-		Block:   block.Name,
-		Rule:    rule.Name,
-		Shadow:  rule.Behavior == model.BehaviorShadow,
-		Cost:    ctx.cost,
-		Buckets: make([]store.Bucket, 0, len(rule.Rates)),
+		Block:      block.Name,
+		Rule:       rule.Name,
+		Shadow:     rule.Behavior == model.BehaviorShadow,
+		Cost:       ctx.cost,
+		Axes:       rule.Counters,
+		AxisValues: axes,
+		Buckets:    make([]store.Bucket, 0, len(rule.Rates)),
 	}
 	for i := range rule.Rates {
 		rate := &rule.Rates[i]
