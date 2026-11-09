@@ -33,11 +33,12 @@ func auditLines(log *recorder, message string) []string {
 func TestRefusalAudit_groupsByDomainRuleSubjectAndAxes(t *testing.T) {
 	var audit refusalAudit
 	log := &recorder{}
-	base := auditKey{domain: "public", rule: "b/r", sub: "alice", axes: `{"tenant":"a"}`}
+	base := auditKey{domain: "public", rule: "b/r", sub: "alice", axes: auditAxes(map[string]string{"tenant": "a"})}
 	first := auditSample{path: "/first", method: "GET", requestID: "first-id", window: "gcra:60"}
 	audit.record(auditBatch{base: first})
 	otherDomain, otherRule, otherSub, otherAxes := base, base, base, base
-	otherDomain.domain, otherRule.rule, otherSub.sub, otherAxes.axes = "private", "b/s", "bob", `{"tenant":"b"}`
+	otherDomain.domain, otherRule.rule, otherSub.sub = "private", "b/s", "bob"
+	otherAxes.axes = auditAxes(map[string]string{"tenant": "b"})
 	later := auditSample{path: "/later", method: "POST", requestID: "later-id", window: "fixedwindow:3600",
 		costExceedsCapacity: true}
 	audit.record(auditBatch{base: later, otherDomain: later, otherRule: later, otherSub: later, otherAxes: later})
@@ -95,6 +96,48 @@ func TestRefusalAudit_reportsALowerBoundWhenOverflowCountFills(t *testing.T) {
 		auditLines(log, refusalOverflowMessage))
 }
 
+func TestRefusalAudit_reportsOverflowAtTheSerializedAxesBudget(t *testing.T) {
+	var audit refusalAudit
+	log := &recorder{}
+	values := make(map[string]string)
+	for i := range 8 {
+		values["axis"+strconv.Itoa(i)] = strings.Repeat("v", maxLoggedValueLength)
+	}
+	axes := auditAxes(values)
+	fit := maxAuditAxesBytes / len(axes.values)
+	require.Less(t, fit+1, maxAuditKeys)
+	dropped := valueOf(metrics.AuditDropped)
+	before := dropped()
+	for i := range fit + 1 {
+		audit.record(auditBatch{{sub: strconv.Itoa(i), axes: axes}: {}})
+	}
+	audit.flush(log)
+
+	assert.Len(t, auditLines(log, refusalAuditMessage), fit)
+	assert.Equal(t, []string{refusalOverflowMessage + " keysDropped=1 countCapped=false"},
+		auditLines(log, refusalOverflowMessage))
+	assert.Equal(t, float64(1), dropped()-before)
+}
+
+func TestRefusalAudit_omitsOversizedAxesButRetainsTheirFingerprint(t *testing.T) {
+	values := make(map[string]string)
+	for i := range 40 {
+		values["axis"+strconv.Itoa(i)] = strings.Repeat("v", maxLoggedValueLength)
+	}
+	axes := auditAxes(values)
+	values["axis0"] = "different"
+	other := auditAxes(values)
+	assert.True(t, axes.omitted)
+	assert.True(t, other.omitted)
+	assert.NotEqual(t, axes.fingerprint, other.fingerprint)
+
+	var audit refusalAudit
+	log := &recorder{}
+	audit.record(auditBatch{{axes: axes}: {}})
+	audit.flush(log)
+	assert.Contains(t, log.output(), `axesOmitted=true axes={}`)
+}
+
 func TestRefusalAudit_writesTheIntervalWhileTheServiceIsRunning(t *testing.T) {
 	var audit refusalAudit
 	log := &recorder{}
@@ -140,6 +183,29 @@ func TestShouldRateLimit_auditsEnforcedRefusalsOncePerCheck(t *testing.T) {
 	assert.Contains(t, lines[0], "requestId=first-id")
 	assert.NotContains(t, lines[0], token)
 	assert.NotContains(t, lines[0], "hidden")
+}
+
+func TestShouldRateLimit_truncatesLongAxisValuesAndKeepsBucketsSeparate(t *testing.T) {
+	p := domainWidePolicy(1, time.Hour)
+	p.Blocks[0].Rules[0].Counters = []string{model.KeyPath}
+	server, log := newServerOver(ruleSetWith(t, p))
+	prefix := "/" + strings.Repeat("a", 120<<10)
+	for _, suffix := range []string{"one", "two"} {
+		req := request("gateway.public", map[string]string{"path": prefix + suffix, "request_id": suffix})
+		require.Equal(t, envoyratelimit.RateLimitResponse_OK, shouldRateLimit(t, server, req).GetOverallCode())
+		require.Equal(t, envoyratelimit.RateLimitResponse_OVER_LIMIT, shouldRateLimit(t, server, req).GetOverallCode())
+	}
+	server.audit.flush(log)
+
+	lines := auditLines(log, refusalAuditMessage)
+	require.Len(t, lines, 2)
+	wantAxes := `axes={"path":"/` + strings.Repeat("a", maxLoggedValueLength-1) + `[truncated]"}`
+	for _, line := range lines {
+		assert.Contains(t, line, wantAxes)
+		assert.Contains(t, line, "axesFingerprint=")
+		assert.Contains(t, line, "refusals=1 ")
+		assert.Less(t, len(line), 2048)
+	}
 }
 
 func TestShouldRateLimit_auditsRefusalsWithoutACounterVerdict(t *testing.T) {

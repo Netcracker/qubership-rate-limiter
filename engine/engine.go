@@ -381,14 +381,10 @@ func ruleOutcomes(matched match.Result, buckets []store.Bucket, verdicts []store
 		i = to
 
 		outcome := RuleOutcome{Block: m.Block, Rule: m.Rule, Shadow: m.Shadow, Cost: m.Cost, Allowed: true}
-		for j := from; j < to; j++ {
-			if !verdicts[j].Allowed {
+		for _, verdict := range verdicts[from:to] {
+			if !verdict.Allowed {
 				outcome.Allowed = false
-			}
-		}
-		for j := from; j < to; j++ {
-			if !verdicts[j].Allowed && verdicts[j].CostExceedsCapacity {
-				outcome.CostExceedsCapacity = true
+				outcome.CostExceedsCapacity = outcome.CostExceedsCapacity || verdict.CostExceedsCapacity
 			}
 		}
 		if best := strictestIndex(buckets, verdicts, from, to, outcome.Allowed, false); best >= 0 {

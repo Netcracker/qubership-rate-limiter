@@ -20,15 +20,21 @@ rate limit exceeded domain=gateway.public rule=api/per-user window=gcra:60 sub=a
 Each service replica writes one record per 10-second interval for each combination of `domain`, `rule` (`block/rule`),
 resolved `sub`, and bucket `axes`. A check counts once per combination. A check refused by multiple enforcing rules
 can appear in several records. Shadow verdicts stay in the decision metrics.
+If writing the log stalls across a flush boundary, the next record can span more than one interval.
 
 | Field | Meaning |
 | --- | --- |
 | `window` | Algorithm and period in seconds of the strictest bucket for the first refusal. If a cost exceeds capacity, this names the window of the first such refusal. |
-| `sub` | Subject resolved from the token or a direct descriptor under the domain's key mapping. Omitted when the check has no single resolved subject. |
-| `axes` | JSON object with the values used to address the refusing bucket. A bucket with no axes has `{}`. |
+| `sub` | The `sub` key resolved from the token or a direct descriptor under the domain's key mapping. Omitted when the check has no single resolved `sub`. |
+| `axes` | JSON object with the refusing bucket's axes. Each value is limited to its first 256 bytes, with control characters removed. `[truncated]` marks a shortened value. If the serialized object exceeds 8 KiB, the service writes `axesOmitted=true axes={}`. |
+| `axesFingerprint` | Distinguishes original axis combinations within a replica process when the displayed values are shortened, sanitized, or omitted. |
 | `path`, `method`, `requestId` | Values from the first refusal of the interval. The path's query string is redacted. |
 | `refusals`, `first`, `last` | Number of checks refused for the key and UTC times of the first and last refusal. |
 | `cause`, `costExceedsCapacity` | For a cost that exceeds the window's capacity, `cause=cost_exceeds_capacity` and the count of such checks within `refusals`. |
+
+The service reads token claims without verifying signatures. Treat `sub` as authenticated caller identity only when
+your installation verifies tokens before the rate limit filter and restricts access to the gRPC port to trusted callers.
+See [Token and identity](engine.md#token-and-identity).
 
 Hard refusals carry `cause=too_many_descriptors`, `cause=too_many_buckets`, or `cause=invalid_cost` and use the cause in
 place of the rule in the aggregation key. These records omit `rule` and `window` and carry `axes={}`. Request-wide
