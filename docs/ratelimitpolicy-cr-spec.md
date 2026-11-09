@@ -451,9 +451,9 @@ require a token; a gateway filter such as `jwt_authn` can, and this delivery ins
 1. **Blocks are additive with each other.** A request that falls into several blocks must fit within the verdict of
    each. The engine strips the query string, then skips a block if any excluded route matches the path and method.
    If the block has inclusion routes, the first matching route in list order supplies the cost and captures. A skipped
-   block evaluates no rules and charges no counters. `mode` acts only inside a block; the effect of `behavior: Bypass` does not leave its own block: in `FirstMatch`
-   it ends the cascade with an allow, in `All` it frees the matched requests from the rules named in its
-   `replacedRules` and from nothing else.
+   block evaluates no rules and charges no counters. `mode` and `behavior: Bypass` act within one block. In
+   `FirstMatch`, a bypass ends the cascade with an allow. In `All`, it exempts matching requests from the rules
+   named in its `replacedRules`.
 2. **`mode: All`** applies all matched rules of the block; `replacedRules` is available for targeted overrides.
 3. **`mode: FirstMatch`** applies the first matched rule in list order; the order is semantics. A rule with
    `behavior: Shadow` counts but does not stop the cascade; `behavior: Bypass` ends the cascade with an allow;

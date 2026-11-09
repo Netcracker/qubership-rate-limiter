@@ -1003,11 +1003,12 @@ func TestMatchChecksExclusionsBeforeInclusionRoutes(t *testing.T) {
 	for _, tc := range []struct {
 		name, path, method string
 		blocks, excluded   []string
+		costs              []int64
 	}{
-		{"both lists match", "/api/orders?limit=8", "GET", nil, []string{"defaults", "api"}},
-		{"other method", "/api/orders?limit=8", "POST", []string{"defaults", "api"}, nil},
-		{"other path", "/admin", "GET", []string{"defaults"}, nil},
-		{"longer path", "/api/orders/42", "GET", []string{"defaults"}, nil},
+		{"both lists match", "/api/orders?limit=8", "GET", nil, []string{"defaults", "api"}, nil},
+		{"other method", "/api/orders?limit=8", "POST", []string{"defaults", "api"}, nil, []int64{1, 8}},
+		{"other path", "/admin", "GET", []string{"defaults"}, nil, []int64{1}},
+		{"longer path", "/api/orders/42", "GET", []string{"defaults"}, nil, []int64{1}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cands, excluded := MatchWithExclusions(snap, tc.path, tc.method)
@@ -1021,13 +1022,8 @@ func TestMatchChecksExclusionsBeforeInclusionRoutes(t *testing.T) {
 			if got := matchedBlocks(Match(snap, tc.path, tc.method).Evaluate(nil, 1)); !slices.Equal(got, tc.blocks) {
 				t.Errorf("Match(%q, %q) blocks = %v, want %v", tc.path, tc.method, got, tc.blocks)
 			}
-			if tc.method == "POST" && len(result.Rules) == 2 {
-				if got := result.Rules[1].Buckets[0].Cost; got != 8 {
-					t.Errorf("Evaluate(%q, %q) cost = %d, want 8", tc.path, tc.method, got)
-				}
-				if got := cands.Targets()[1].Captures["item"]; got != "orders" {
-					t.Errorf("Targets(%q, %q) capture item = %q, want orders", tc.path, tc.method, got)
-				}
+			if got := bucketCosts(result); !slices.Equal(got, tc.costs) {
+				t.Errorf("Evaluate(%q, %q) bucket costs = %v, want %v", tc.path, tc.method, got, tc.costs)
 			}
 		})
 	}
@@ -1076,5 +1072,45 @@ func TestInspectPathUsesOnlyMethodsThatSurviveExclusions(t *testing.T) {
 	}
 	if !slices.Equal(excluded, []string{"read-only", "all-methods"}) {
 		t.Errorf("InspectPath() exclusions = %v, want [read-only all-methods]", excluded)
+	}
+}
+
+func TestExclusionsAreReportedOnlyWhenTheyPreventATargetMatch(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, method string
+		excludedMethods    []string
+		wantPathSkips      []string
+	}{
+		{"outside the included path with a path-wide exclusion", "/health", "GET", nil, nil},
+		{"outside the included path with a method exclusion", "/health", "GET", []string{"GET"}, nil},
+		{"outside the included method", "/orders", "POST", nil, []string{"orders"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := mustCompile(t, model.Policy{Domain: domain, Blocks: []model.Block{{
+				Name: "orders",
+				Target: model.Target{
+					Routes: []model.Route{{
+						Path:    model.PathMatch{Type: model.PathPrefix, Value: "/orders"},
+						Methods: []string{"GET"},
+					}},
+					ExcludedRoutes: []model.ExcludedRoute{{
+						Path:    model.PathMatch{Type: model.PathExact, Value: tc.path},
+						Methods: tc.excludedMethods,
+					}},
+				},
+				Rules: []model.Rule{{Name: "r", Rates: minuteRate()}},
+			}}})
+
+			candidates, skipped := MatchWithExclusions(snap, tc.path, tc.method)
+			if !candidates.Empty() || len(skipped) > 0 {
+				t.Errorf("MatchWithExclusions(%q, %q) = %v targets, %v skips, want neither",
+					tc.path, tc.method, targetNames(candidates.Targets()), skipped)
+			}
+			targets, skipped := InspectPath(snap, tc.path)
+			if len(targets) > 0 || !slices.Equal(skipped, tc.wantPathSkips) {
+				t.Errorf("InspectPath(%q) = %v targets, %v skips, want no targets and %v skips",
+					tc.path, targetNames(targets), skipped, tc.wantPathSkips)
+			}
+		})
 	}
 }

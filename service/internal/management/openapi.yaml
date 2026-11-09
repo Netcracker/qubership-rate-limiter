@@ -134,9 +134,9 @@ paths:
         admitting routes disagree on stays undecided. This is the static
         answer to "which rules guard this API"; feed the resulting rule ids
         into the counters listing with `limited=true` to see which of them
-        hold refusals right now. A matched exclusion reports the block in
-        skippedBlocks with reason excluded_route. Without method, a block
-        remains in the listing if any method can still reach it.
+        hold refusals right now. skippedBlocks reports excluded_route for
+        blocks that would have matched without an exclusion. Without method,
+        a block remains in the listing if any method can still reach it.
 
         The response names the ruleSetVersion of the snapshot it renders; the addressed DELETE accepts it as expectedRuleSetVersion to refuse acting on a set the operator has not seen.
 
@@ -2312,8 +2312,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BlockSkip'
-          description: Blocks skipped by an excluded route. With a path and no method,
-            a block is skipped when exclusions leave no applicable method.
+          description: Blocks that would have matched without an exclusion. With a
+            path and no method, a block is skipped when exclusions remove every
+            method that would have matched.
       description: The compiled rule set of one domain - what the decision path
         actually enforces, which can be a last-good generation rather than the latest
         object.
@@ -2941,7 +2942,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BlockSkip'
-          description: Blocks skipped because an excluded route matched the request.
+          description: Blocks that would have matched the request without an exclusion.
         skips:
           type: array
           items:
@@ -3396,7 +3397,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BlockSkip'
-          description: Blocks skipped because an excluded route matched the request.
+          description: Blocks that would have matched the request without an exclusion.
         skips:
           type: array
           items:
@@ -3452,7 +3453,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BlockSkip'
-          description: Blocks skipped because an excluded route matched the request.
+          description: Blocks that would have matched the request without an exclusion.
         skips:
           type: array
           items:
