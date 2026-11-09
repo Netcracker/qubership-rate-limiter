@@ -214,7 +214,9 @@ responsibility. The compiler adds no normalization of its own.
 | `mode` | `All` (default) \| `FirstMatch` | how the block's rules combine |
 | `rules` | list of rules, required, at least one | the block's counters |
 
-To limit all traffic in a domain except GET requests to list endpoints, set only `excludedRoutes` on the target.
+To apply a block across a domain except for GET requests to list endpoints, set only `excludedRoutes` on the target.
+The rule below counts requests per caller using `sub`. Requests without `sub`, including anonymous requests, pass
+through this block without a charge. See [Evaluation semantics](#evaluation-semantics).
 
 ```yaml
 limits:
