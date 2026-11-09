@@ -993,6 +993,8 @@ func TestShouldRateLimit_refusesACheckWhenTheStoreFailsAfterADescriptorRefused(t
 	assert.Equal(t, envoyratelimit.RateLimitResponse_OVER_LIMIT, resp.GetOverallCode())
 	assert.Equal(t, "3600", headerMap(resp)["retry-after"], "retry-after of alice's refusal")
 	assert.Contains(t, log.output(), "rate limit store error after a refusal domain=gateway.public")
+	server.audit.flush(log)
+	assert.Contains(t, log.output(), `rate limit exceeded domain=gateway.public rule=b/each window=gcra:3600 sub=alice`)
 }
 
 // exemptPrefix and exemptDomain stand in for what the service passes to
