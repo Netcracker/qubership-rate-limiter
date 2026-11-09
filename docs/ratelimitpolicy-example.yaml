@@ -38,6 +38,9 @@ spec:
     target:
       routes:
       - path: { type: Prefix, value: /api/v1/ }
+      excludedRoutes:
+      - path: { type: Template, value: "/api/v1/{resource}" }
+        methods: [GET]
     rules:
     # A counter per path, all clients together: endpoint protection.
     - name: per-path

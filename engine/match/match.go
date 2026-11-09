@@ -1,6 +1,7 @@
 package match
 
 import (
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -37,12 +38,32 @@ type hit struct {
 // axis; the one part of it that takes effect is the parameter a matched
 // route reads its cost from.
 func Match(snap *compile.Snapshot, path, method string) Candidates {
+	candidates, _ := matchRequest(snap, path, method, false)
+	return candidates
+}
+
+// MatchWithExclusions returns the candidates and names of blocks skipped by
+// excluded routes, in snapshot order.
+func MatchWithExclusions(snap *compile.Snapshot, path, method string) (Candidates, []string) {
+	return matchRequest(snap, path, method, true)
+}
+
+func matchRequest(snap *compile.Snapshot, path, method string, reportExclusions bool) (Candidates, []string) {
 	path, query, _ := strings.Cut(path, "?")
 	out := Candidates{method: method}
+	var excluded []string
 	for i := range snap.Blocks {
 		block := &snap.Blocks[i]
+		skipped := excludesRequest(block, path, method)
+		if skipped && !reportExclusions {
+			continue
+		}
 		route, pathAxis, captures, ok := matchTarget(block, path, method)
 		if !ok {
+			continue
+		}
+		if skipped {
+			excluded = append(excluded, block.Name)
 			continue
 		}
 		h := hit{block: block, pathAxis: pathAxis, captures: captures}
@@ -51,7 +72,7 @@ func Match(snap *compile.Snapshot, path, method string) Candidates {
 		}
 		out.hits = append(out.hits, h)
 	}
-	return out
+	return out, excluded
 }
 
 // queryCost reads a route's cost from a raw query string. Each occurrence of
@@ -171,84 +192,133 @@ func (c Candidates) Targets() []Target {
 // of them produces is absent, and the rest are undecided until the method
 // picks the route.
 func TargetsByPath(snap *compile.Snapshot, path string) []Target {
-	if i := strings.IndexByte(path, '?'); i >= 0 {
-		path = path[:i]
-	}
-	out := make([]Target, 0, len(snap.Blocks))
-	for i := range snap.Blocks {
-		if target, ok := targetByPath(&snap.Blocks[i], path); ok {
-			out = append(out, target)
-		}
-	}
-	return out
+	targets, _ := InspectPath(snap, path)
+	return targets
 }
 
-// targetByPath judges one block under any method. The routes that can decide
-// a request for the path are compared on every capture of the block. A route
-// admitting the path decides the methods it names that no earlier admitting
-// route named, and a route with no method restriction decides every method
-// left, so no route after it can win: that is the choice matchTarget makes for
-// one method, taken over all of them.
-func targetByPath(block *compile.Block, path string) (Target, bool) {
-	if len(block.Routes) == 0 {
-		return Target{Block: block}, true
+// InspectPath returns the targets for any method and names blocks for which
+// exclusions leave no applicable method.
+func InspectPath(snap *compile.Snapshot, path string) ([]Target, []string) {
+	path, _, _ = strings.Cut(path, "?")
+	out := make([]Target, 0, len(snap.Blocks))
+	var excluded []string
+	for i := range snap.Blocks {
+		block := &snap.Blocks[i]
+		target, skipped := targetByPath(block, path)
+		if target.Block != nil {
+			out = append(out, target)
+		}
+		if skipped {
+			excluded = append(excluded, block.Name)
+		}
 	}
-	var (
-		deciders int
-		claimed  = map[string]struct{}{}
-		values   = map[string]string{}
-		produced = map[string]int{}
-		conflict = map[string]struct{}{}
-	)
+	return out, excluded
+}
+
+// targetByPath returns the target and whether exclusions removed every method
+// that would reach the block. Each inclusion route can claim only methods that
+// neither an exclusion nor an earlier inclusion route claimed.
+func targetByPath(block *compile.Block, path string) (target Target, excluded bool) {
+	claimed, allExcluded := excludedMethods(block.ExcludedRoutes, path)
+	if len(block.Routes) == 0 {
+		if allExcluded {
+			return Target{}, true
+		}
+		return Target{Block: block}, false
+	}
+
+	var matchedPath bool
+	var deciders int
+	summary := map[string]captureMatch{}
 	for i := range block.Routes {
 		route := &block.Routes[i]
-		captures, ok := matchPath(route, path)
+		captures, ok := matchPath(route, path, !allExcluded)
 		if !ok {
 			continue
 		}
-		if len(route.Methods) > 0 {
-			left := false
-			for method := range route.Methods {
-				if _, taken := claimed[method]; !taken {
-					claimed[method] = struct{}{}
-					left = true
-				}
-			}
-			if !left {
-				continue
-			}
+		if allExcluded {
+			return Target{}, true
+		}
+		matchedPath = true
+		if !claimMethods(claimed, route.Methods) {
+			continue
 		}
 		deciders++
-		for name, value := range captures {
-			if previous, seen := values[name]; seen && previous != value {
-				conflict[name] = struct{}{}
-			}
-			values[name] = value
-			produced[name]++
-		}
+		recordCaptures(summary, captures)
 		if len(route.Methods) == 0 {
 			break
 		}
 	}
 	if deciders == 0 {
-		return Target{}, false
+		return Target{}, matchedPath
 	}
+	return resolvePathTarget(block, summary, deciders), false
+}
+
+// excludedMethods collects the methods excluded for a path. Its second result
+// reports a matching exclusion that applies to every method.
+func excludedMethods(routes []compile.Route, path string) (map[string]struct{}, bool) {
+	claimed := map[string]struct{}{}
+	for i := range routes {
+		route := &routes[i]
+		if _, ok := matchPath(route, path, false); !ok {
+			continue
+		}
+		if len(route.Methods) == 0 {
+			return nil, true
+		}
+		maps.Copy(claimed, route.Methods)
+	}
+	return claimed, false
+}
+
+// claimMethods reports whether the route can decide at least one method and
+// adds its explicit methods to claimed. An unrestricted route decides every
+// method left.
+func claimMethods(claimed, methods map[string]struct{}) bool {
+	if len(methods) == 0 {
+		return true
+	}
+	before := len(claimed)
+	maps.Copy(claimed, methods)
+	return len(claimed) > before
+}
+
+type captureMatch struct {
+	value  string
+	routes int
+	varies bool
+}
+
+func recordCaptures(summary map[string]captureMatch, captures map[string]string) {
+	for name, value := range captures {
+		match := summary[name]
+		if match.routes > 0 && match.value != value {
+			match.varies = true
+		}
+		match.value = value
+		match.routes++
+		summary[name] = match
+	}
+}
+
+func resolvePathTarget(block *compile.Block, summary map[string]captureMatch, deciders int) Target {
 	target := Target{Block: block}
 	for _, name := range block.Captures {
-		_, conflicted := conflict[name]
+		match := summary[name]
 		switch {
-		case produced[name] == deciders && !conflicted:
+		case match.routes == deciders && !match.varies:
 			if target.Captures == nil {
 				target.Captures = map[string]string{}
 			}
-			target.Captures[name] = values[name]
-		case produced[name] == 0:
-			// No deciding route produces it: absent for the request.
+			target.Captures[name] = match.value
+		case match.routes == 0:
+			// No deciding route produces this capture.
 		default:
 			target.Undecided = append(target.Undecided, name)
 		}
 	}
-	return target, true
+	return target
 }
 
 // Empty reports that no block targets the request: it is allowed as it
@@ -369,23 +439,37 @@ func builtinValue(v string) []string {
 	return []string{v}
 }
 
-// matchTarget finds the first matching route in authored order — the only
-// deterministic choice when several of an OR-list match — and reports it with
-// the block's path-axis view and the route's captures. A block without routes
-// is the documented "whole domain" form: it matches everything, and the route
-// is nil.
+func excludesRequest(block *compile.Block, path, method string) bool {
+	for i := range block.ExcludedRoutes {
+		route := &block.ExcludedRoutes[i]
+		if !allowsMethod(route, method) {
+			continue
+		}
+		if _, ok := matchPath(route, path, false); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func allowsMethod(route *compile.Route, method string) bool {
+	_, listed := route.Methods[method]
+	return len(route.Methods) == 0 || listed
+}
+
+// matchTarget finds the first matching inclusion route in authored order and
+// returns its captures and path axis. With no inclusion routes, the block
+// uses the request path and returns a nil route.
 func matchTarget(block *compile.Block, path, method string) (*compile.Route, string, map[string]string, bool) {
 	if len(block.Routes) == 0 {
 		return nil, path, nil, true
 	}
 	for i := range block.Routes {
 		route := &block.Routes[i]
-		if len(route.Methods) > 0 {
-			if _, ok := route.Methods[method]; !ok {
-				continue
-			}
+		if !allowsMethod(route, method) {
+			continue
 		}
-		captures, ok := matchPath(route, path)
+		captures, ok := matchPath(route, path, true)
 		if !ok {
 			continue
 		}
@@ -397,14 +481,14 @@ func matchTarget(block *compile.Block, path, method string) (*compile.Route, str
 	return nil, "", nil, false
 }
 
-func matchPath(route *compile.Route, path string) (map[string]string, bool) {
+func matchPath(route *compile.Route, path string, capture bool) (map[string]string, bool) {
 	switch route.Type {
 	case model.PathExact:
 		return nil, path == route.Value
 	case model.PathPrefix:
 		return nil, matchPrefix(route.Value, path)
 	case model.PathTemplate:
-		return matchTemplate(route.Segments, path)
+		return matchTemplate(route.Segments, path, capture)
 	}
 	return nil, false
 }
@@ -422,7 +506,7 @@ func matchPrefix(value, path string) bool {
 
 // matchTemplate compares segment-wise: a placeholder takes exactly one
 // non-empty segment, and the template covers the whole path.
-func matchTemplate(segments []compile.Segment, path string) (map[string]string, bool) {
+func matchTemplate(segments []compile.Segment, path string, capture bool) (map[string]string, bool) {
 	if !strings.HasPrefix(path, "/") {
 		return nil, false
 	}
@@ -440,6 +524,9 @@ func matchTemplate(segments []compile.Segment, path string) (map[string]string, 
 		}
 		if parts[i] == "" {
 			return nil, false
+		}
+		if !capture {
+			continue
 		}
 		if captures == nil {
 			captures = map[string]string{}

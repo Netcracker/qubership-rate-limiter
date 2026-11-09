@@ -219,6 +219,9 @@ type Decision struct {
 
 	Rules []RuleOutcome
 
+	// ExcludedBlocks lists the blocks skipped by excluded routes during Peek.
+	ExcludedBlocks []string
+
 	// Subject is the resolved sub key on a refusal, empty if absent or ambiguous.
 	Subject string
 
@@ -244,7 +247,7 @@ type Decision struct {
 // the one exception is ErrTooManyBuckets, whose contract requires a denial —
 // see its documentation.
 func (e *Engine) Decide(ctx context.Context, req Request) (Decision, error) {
-	return e.evaluate(ctx, req, e.store.Decide)
+	return e.evaluate(ctx, req, e.store.Decide, false)
 }
 
 // Peek answers the same question as Decide and charges nothing.
@@ -253,28 +256,35 @@ func (e *Engine) Decide(ctx context.Context, req Request) (Decision, error) {
 // next and a simulation reports what a request would meet, and neither may move
 // the state it describes. The pipeline is the same one Decide runs: the same
 // matching, the same identity, the same bucket set, the same aggregation. An
-// answer here and a decision there differ only in whether the store committed.
+// answer here and a decision there differ in whether the store committed. Peek also reports excluded blocks.
 // ErrTooManyBuckets applies unchanged: a decision over the budget is a
 // configuration violation whether or not anything is charged for it.
 //
 // The verdict is best-effort by nature. Nothing is reserved, so live traffic can
 // change the answer between this call and the next request.
 func (e *Engine) Peek(ctx context.Context, req Request) (Decision, error) {
-	return e.evaluate(ctx, req, e.store.Peek)
+	return e.evaluate(ctx, req, e.store.Peek, true)
 }
 
 // commit is the store call a pass makes: Decide charges, Peek does not.
 type commit func(ctx context.Context, buckets []store.Bucket) ([]store.Verdict, error)
 
-func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decision, error) {
+func (e *Engine) evaluate(ctx context.Context, req Request, judge commit, reportExclusions bool) (Decision, error) {
 	cost := req.Cost
 	if cost == 0 {
 		cost = 1
 	}
 
-	cands := match.Match(e.snap, req.Path, req.Method)
+	var cands match.Candidates
+	var excluded []string
+	if reportExclusions {
+		cands, excluded = match.MatchWithExclusions(e.snap, req.Path, req.Method)
+	} else {
+		cands = match.Match(e.snap, req.Path, req.Method)
+	}
+	decision := Decision{Allowed: true, ExcludedBlocks: excluded, Targeted: !cands.Empty()}
 	if cands.Empty() {
-		return Decision{Allowed: true}, nil
+		return decision, nil
 	}
 
 	keys, skips := e.extractKeys(req)
@@ -282,7 +292,9 @@ func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decis
 
 	buckets := matched.Buckets()
 	if len(buckets) == 0 {
-		return Decision{Allowed: true, Targeted: true, Skips: skips, ExtractedKeys: e.keyNames(keys)}, nil
+		decision.Skips = skips
+		decision.ExtractedKeys = e.keyNames(keys)
+		return decision, nil
 	}
 	if len(buckets) > MaxDecisionBuckets {
 		return Decision{}, fmt.Errorf("%w: the request matched %d buckets", ErrTooManyBuckets, len(buckets))
@@ -293,13 +305,10 @@ func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decis
 		return Decision{}, err
 	}
 
-	decision := Decision{
-		Allowed:       store.Admitted(buckets, verdicts),
-		Targeted:      true,
-		Rules:         ruleOutcomes(matched, buckets, verdicts),
-		Skips:         skips,
-		ExtractedKeys: e.keyNames(keys),
-	}
+	decision.Allowed = store.Admitted(buckets, verdicts)
+	decision.Rules = ruleOutcomes(matched, buckets, verdicts)
+	decision.Skips = skips
+	decision.ExtractedKeys = e.keyNames(keys)
 	if !decision.Allowed {
 		decision.Subject = singleSubject(keys)
 	}

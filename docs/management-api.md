@@ -128,6 +128,13 @@ undecided_condition on the same
 key; deciding the condition decides the axis too, and a single condition stands as the gate. The simulation remains the
 fact-finding tool (a real token, a real path); applicability is its static sibling.
 
+GET /rules lists each block's `excludedRoutes` alongside its inclusion routes. Exclusion changes are part of
+`ruleSetVersion`. With a path filter, `skippedBlocks` lists blocks that would have matched without the exclusion,
+for example `{"block":"api-defaults","reason":"excluded_route"}`. The filtered `blocks` list and its applicability
+annotations cover blocks that can still apply. If you omit the method, an exclusion skips the block only when it
+leaves no applicable method for that path. POST /simulations reports the same reason in `skippedBlocks` and omits
+the block's rules from its outcomes. Both responses omit `skippedBlocks` when there are no exclusions to report.
+
 ## Idempotency and command lifecycle
 
 Idempotency-Key is mandatory on both mutations; the scope is (authenticated subject, domain, endpoint): another domain

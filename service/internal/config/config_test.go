@@ -204,11 +204,11 @@ func TestRead_refusesAReadingItCannotApplyWhole(t *testing.T) {
 		},
 		"a payload the manifest names but the directory lacks": {
 			damage:  func(f *fixture) { f.remove(manifest.PayloadKey("gateway.public")) },
-			version: 1, reason: "read the payload",
+			version: manifest.FormatVersion, reason: "read the payload",
 		},
 		"a payload whose hash disagrees with the manifest": {
 			damage:  func(f *fixture) { f.writePayload("gateway.public", spec("gateway.public", 11)) },
-			version: 1, reason: "does not match",
+			version: manifest.FormatVersion, reason: "does not match",
 		},
 		"a payload with a field the spec does not define": {
 			// The hash is over the bytes as written, so it agrees; the strict
@@ -218,19 +218,19 @@ func TestRead_refusesAReadingItCannotApplyWhole(t *testing.T) {
 					"gateway.public": map[string]any{"domain": "gateway.public", "limits": []any{}, "futureField": true},
 				})
 			},
-			version: 1, reason: "futureField",
+			version: manifest.FormatVersion, reason: "futureField",
 		},
 		"a payload that decompresses past the decoder's limit": {
 			damage: func(f *fixture) {
 				f.writeCompressed("gateway.public", gzipped(f.t, bytes.Repeat([]byte{'0'}, manifest.MaxPayloadSize+1)))
 			},
-			version: 1, reason: "decompresses past",
+			version: manifest.FormatVersion, reason: "decompresses past",
 		},
 		"a payload that belongs to another domain": {
 			damage: func(f *fixture) {
 				f.writePayloads(1, map[string]any{"gateway.public": spec("gateway.other", 10)})
 			},
-			version: 1, reason: `for domain "gateway.other"`,
+			version: manifest.FormatVersion, reason: `for domain "gateway.other"`,
 		},
 	}
 	for name, tc := range cases {

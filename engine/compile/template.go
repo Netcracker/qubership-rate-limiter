@@ -13,12 +13,12 @@ import (
 // mapped key is the one informational finding of the compiler — inside the
 // block the capture wins, and the author should know.
 func (c *blockCompiler) compileRoutes(b model.Block) ([]Route, []string) {
-	// No routes is the documented "whole domain" form: the block matches
-	// every request, with no captures and the raw path as the axis.
 	routes := make([]Route, 0, len(b.Target.Routes))
 	captures := map[string]struct{}{}
 	for _, r := range b.Target.Routes {
-		routes = append(routes, c.compileRoute(b, r, captures))
+		route := c.compileRoute(b, r.Path, r.Methods, captures)
+		route.Cost = c.compileCost(b, r.Cost)
+		routes = append(routes, route)
 	}
 
 	sorted := make([]string, 0, len(captures))
@@ -29,23 +29,25 @@ func (c *blockCompiler) compileRoutes(b model.Block) ([]Route, []string) {
 	return routes, sorted
 }
 
-func (c *blockCompiler) compileRoute(b model.Block, r model.Route, captures map[string]struct{}) Route {
-	out := Route{Type: r.Path.Type, Value: r.Path.Value}
+func (c *blockCompiler) compileRoute(
+	b model.Block, path model.PathMatch, methods []string, captures map[string]struct{},
+) Route {
+	out := Route{Type: path.Type, Value: path.Value}
 
-	if !strings.HasPrefix(r.Path.Value, "/") {
-		c.fail(b.Name, "", ReasonInvalidSpec, "path %q does not start with /", r.Path.Value)
+	if !strings.HasPrefix(path.Value, "/") {
+		c.fail(b.Name, "", ReasonInvalidSpec, "path %q does not start with /", path.Value)
 	}
-	switch r.Path.Type {
+	switch path.Type {
 	case model.PathExact, model.PathPrefix:
 	case model.PathTemplate:
-		out.Segments = c.compileTemplate(b, r.Path.Value, captures)
+		out.Segments = c.compileTemplate(b, path.Value, captures)
 	default:
-		c.fail(b.Name, "", ReasonInvalidSpec, "unknown path type %q", r.Path.Type)
+		c.fail(b.Name, "", ReasonInvalidSpec, "unknown path type %q", path.Type)
 	}
 
-	if len(r.Methods) > 0 {
-		out.Methods = make(map[string]struct{}, len(r.Methods))
-		for _, m := range r.Methods {
+	if len(methods) > 0 {
+		out.Methods = make(map[string]struct{}, len(methods))
+		for _, m := range methods {
 			if _, known := httpMethods[m]; !known {
 				c.fail(b.Name, "", ReasonInvalidSpec, "unknown HTTP method %q", m)
 				continue
@@ -57,7 +59,6 @@ func (c *blockCompiler) compileRoute(b model.Block, r model.Route, captures map[
 			out.Methods[m] = struct{}{}
 		}
 	}
-	out.Cost = c.compileCost(b, r.Cost)
 	return out
 }
 
@@ -146,11 +147,13 @@ func (c *blockCompiler) compileTemplate(b model.Block, value string, captures ma
 			continue
 		}
 		seen[name] = struct{}{}
-		if _, mapped := c.env.keys[name]; mapped {
-			c.fail(b.Name, "", ReasonCaptureShadowsMappedKey,
-				"capture %q shadows the mapped key of the same name inside this block", name)
+		if captures != nil {
+			if _, mapped := c.env.keys[name]; mapped {
+				c.fail(b.Name, "", ReasonCaptureShadowsMappedKey,
+					"capture %q shadows the mapped key of the same name inside this block", name)
+			}
+			captures[name] = struct{}{}
 		}
-		captures[name] = struct{}{}
 		out = append(out, Segment{Capture: name})
 	}
 	return out

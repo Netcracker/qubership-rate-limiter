@@ -38,9 +38,8 @@ const envtestNamespace = "ratelimit-envtest"
 // constraint that never fires would look like one that works.
 //
 // The schema holds the shape of values and nothing else: patterns, enums,
-// ranges, uniqueness through list types, and the one CEL rule that makes a
-// policy the singleton of its domain. Everything that relates fields to each
-// other is the compiler's, answered through the status — the cost estimator
+// ranges, uniqueness through list types, and CEL rules for the policy name
+// and target. Other cross-field checks are the compiler's. The cost estimator
 // charges every CEL rule the product of the list bounds on the way to it, so
 // keeping those checks here would mean bounding every list for the estimator's
 // sake and maintaining a second copy of the compiler.
@@ -49,7 +48,7 @@ const envtestNamespace = "ratelimit-envtest"
 // type and the field it names, rather than by the wording of its message: a
 // domain such as "gateway:public" is also an invalid object name, and only
 // the field tells the pattern on spec.domain apart from the validation of
-// metadata.name. The CEL rule is matched by the message it declares, and an
+// metadata.name. The name CEL rule is matched by the message it declares, and an
 // empty domain, which two rules refuse, only as invalid.
 
 // policyWith builds a policy for a domain. The name is the domain: the CEL rule
@@ -229,6 +228,24 @@ var _ = Describe("RateLimitPolicy", func() {
 			Entry("one second, the shortest window", int32(1)),
 			Entry("a day, the longest window a rate limit has", int32(86400)),
 		)
+
+		It("rejects a target without either route list", func() {
+			policy := policyWith("gateway.public", blockWith("api", ruleWith("total")))
+			policy.Spec.Limits[0].Target = &ratelimitv1.Target{}
+
+			Expect(create(policy)).
+				To(rejectedAt(metav1.CauseTypeFieldValueInvalid, "spec.limits[0].target"))
+		})
+
+		It("accepts a target with excluded routes only", func() {
+			policy := policyWith("gateway.public", blockWith("api", ruleWith("total")))
+			policy.Spec.Limits[0].Target = &ratelimitv1.Target{ExcludedRoutes: []ratelimitv1.ExcludedRoute{{
+				Path:    ratelimitv1.PathMatch{Type: ratelimitv1.PathMatchTemplate, Value: "/api/{resource}"},
+				Methods: []ratelimitv1.HTTPMethod{"GET"},
+			}}}
+
+			Expect(create(policy)).To(Succeed())
+		})
 
 		It("rejects a method outside the HTTP set", func() {
 			policy := policyWith("gateway.public", blockWith("api", ruleWith("total")))

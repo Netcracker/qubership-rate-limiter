@@ -100,6 +100,9 @@ func (c *blockCompiler) compileBlock(b model.Block) Block {
 	}
 
 	out.Routes, out.Captures = c.compileRoutes(b)
+	for _, route := range b.Target.ExcludedRoutes {
+		out.ExcludedRoutes = append(out.ExcludedRoutes, c.compileRoute(b, route.Path, route.Methods, nil))
+	}
 
 	// blockKeys is the per-block effective set: domain keys plus captures.
 	blockKeys := make(map[string]bool, len(c.env.keys)+len(out.Captures))

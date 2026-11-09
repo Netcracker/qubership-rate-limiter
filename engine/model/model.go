@@ -135,9 +135,17 @@ type Block struct {
 	Rules  []Rule
 }
 
-// Target is an OR-list of routes; within a route the fields are AND.
+// Target admits requests matching any of its routes, or all requests when
+// Routes is empty. A match in ExcludedRoutes skips the block.
 type Target struct {
-	Routes []Route
+	Routes         []Route
+	ExcludedRoutes []ExcludedRoute
+}
+
+// ExcludedRoute selects requests by path and, when specified, by method.
+type ExcludedRoute struct {
+	Path    PathMatch
+	Methods []string
 }
 
 // Route matches a request location.
