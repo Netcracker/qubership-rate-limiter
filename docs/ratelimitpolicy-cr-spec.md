@@ -286,10 +286,11 @@ An unknown key (one outside the effective key set of the domain) is rejected by 
 
 `{name}` matches exactly one non-empty segment; the template covers the whole path; literal segments are compared
 exactly and case-sensitively. Captured segments become descriptor keys visible to the rules of their own block and are
-usable in `counters` ("a counter per `{orderId}`"); a placeholder name follows the shared descriptor key pattern
-`^[a-z][a-zA-Z0-9_]*$` (at most 63 characters, camelCase allowed), and the names `path`, `method`, `token`, and
-`sub` are forbidden for placeholders; see "Validations". Inside a block whose route is a Template, the `path` axis
-takes the value of the template itself rather than the raw path: axis cardinality is bounded by construction.
+usable in `counters` ("a counter per `{orderId}`", see [Limiting a business object](#limiting-a-business-object)); a
+placeholder name follows the shared descriptor key pattern `^[a-z][a-zA-Z0-9_]*$` (at most 63 characters, camelCase
+allowed), and the names `path`, `method`, `token`, and `sub` are forbidden for placeholders; see "Validations". Inside
+a block whose route is a Template, the `path` axis takes the value of the template itself rather than the raw path:
+axis cardinality is bounded by construction.
 
 ### Prefix and Exact semantics
 
@@ -428,6 +429,96 @@ Envoy computes a route's `hits_addend` from a substitution format string, but on
 a route through `typed_per_filter_config`: a configuration per API in the gateway, outside the policy. The gateway of
 this design sends one flat descriptor for every request, and the matching lives in the engine, so the cost is read
 where the matching is.
+
+### Bulk requests with the item count in the body
+
+The cost of a request comes from its query string, and the request body is never read. The gateway sends the check
+when the request headers arrive, before the body, so a bulk request that lists its items in the body costs its route's
+`default`, or one unit on a route without `cost`.
+
+An item count reaches a window in one of two ways:
+
+1. **The API takes the count in a query parameter.** A route's `cost` on that parameter charges it, as the search
+   route in the example of [Request cost](#request-cost) charges its page size. The policy charges the count the
+   request declares, so the API has to refuse a body with more items than the parameter names.
+2. **The backend reads the count from the body.** The backend then checks the count itself, as a direct gRPC consumer,
+   in the steps below.
+
+To check the items of a bulk request in the backend:
+
+1. Create a `RateLimitPolicy` with a domain for the backend, such as `service.orders`, in the namespace of the rate
+   limiter. In a composite that is the baseline, the namespace a satellite receives as `BASELINE_ORIGIN`. The
+   gateway's policy has another domain, so its blocks do not apply to this check, and the items are charged once.
+2. Call `ShouldRateLimit` on the Service of that namespace, `rate-limiter.<namespace>.svc.cluster.local:9000`, with
+   the policy's domain, a descriptor with the keys its rules count by, and `hits_addend` set to the number of items. A
+   block without `target.routes` charges that amount. A block with `target.routes` matches only a descriptor that
+   carries a `path`, and charges the amount when the matching route has no `cost`
+   ([The protocol's hits_addend](#the-protocols-hits_addend)).
+3. Set a deadline on the call. Without one, the service allows each step of its call to the counter store up to
+   250 ms ([engine](engine.md#counter-storage)). A policy that the installation puts on port 9000
+   ([engine](engine.md#token-and-identity)) has to admit the backend: an `AuthorizationPolicy` by its ServiceAccount,
+   a `NetworkPolicy` by the labels of its pods or its namespace.
+4. Map the answer. The rate limit headers, `retry-after` among them, come in the response's
+   `response_headers_to_add`. On `OVER_LIMIT` with `retry-after`, return `429` to the client. `OVER_LIMIT` without
+   `retry-after` is a refusal that no wait cures, such as a count above the capacity of a window
+   ([What the rules of the block see](#what-the-rules-of-the-block-see)). A client that retries on `429` would send
+   that request again and never pass, so answer it with a status the client does not retry. A gRPC error leaves the
+   decision to admit the request to the backend: `UNAVAILABLE` when the counter store failed or no replica can be
+   reached, `DEADLINE_EXCEEDED` when the deadline passed, and the failure of a call that the port's policy denies.
+   The gateway's `filter.failClosed` does not apply to this check, and while the error lasts, the backend's choice
+   applies to every bulk request.
+
+Counting the items in the gateway would mean buffering and parsing the body of every request on the route before
+forwarding it.
+
+## Limiting a business object
+
+A policy counts requests by route and identity, and a business object is expressed through routes. Two forms cover an
+object whose identifier is in the path:
+
+- **One object across several APIs.** One block lists the routes of every API that reads or changes the object, and a
+  rule of that block is one counter for all of them: the calls add up whichever API they come through.
+- **One instance of the object.** A `Template` route captures the identifier, and a rule names the capture in
+  `counters`: `[orderId]` gives a bucket per order, `[sub, orderId]` a bucket per user and order.
+
+```yaml
+limits:
+- name: orders                           # the order object over two API versions
+  target:
+    routes:                              # templates first: the first matching route sets the captures
+    - path: { type: Template, value: "/api/v1/orders/{orderId}" }
+    - path: { type: Template, value: "/api/v1/orders/{orderId}/items" }
+    - path: { type: Template, value: "/api/v2/order-management/orders/{orderId}" }
+    - path: { type: Prefix, value: /api/v1/orders }                    # the other order calls: no orderId
+    - path: { type: Prefix, value: /api/v2/order-management/orders }
+  rules:
+  - name: order-calls-per-user           # every order call of a user, through either API
+    counters: [sub]
+    rates:
+    - { requests: 600, periodSeconds: 60 }
+  - name: per-order                      # a bucket per order, whoever calls
+    counters: [orderId]
+    rates:
+    - { requests: 30, periodSeconds: 60 }
+```
+
+A request whose route captured no `orderId`, such as a collection call through a `Prefix` route, does not match
+`per-order`, because a rule whose axis the request does not carry does not match. The identifier has to be a path
+segment: the query string is cut before matching and the body is never read
+([Bulk requests with the item count in the body](#bulk-requests-with-the-item-count-in-the-body)), so an object named
+in either is out of reach of the policy.
+
+A placeholder captures any segment at its position, so `/api/v1/orders/search` matches `/api/v1/orders/{orderId}`
+with `orderId` set to `search`, and the searches of every caller share one `per-order` bucket. List an `Exact` route
+for such a path before the templates: the request then matches through it and carries no `orderId`.
+
+The caller chooses the path, so a per-object counter bounds the traffic to one object, not the traffic of one caller.
+A client that spreads its calls over many identifiers is bounded only by the rule that counts by `sub`, and an
+anonymous client, which has no `sub`, by no per-caller rule of this block. Each distinct
+combination of a rule's axis values holds one key per window in the store, from its first admitted request until the
+key expires: a fixed window up to a tenth of its period after its boundary, a GCRA bucket when it drains
+([store contract](store-contract.md)). Store memory grows with the number of objects, or of user and object pairs under
+`[sub, orderId]`, that see traffic within a window.
 
 ## Descriptor keys
 
