@@ -70,15 +70,20 @@ A rule carries axes (`counters`) and windows (`rates`). Each window is an indepe
 daily quota live in one rule and either can reject. `GCRA` meters at a steady rate with a burst allowance; `FixedWindow`
 counts per wall-clock window and resets at the boundary. A rule whose axis the request does not carry does not match at
 all — there is nothing to key the bucket by, which is what excludes an anonymous caller from a rule counting by
-`sub`. A rule body written once under `spec.presets.rules`, or a block body under `spec.presets.blocks`, serves every
-rule or block that names it through `preset`, with the fields written at the point of use on top; the operator writes
-presets into the blocks and rules before the policy compiles, so a preset name is part of no counter key and reaches no
+`sub`. A path capture such as `{orderId}` can be an axis, for a counter per business object
+([limiting a business object](docs/ratelimitpolicy-cr-spec.md#limiting-a-business-object)).
+
+A rule body written once under `spec.presets.rules`, or a block body under `spec.presets.blocks`, serves every rule or
+block that names it through `preset`, with the fields written at the point of use on top; the operator writes presets
+into the blocks and rules before the policy compiles, so a preset name is part of no counter key and reaches no
 service.
 
 A request costs one unit of every window it meets, unless the route of its block reads the cost from a query
 parameter: with `cost` on `limit`, a page of 100 items costs 100, and a window of `requests: 50000` an hour holds 50000
 items whatever the page sizes. The parameter is named per route, so each API brings its own
-([request cost](docs/ratelimitpolicy-cr-spec.md#request-cost)).
+([request cost](docs/ratelimitpolicy-cr-spec.md#request-cost)). The request body is never read: a backend that counts
+the items of a bulk request in its body checks them itself as a direct gRPC consumer
+([bulk requests](docs/ratelimitpolicy-cr-spec.md#bulk-requests-with-the-item-count-in-the-body)).
 
 `spec.mappings` declares how identity is read out of the JWT and `spec.groups` holds the named value lists `InGroup`
 resolves against. Both live in the same object as the rules that reference them, which is the point of the singleton:
