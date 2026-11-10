@@ -59,11 +59,12 @@ second policy for a domain cannot be created: the API server rejects it with `Al
 the two wins" question to answer. Compilation is a pure function of the
 objects, so the order they arrived in, their recreation, and their timestamps change nothing.
 
-A block is a target plus rules. **Blocks always add up**: a request that lands in several has to fit the verdict of
-each. `mode` decides only how the rules inside one block combine — `All` applies every matched rule, `FirstMatch`
-applies the first one and makes the order of the list the meaning. `behavior: Bypass` ends its own block with a pass and
-touches no counter; `behavior: Shadow` counts and records but never rejects, which is how a tighter limit is tried out
-over a live one.
+A block is a target plus rules. A request that matches any of the block's `target.excludedRoutes` skips every rule in
+that block. If you omit `target.routes`, the block covers the rest of the domain's traffic. **Blocks always add up**:
+a request that lands in several has to fit the verdict of each. `mode` decides how the rules inside one block combine.
+`All` applies every matched rule. `FirstMatch` applies the first matched rule in list order. `behavior: Bypass` ends its
+own block with a pass and touches no counter. `behavior: Shadow` counts and records, so you can try a tighter limit
+without refusing traffic.
 
 A rule carries axes (`counters`) and windows (`rates`). Each window is an independent bucket, so a smoothed minute and a
 daily quota live in one rule and either can reject. `GCRA` meters at a steady rate with a burst allowance; `FixedWindow`
@@ -418,6 +419,13 @@ stdout of every pod the run touched — captured by `tests/e2e/manifests/fluent-
 ```bash
 make test-e2e-go E2E_NAMESPACE=core
 ```
+
+To explain a stall of the counter store, open `redis-diagnostics.txt` in `e2e-pod-logs`. It holds the pods and events
+of the store at the end of the run, and the report of each running pod: `SLOWLOG`, the `LATENCY` samples, `INFO`, and
+the CPU counters of the container's cgroup. A report covers only the current container, and the `failopen` and
+`management-outage` suites replace the pod during the run, so each stopped pod writes the same report to its own log
+file in the artifact. The Redis log files also hold a `cpu-wait` line, with the time, for each second in which the
+container waited 10 ms or more for CPU, which places a CPU stall that falls between two commands.
 
 The `satellite` suite needs a second namespace, installed as a satellite of the first: its own gateways from a second
 `mesh-config` release, both charts with `BASELINE_ORIGIN` set to the baseline's namespace, and the probe backend.

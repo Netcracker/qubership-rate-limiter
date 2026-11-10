@@ -390,12 +390,79 @@ spec:
                       x-kubernetes-list-type: map
                     target:
                       description: |-
-                        target restricts the block. An absent target lets the block see the whole
-                        domain.
+                        target restricts the block. An absent target is the target of the
+                        block's preset; without one, the block sees the whole domain.
                       properties:
+                        excludedRoutes:
+                          description: |-
+                            excludedRoutes skips the block for requests matching any listed route,
+                            even when the request also matches routes.
+                          items:
+                            description: ExcludedRoute identifies requests that skip
+                              a block.
+                            properties:
+                              methods:
+                                description: methods accepts any of the listed methods.
+                                  An absent list accepts any method.
+                                items:
+                                  description: HTTPMethod is one request method a
+                                    route accepts.
+                                  enum:
+                                  - GET
+                                  - HEAD
+                                  - POST
+                                  - PUT
+                                  - PATCH
+                                  - DELETE
+                                  - CONNECT
+                                  - OPTIONS
+                                  - TRACE
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: set
+                              path:
+                                description: |-
+                                  path selects request paths. Template placeholders match one non-empty
+                                  segment and produce no descriptor keys.
+                                properties:
+                                  type:
+                                    description: |-
+                                      type selects how value is compared with the request path. Exact compares
+                                      the whole path, byte for byte, with the query already stripped and no
+                                      normalization, so /orders and /orders/ differ. Prefix compares leading
+                                      segments and stops at a slash or at the end of the path: /api/v1/orders
+                                      covers /api/v1/orders/42 but not /api/v1/orders-archive, unlike the
+                                      character prefix match of an Envoy route. Template compares segment by
+                                      segment, where {name} matches exactly one non-empty segment. An inclusion
+                                      route exposes the value as a descriptor key of the block.
+                                    enum:
+                                    - Exact
+                                    - Prefix
+                                    - Template
+                                    type: string
+                                  value:
+                                    description: |-
+                                      value is the path, the prefix, or the template. It starts with a slash;
+                                      the query string of a request is cut before matching, so it never appears
+                                      here.
+                                    maxLength: 2048
+                                    minLength: 1
+                                    pattern: ^/
+                                    type: string
+                                required:
+                                - type
+                                - value
+                                type: object
+                            required:
+                            - path
+                            type: object
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: atomic
                         routes:
-                          description: routes is an OR-list. A block without a target
-                            sees the whole domain.
+                          description: |-
+                            routes accepts requests matching any listed route. When omitted, every
+                            request in the domain is eligible before exclusions.
                           items:
                             description: |-
                               Route selects request traffic for a block. The fields of one route combine
@@ -475,8 +542,8 @@ spec:
                                       segments and stops at a slash or at the end of the path: /api/v1/orders
                                       covers /api/v1/orders/42 but not /api/v1/orders-archive, unlike the
                                       character prefix match of an Envoy route. Template compares segment by
-                                      segment, where {name} matches exactly one non-empty segment and becomes
-                                      a descriptor key of the block.
+                                      segment, where {name} matches exactly one non-empty segment. An inclusion
+                                      route exposes the value as a descriptor key of the block.
                                     enum:
                                     - Exact
                                     - Prefix
@@ -501,9 +568,10 @@ spec:
                           minItems: 1
                           type: array
                           x-kubernetes-list-type: atomic
-                      required:
-                      - routes
                       type: object
+                      x-kubernetes-validations:
+                      - message: a target requires routes or excludedRoutes
+                        rule: has(self.routes) || has(self.excludedRoutes)
                   required:
                   - name
                   type: object
@@ -838,11 +906,79 @@ spec:
                         target:
                           description: |-
                             target restricts a block that takes the preset and writes no target
-                            of its own. A block replaces a preset target and cannot remove it.
+                            of its own. A block replaces a preset target whole, its excludedRoutes
+                            included, and cannot remove it.
                           properties:
+                            excludedRoutes:
+                              description: |-
+                                excludedRoutes skips the block for requests matching any listed route,
+                                even when the request also matches routes.
+                              items:
+                                description: ExcludedRoute identifies requests that
+                                  skip a block.
+                                properties:
+                                  methods:
+                                    description: methods accepts any of the listed
+                                      methods. An absent list accepts any method.
+                                    items:
+                                      description: HTTPMethod is one request method
+                                        a route accepts.
+                                      enum:
+                                      - GET
+                                      - HEAD
+                                      - POST
+                                      - PUT
+                                      - PATCH
+                                      - DELETE
+                                      - CONNECT
+                                      - OPTIONS
+                                      - TRACE
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  path:
+                                    description: |-
+                                      path selects request paths. Template placeholders match one non-empty
+                                      segment and produce no descriptor keys.
+                                    properties:
+                                      type:
+                                        description: |-
+                                          type selects how value is compared with the request path. Exact compares
+                                          the whole path, byte for byte, with the query already stripped and no
+                                          normalization, so /orders and /orders/ differ. Prefix compares leading
+                                          segments and stops at a slash or at the end of the path: /api/v1/orders
+                                          covers /api/v1/orders/42 but not /api/v1/orders-archive, unlike the
+                                          character prefix match of an Envoy route. Template compares segment by
+                                          segment, where {name} matches exactly one non-empty segment. An inclusion
+                                          route exposes the value as a descriptor key of the block.
+                                        enum:
+                                        - Exact
+                                        - Prefix
+                                        - Template
+                                        type: string
+                                      value:
+                                        description: |-
+                                          value is the path, the prefix, or the template. It starts with a slash;
+                                          the query string of a request is cut before matching, so it never appears
+                                          here.
+                                        maxLength: 2048
+                                        minLength: 1
+                                        pattern: ^/
+                                        type: string
+                                    required:
+                                    - type
+                                    - value
+                                    type: object
+                                required:
+                                - path
+                                type: object
+                              minItems: 1
+                              type: array
+                              x-kubernetes-list-type: atomic
                             routes:
-                              description: routes is an OR-list. A block without a
-                                target sees the whole domain.
+                              description: |-
+                                routes accepts requests matching any listed route. When omitted, every
+                                request in the domain is eligible before exclusions.
                               items:
                                 description: |-
                                   Route selects request traffic for a block. The fields of one route combine
@@ -922,8 +1058,8 @@ spec:
                                           segments and stops at a slash or at the end of the path: /api/v1/orders
                                           covers /api/v1/orders/42 but not /api/v1/orders-archive, unlike the
                                           character prefix match of an Envoy route. Template compares segment by
-                                          segment, where {name} matches exactly one non-empty segment and becomes
-                                          a descriptor key of the block.
+                                          segment, where {name} matches exactly one non-empty segment. An inclusion
+                                          route exposes the value as a descriptor key of the block.
                                         enum:
                                         - Exact
                                         - Prefix
@@ -948,9 +1084,10 @@ spec:
                               minItems: 1
                               type: array
                               x-kubernetes-list-type: atomic
-                          required:
-                          - routes
                           type: object
+                          x-kubernetes-validations:
+                          - message: a target requires routes or excludedRoutes
+                            rule: has(self.routes) || has(self.excludedRoutes)
                       required:
                       - name
                       type: object

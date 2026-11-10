@@ -1131,3 +1131,82 @@ func TestADefaultCostAboveAWindowCapacityIsReportedWithoutBlocking(t *testing.T)
 		})
 	}
 }
+
+func TestCompileExcludedRoutes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		routes []model.Route
+		want   []string
+	}{
+		{name: "exclusions only"},
+		{
+			name: "inclusions and exclusions",
+			routes: []model.Route{{
+				Path: model.PathMatch{Type: model.PathTemplate, Value: "/api/{item}/details"},
+			}},
+			want: []string{"item"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validPolicy()
+			p.Blocks[0].Target = model.Target{
+				Routes: tc.routes,
+				ExcludedRoutes: []model.ExcludedRoute{{
+					Path:    model.PathMatch{Type: model.PathTemplate, Value: "/api/{collection}"},
+					Methods: []string{"GET"},
+				}},
+			}
+
+			snap, problems := compileOne(p)
+			if len(problems) != 0 || len(snap.Blocks) != 1 {
+				t.Fatalf("Compile() = %d blocks, %v problems, want one block and no problems", len(snap.Blocks), problems)
+			}
+			block := snap.Blocks[0]
+			if got := block.Captures; !slices.Equal(got, tc.want) {
+				t.Errorf("Compile() captures = %v, want %v", got, tc.want)
+			}
+			want := []Route{{
+				Type: model.PathTemplate, Value: "/api/{collection}",
+				Segments: []Segment{{Literal: "api"}, {Capture: "collection"}},
+				Methods:  map[string]struct{}{"GET": {}},
+			}}
+			if !reflect.DeepEqual(block.ExcludedRoutes, want) {
+				t.Errorf("Compile() exclusions = %+v, want %+v", block.ExcludedRoutes, want)
+			}
+		})
+	}
+}
+
+func TestCompileRejectsInvalidExcludedRoutes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		path    model.PathMatch
+		methods []string
+	}{
+		{"relative path", model.PathMatch{Type: model.PathExact, Value: "list"}, nil},
+		{"unknown path type", model.PathMatch{Type: "Regex", Value: "/list"}, nil},
+		{"malformed template", model.PathMatch{Type: model.PathTemplate, Value: "/api/x{item}"}, nil},
+		{"unknown method", model.PathMatch{Type: model.PathPrefix, Value: "/api"}, []string{"FETCH"}},
+		{"duplicate method", model.PathMatch{Type: model.PathPrefix, Value: "/api"}, []string{"GET", "GET"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validPolicy()
+			p.Blocks[0].Target.ExcludedRoutes = []model.ExcludedRoute{{Path: tc.path, Methods: tc.methods}}
+
+			snap, problems := compileOne(p)
+			assertRejectedWhole(t, snap, problems, ReasonInvalidSpec)
+		})
+	}
+}
+
+func TestCompileRejectsAnAxisFromAnExcludedTemplate(t *testing.T) {
+	p := validPolicy()
+	p.Blocks[0].Target.ExcludedRoutes = []model.ExcludedRoute{{
+		Path: model.PathMatch{Type: model.PathTemplate, Value: "/api/{collection}"},
+	}}
+	p.Blocks[0].Rules[0].Counters = []string{"collection"}
+
+	snap, problems := compileOne(p)
+
+	assertRejectedWhole(t, snap, problems, ReasonUnresolvedKeyReference)
+}

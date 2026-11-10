@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH}" go build -o /loadkit ./tests/load/loadkit
 
 # JMeter is plain Java, so one download serves every platform.
-FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a AS jmeter
+FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS jmeter
 ARG JMETER_VERSION=5.6.3
 ARG JMETER_SHA512=5978a1a35edb5a7d428e270564ff49d2b1b257a65e17a759d259a9283fc17093e522fe46f474a043864aea6910683486340706d745fcdf3db1505fd71e689083
 WORKDIR /opt
@@ -45,7 +45,7 @@ RUN chmod 755 /opt/loadtest \
     && chmod 444 /opt/loadtest/ratelimit-load.jmx /opt/loadtest/loadtest.properties /opt/loadtest/pick.groovy \
     && chmod 555 /opt/loadtest/run.sh
 
-FROM eclipse-temurin:21-jre-alpine-3.24@sha256:82cf3d9ccbe1ed46252008d51b2f2329e6b9e8a2f4394c4bebefc3ea7f4b1372
+FROM eclipse-temurin:21-jre-alpine-3.24@sha256:ac05c3c42b7c2f1a52c9bd52f01041fa1958231b15ebeae7420429cbc5baf474
 COPY --from=jmeter /opt/jmeter /opt/jmeter
 COPY --chmod=555 --from=builder /loadkit /usr/local/bin/loadkit
 COPY --from=jmeter /opt/loadtest /opt/loadtest

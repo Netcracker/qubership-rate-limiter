@@ -128,6 +128,12 @@ var (
 		Help: "Hard refusals by cause: configuration or protocol violations, not limits at work.",
 	}, []string{"domain", "cause"})
 
+	// AuditDropped counts refusal contributions omitted from the audit buffer.
+	AuditDropped = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ratelimit_audit_dropped_total",
+		Help: "Refusal contributions omitted when the replica's security audit buffer is full.",
+	})
+
 	// UnknownDomainChecks counts checks for domains no policy claims — the
 	// filter config and the custom resources have drifted apart, and the
 	// traffic passes unlimited. The domain name is in the log, not here.
@@ -251,7 +257,7 @@ var (
 // test which builds a process twice does not need to know.
 func RegisterService(registry prometheus.Registerer, version string) {
 	register(registry,
-		Checks, CheckDuration, Decisions, NearLimit, Refusals,
+		Checks, CheckDuration, Decisions, NearLimit, Refusals, AuditDropped,
 		UnknownDomainChecks, UnmatchedChecks, ExtractionSkips, Extractions, TokensSeen,
 		StoreRoundtrip, StoreErrors,
 		SnapshotRebuilds, SnapshotTimestamp, ConfigAbsent,

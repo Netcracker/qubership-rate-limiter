@@ -757,6 +757,7 @@ exclude.
 | `ratelimit_decisions_total` | `domain`, `rule` (limit block/rule), `outcome: ok\|over_limit\|shadow_over_limit` | per-rule outcomes |
 | `ratelimit_near_limit_total` | `domain`, `rule` | allowed requests within the margin of the window's capacity, the burst of a GCRA window or the requests of a fixed one (the threshold is `metrics.nearLimitRatio`); shadow is excluded |
 | `ratelimit_refusals_total` | `domain`, `cause: too_many_buckets\|too_many_descriptors\|invalid_cost` | hard refusals for configuration or protocol violations, not limits |
+| `ratelimit_audit_dropped_total` | none | refusal contributions omitted when a replica's [security audit](audit.md) buffer fills |
 | `ratelimit_unknown_domain_checks_total` | none | deliberately without a domain label: the caller controls the name; the name itself is in the sampled log |
 | `ratelimit_unmatched_checks_total` | `domain` | checks that applied no rule |
 | `ratelimit_extraction_skips_total` | `domain`, `key`, `reason: decode_failed\|bad_type\|too_long\|too_many_items` | extraction anomalies; `domain` because mappings live on the policy, and two domains of one namespace may declare the same key |

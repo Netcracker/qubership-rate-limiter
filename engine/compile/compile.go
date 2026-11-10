@@ -94,9 +94,10 @@ type Snapshot struct {
 
 // Block is a compiled limits entry.
 type Block struct {
-	Name   string
-	Mode   model.Mode
-	Routes []Route
+	Name           string
+	Mode           model.Mode
+	Routes         []Route
+	ExcludedRoutes []Route
 
 	// Captures are the template placeholder names of this block's routes:
 	// block-scoped descriptor keys, sorted.

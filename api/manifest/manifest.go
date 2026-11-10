@@ -45,7 +45,7 @@ import (
 // tolerated and ignored, or the payload golden of N-1 stops decoding and the
 // service refuses the operator it was promised to read. The tests of every
 // supported version's field set and payload golden enforce it.
-const FormatVersion = 1
+const FormatVersion = 2
 
 // SupportedVersions lists the format versions Decode accepts: the current one
 // and the one before it, when there is one.

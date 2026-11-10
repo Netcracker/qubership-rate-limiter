@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -629,6 +630,32 @@ func TestExtractionSkipsPropagate(t *testing.T) {
 	want := []identity.Skip{{Key: model.KeySub, Reason: identity.SkipDecodeFailed}}
 	if !slices.Equal(d.Skips, want) {
 		t.Errorf(`Decide(token "garbage").Skips = %v, want %v`, d.Skips, want)
+	}
+}
+
+func TestRuleOutcomeCarriesTheRefusingBucketsResolvedAxes(t *testing.T) {
+	const template = "/orders/{order_id}"
+	e := engineFor(t, model.Policy{Domain: domain, Blocks: []model.Block{{
+		Name: "api",
+		Target: model.Target{Routes: []model.Route{{
+			Path: model.PathMatch{Type: model.PathTemplate, Value: template},
+		}}},
+		Rules: []model.Rule{{Name: "per-order", Counters: []string{model.KeyPath, "order_id"},
+			Rates: []model.Rate{{Requests: 1, Period: time.Hour}}}},
+	}}})
+	req := engine.Request{Path: "/orders/42?secret=value", Token: token(t, "Alice")}
+	first := decide(t, e, req)
+	if !first.Allowed || first.Subject != "" || outcomeOf(t, first, "api", "per-order").Axes != nil {
+		t.Errorf("Decide(first check) = %+v, want admission with no audit identity", first)
+	}
+	d := decide(t, e, req)
+	if d.Allowed || d.Subject != "alice" {
+		t.Errorf("Decide(second check) = %+v, want refusal with subject alice", d)
+	}
+	if got, want := outcomeOf(t, d, "api", "per-order").Axes, map[string]string{
+		model.KeyPath: template, "order_id": "42",
+	}; !maps.Equal(got, want) {
+		t.Errorf("Decide(second check).Rules[0].Axes = %v, want %v", got, want)
 	}
 }
 

@@ -127,6 +127,42 @@ func TestResolve_aBlockThatWritesAModeTakesTheTargetOfItsPreset(t *testing.T) {
 	assert.Equal(t, v1.BlockModeAll, orders.Mode, "Mode of the resolved block, written")
 }
 
+// A target written at the point of use replaces both lists of the preset
+// target: a block that writes only routes keeps none of the preset's
+// exclusions, and a block that writes only excluded routes keeps none of the
+// preset's routes or their cost. A block that writes no target takes the
+// preset target whole.
+func TestResolve_aWrittenTargetReplacesBothListsOfThePresetTarget(t *testing.T) {
+	defaultCost := int32(20)
+	presetTarget := &v1.Target{
+		Routes: []v1.Route{{
+			Path: v1.PathMatch{Type: v1.PathMatchPrefix, Value: "/api"},
+			Cost: &v1.RouteCost{Source: v1.CostSourceQueryParameter, Name: "limit", Default: &defaultCost},
+		}},
+		ExcludedRoutes: []v1.ExcludedRoute{{
+			Path: v1.PathMatch{Type: v1.PathMatchExact, Value: "/health"}, Methods: []v1.HTTPMethod{"GET"},
+		}},
+	}
+	exportsTarget := &v1.Target{ExcludedRoutes: []v1.ExcludedRoute{{
+		Path: v1.PathMatch{Type: v1.PathMatchPrefix, Value: "/exports"},
+	}}}
+	spec := cascadeSpec(
+		v1.LimitBlock{Name: "orders", Preset: "plan-cascade", Target: prefixTarget("/orders")},
+		v1.LimitBlock{Name: "catalog", Preset: "plan-cascade"},
+		v1.LimitBlock{Name: "exports", Preset: "plan-cascade", Target: exportsTarget.DeepCopy()},
+	)
+	spec.Presets.Blocks[0].Target = presetTarget.DeepCopy()
+
+	resolved, problems := Resolve(spec)
+
+	require.Empty(t, problems, "Resolve problems")
+	require.Len(t, resolved.Spec.Limits, 3, "Resolved.Spec.Limits")
+	assert.Equal(t, prefixTarget("/orders"), resolved.Spec.Limits[0].Target, "Target of block orders, routes written")
+	assert.Equal(t, presetTarget, resolved.Spec.Limits[1].Target, "Target of block catalog, left out")
+	assert.Equal(t, exportsTarget, resolved.Spec.Limits[2].Target,
+		"Target of block exports, excludedRoutes written")
+}
+
 // The rules of the block merge with the preset's in three passes: overrides
 // in place, then insertions in the order written, then drops, with a dropped
 // rule serving as an anchor until the drops run. Every case asserts the

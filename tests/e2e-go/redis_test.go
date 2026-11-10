@@ -5,6 +5,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,11 +30,18 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 		probePath = "/e2e-redis"
 		limit     = 2
 	)
-	// A counter outlives the object that declared it - that is the property
-	// this suite exists to prove.
 	var (
 		applied bool
 		store   counterStore
+
+		// rule names the limit, one name per attempt, set in the spec that
+		// spends it. The budget stays spent for longer than the run, and the
+		// store can charge a check the gateway has already timed out, so a
+		// --flake-attempts retry needs an unspent budget of its own. A renamed
+		// rule counts in fresh buckets. A fresh path cannot do that here: the
+		// rule has no counter axis, and the spec that reads the counter pins
+		// the key of a rule without axes.
+		rule string
 	)
 
 	BeforeAll(func() {
@@ -41,24 +49,13 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 		if store, ok = releaseCounterStore(); !ok {
 			Skip("the namespace carries no " + redisSecretName + " Secret to reach the store through")
 		}
-		// The fixture half runs once even across flake retries: the budget
-		// stays spent for longer than the run, so a retry that minted a fresh
-		// policy would leave the gateway un-warmable behind the first
-		// attempt's refusals.
-		if !applied {
-			applied = true
 
-			// The gateway is warmed before the policy exists, not after:
-			// every warm-up probe would otherwise come out of the budget
-			// this suite is about to count. The rate is GCRA: once the limit
-			// is spent, the next request is due 3600/limit seconds later (30
-			// minutes), longer than any restart takes. A fixed window refills
-			// at the top of the hour, which a restart can straddle.
-			waitGatewayServes("public-gateway", probePath)
-			Expect(apply(newPolicy(domain,
-				hourlyGCRALimits(probePath, "total", nil, limit)))).To(Succeed())
-			waitApplied(domain)
-		}
+		// The gateway is warmed before the policy exists, not after: every
+		// warm-up probe would otherwise come out of the budget this suite is
+		// about to count. The warm-up stays out of the spec because a retry of
+		// the spec would probe the spent rule of the attempt before it. Ginkgo
+		// does not rerun a BeforeAll that passed.
+		waitGatewayServes("public-gateway", probePath)
 	})
 	AfterAll(func() {
 		if applied {
@@ -67,6 +64,16 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 	})
 
 	It("enforces a declared limit through the shared store", func() {
+		rule = "total-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+		// The rate is GCRA: once the limit is spent, the next request is due
+		// 3600/limit seconds later (30 minutes), longer than any restart
+		// takes. A fixed window refills at the top of the hour, which a
+		// restart can straddle.
+		Expect(apply(newPolicy(domain, hourlyGCRALimits(probePath, rule, nil, limit)))).To(Succeed())
+		applied = true
+		waitApplied(domain)
+
 		// The budget is spent one request at a time, and each request is
 		// asserted on its own, so a refusal inside the budget names the
 		// request it hit.
@@ -105,7 +112,7 @@ var _ = Describe("the shared counter store", Ordered, Label("redis"), func() {
 		// key came back first: the suites share gateway.public, so a scan of
 		// the domain returns their counters too, in whatever order Redis
 		// hands them over.
-		want := "rl:v1:" + tag + ":probe/total:gcra:3600:"
+		want := "rl:v1:" + tag + ":probe/" + rule + ":gcra:3600:"
 		Expect(keys).To(ContainElement(want),
 			"no counter at the documented key; the domain holds %v", keys)
 	})

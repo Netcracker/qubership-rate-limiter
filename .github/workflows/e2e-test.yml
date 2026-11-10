@@ -35,7 +35,8 @@ env:
   E2E_SATELLITE_NAMESPACE: ratelimit-e2e-sat
   # The counter store's namespace. The DBaaS Redis adapter runs its databases
   # in the adapter's namespace, not in the release's, so the release reaches
-  # its store at <service>.<namespace>, and so does the suite.
+  # its store at <service>.<namespace>, and so does the suite. The log capture
+  # names this namespace in tests/e2e/manifests/fluent-bit.yaml.
   E2E_REDIS_NAMESPACE: ratelimit-e2e-redis
   OPERATOR_IMAGE: ratelimit-operator:e2e
   SERVICE_IMAGE: ratelimit-service:e2e
@@ -96,7 +97,7 @@ jobs:
       # a ConfigMap update reaches the service's volume in seconds rather
       # than in the minute production takes.
       - name: Create kind cluster
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           cluster_name: ratelimit-e2e
           config: tests/e2e/kind-config.yaml
@@ -344,7 +345,7 @@ jobs:
       - name: Email the e2e report
         if: failure() && vars.EMAIL_TO != ''
         continue-on-error: true
-        uses: netcracker/qubership-workflow-hub/actions/email-action@e6afd0a6bcc4f24d73e3e4d5fb9a31ada009e3f1 # v2.8.2
+        uses: netcracker/qubership-workflow-hub/actions/email-action@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
         env:
           EMAIL_SMTP_HOST: ${{ vars.EMAIL_SMTP_HOST }}
           EMAIL_SMTP_PORT: ${{ vars.EMAIL_SMTP_PORT }}

@@ -309,3 +309,16 @@ func TestRender_listsTheArrayValuedKeysSorted(t *testing.T) {
 
 	assert.Equal(t, []string{"entitlements", "roles"}, view.ListValuedKeys)
 }
+
+func TestVersion_changesWithExcludedRoutes(t *testing.T) {
+	p := policy(100)
+	before := ruleview.Version(snapshotOf(t, p))
+	p.Blocks[0].Target.ExcludedRoutes = []model.ExcludedRoute{{
+		Path: model.PathMatch{Type: model.PathExact, Value: "/api/invoices/summary"},
+	}}
+	withExclusion := ruleview.Version(snapshotOf(t, p))
+	assert.NotEqual(t, before, withExclusion)
+
+	p.Blocks[0].Target.ExcludedRoutes[0].Methods = []string{"GET"}
+	assert.NotEqual(t, withExclusion, ruleview.Version(snapshotOf(t, p)))
+}

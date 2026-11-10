@@ -72,6 +72,14 @@ type RuleSetView struct {
 	ListValuedKeys []string `json:"listValuedKeys,omitempty"`
 
 	Blocks []BlockView `json:"blocks"`
+
+	SkippedBlocks []BlockSkip `json:"skippedBlocks,omitempty"`
+}
+
+// BlockSkip identifies a block that an excluded route kept out of the result.
+type BlockSkip struct {
+	Block  string `json:"block"`
+	Reason string `json:"reason"`
 }
 
 // BlockView is one compiled limits block: the routes and the rules sharing
@@ -82,7 +90,8 @@ type BlockView struct {
 	// Mode is All or FirstMatch, spelled as the custom resource spells it.
 	Mode string `json:"mode"`
 
-	Routes []RouteView `json:"routes"`
+	Routes         []RouteView `json:"routes"`
+	ExcludedRoutes []RouteView `json:"excludedRoutes,omitempty"`
 
 	// Captures are the template placeholder names of this block's routes:
 	// block-scoped identity keys its rules may count by, and no other block's.
@@ -237,6 +246,9 @@ func Block(block *compile.Block) BlockView {
 	}
 	for i := range block.Routes {
 		view.Routes = append(view.Routes, route(&block.Routes[i]))
+	}
+	for i := range block.ExcludedRoutes {
+		view.ExcludedRoutes = append(view.ExcludedRoutes, route(&block.ExcludedRoutes[i]))
 	}
 	for i := range block.Rules {
 		view.Rules = append(view.Rules, Rule(block, &block.Rules[i]))

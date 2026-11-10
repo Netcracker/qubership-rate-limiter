@@ -38,7 +38,10 @@ func Policy(spec *v1.RateLimitPolicySpec) *model.Policy {
 			Rules: make([]model.Rule, 0, len(block.Rules)),
 		}
 		if block.Target != nil {
-			converted.Target = model.Target{Routes: modelRoutes(block.Target.Routes)}
+			converted.Target = model.Target{
+				Routes:         modelRoutes(block.Target.Routes),
+				ExcludedRoutes: modelExcludedRoutes(block.Target.ExcludedRoutes),
+			}
 		}
 		for j := range block.Rules {
 			converted.Rules = append(converted.Rules, modelRule(&block.Rules[j]))
@@ -55,15 +58,8 @@ func modelRoutes(routes []v1.Route) []model.Route {
 	out := make([]model.Route, 0, len(routes))
 	for i := range routes {
 		route := &routes[i]
-		converted := model.Route{
-			Path: model.PathMatch{
-				Type:  model.PathType(route.Path.Type),
-				Value: route.Path.Value,
-			},
-		}
-		for _, method := range route.Methods {
-			converted.Methods = append(converted.Methods, string(method))
-		}
+		path, methods := modelRouteMatch(route.Path, route.Methods)
+		converted := model.Route{Path: path, Methods: methods}
 		if route.Cost != nil {
 			converted.Cost = &model.RouteCost{Source: model.CostSource(route.Cost.Source), Name: route.Cost.Name}
 			// A nil default stays zero, which the engine reads as one, as it
@@ -75,6 +71,30 @@ func modelRoutes(routes []v1.Route) []model.Route {
 		out = append(out, converted)
 	}
 	return out
+}
+
+func modelExcludedRoutes(routes []v1.ExcludedRoute) []model.ExcludedRoute {
+	if len(routes) == 0 {
+		return nil
+	}
+	out := make([]model.ExcludedRoute, len(routes))
+	for i, route := range routes {
+		path, methods := modelRouteMatch(route.Path, route.Methods)
+		out[i] = model.ExcludedRoute{Path: path, Methods: methods}
+	}
+	return out
+}
+
+func modelRouteMatch(path v1.PathMatch, methods []v1.HTTPMethod) (model.PathMatch, []string) {
+	converted := model.PathMatch{Type: model.PathType(path.Type), Value: path.Value}
+	if len(methods) == 0 {
+		return converted, nil
+	}
+	out := make([]string, len(methods))
+	for i, method := range methods {
+		out[i] = string(method)
+	}
+	return converted, out
 }
 
 func modelRule(rule *v1.Rule) model.Rule {

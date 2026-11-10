@@ -105,6 +105,9 @@ spec:
       - path: { type: Prefix, value: /api/v1/order-management/ }
         methods: [GET]                       # optional, OR over the list; absent = any method
       - path: { type: Template, value: "/api/v1/orders/{orderId}/items" }
+      excludedRoutes:
+      - path: { type: Exact, value: /api/v1/order-management/list }
+        methods: [GET]
     mode: FirstMatch                         # All (default) | FirstMatch
     rules:
     - name: internal-bypass                  # Bypass: matched -> the cascade ends with an allow,
@@ -223,12 +226,32 @@ responsibility. The compiler adds no normalization of its own.
 | --- | --- | --- |
 | `name` | string, required | unique within the policy; part of the counter key |
 | `preset` | string | the `presets.blocks` entry the block starts from; see "Presets" |
-| `target.routes` | list of routes, at least one when `target` is set | an OR list; no `target` = the block sees all traffic of the domain |
+| `target` | optional object with at least one of `routes` and `excludedRoutes` | with no target, the block takes its preset's, or sees all traffic of the domain |
+| `target.routes` | optional, nonempty list of routes | a request must match at least one route when the list is present |
 | `target.routes[].path` | `{type, value}`, required with both fields | `type: Exact \| Prefix \| Template`; `value` starts with `/` |
 | `target.routes[].methods` | list of enum values: `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `CONNECT`, `OPTIONS`, `TRACE` | OR over the values; absent = any method |
 | `target.routes[].cost` | `{source, name, default}` | the cost of a request matched through the route, read from a query parameter; absent = one unit; see [Request cost](#request-cost) |
+| `target.excludedRoutes` | optional, nonempty list of routes with `path` and optional `methods` | a match skips every rule in the block; template placeholders produce no descriptor keys |
 | `mode` | `All` \| `FirstMatch`; absent = `All`, or the preset's | how the block's rules combine |
 | `rules` | list of rules | the block's counters; may be left out in a block with `preset`; a block with no rules after resolution is `InvalidSpec` |
+
+To apply a block across a domain except for GET requests to list endpoints, set only `excludedRoutes` on the target.
+The rule below counts requests per caller using `sub`. Requests without `sub`, including anonymous requests, pass
+through this block without a charge. See [Evaluation semantics](#evaluation-semantics).
+
+```yaml
+limits:
+- name: api-defaults
+  target:
+    excludedRoutes:
+    - path: { type: Template, value: "/api/v1/{resource}" }
+      methods: [GET]
+  rules:
+  - name: per-user
+    counters: [sub]
+    rates:
+    - { requests: 300, periodSeconds: 60 }
+```
 
 ### The rules[] rule
 
@@ -406,8 +429,11 @@ content through the blocks that use it.
 
 A block of `limits` takes a preset through `preset` and keeps its own `name`, which stays unique within the policy
 and stays the block's segment of the counter key. `target` and `mode` written in the block replace the preset's
-whole; left out, they come from the preset. A preset `target` cannot be removed at the point of use, only replaced,
-so a block preset usually carries no `target`, and every block that uses it brings its own.
+whole; left out, they come from the preset. A written `target` replaces `routes` and `excludedRoutes` together: a
+block that writes only `routes` drops the preset's exclusions, and one that writes only `excludedRoutes` drops the
+preset's routes and sees the whole domain except the routes it excludes. A preset `target` cannot be removed at the
+point of use, only replaced, so a block preset usually carries no `target`, and every block that uses it brings its
+own.
 
 The rules of the block merge with the rules of the preset by name:
 
@@ -569,8 +595,9 @@ A `Template` matches as many segments as it names, so a collection and a single 
 without listing the resources. Where the list cannot separate them, a `cost` with `default` left at 1 is the
 alternative: a request without the parameter costs one unit, and only a request that names a page size pays for it.
 
-A block without a target has no routes and charges the request's own cost. A block that takes a block preset with a
-`target` takes its routes with their `cost`, and a `target` written at the point of use replaces the whole list.
+A block without inclusion routes charges the request's own cost. A block that takes a block preset with a `target`
+takes its routes with their `cost`. A `target` written at the point of use replaces the preset's whole, so a block that
+writes only `excludedRoutes` takes none of the preset's routes or their `cost`.
 
 ### What the rules of the block see
 
@@ -600,7 +627,7 @@ A route's `cost` replaces the request's `hits_addend` for the buckets of its blo
 has no `cost` keep charging `hits_addend`, with the descriptor's own value taking precedence. A descriptor whose
 `hits_addend` is an explicit zero is still checked without charging anything: that zero is a mode of the check, not a
 cost. A direct gRPC consumer that sends `path` with a query string gets the same treatment as a gateway, and a check
-without `path` matches no block that has a target, so no route's `cost` applies to it.
+without `path` cannot match an inclusion route, so no route's `cost` applies to it.
 
 ### Why the route carries the cost
 
@@ -638,9 +665,11 @@ require a token; a gateway filter such as `jwt_authn` can, and this delivery ins
 ## Evaluation semantics
 
 1. **Blocks are additive with each other.** A request that falls into several blocks must fit within the verdict of
-   each. `mode` acts only inside a block; the effect of `behavior: Bypass` does not leave its own block: in `FirstMatch`
-   it ends the cascade with an allow, in `All` it frees the matched requests from the rules named in its
-   `replacedRules` and from nothing else.
+   each. The engine strips the query string, then skips a block if any excluded route matches the path and method.
+   If the block has inclusion routes, the first matching route in list order supplies the cost and captures. A skipped
+   block evaluates no rules and charges no counters. `mode` and `behavior: Bypass` act within one block. In
+   `FirstMatch`, a bypass ends the cascade with an allow. In `All`, it exempts matching requests from the rules
+   named in its `replacedRules`.
 2. **`mode: All`** applies all matched rules of the block; `replacedRules` is available for targeted overrides.
 3. **`mode: FirstMatch`** applies the first matched rule in list order; the order is semantics. A rule with
    `behavior: Shadow` counts but does not stop the cascade; `behavior: Bypass` ends the cascade with an allow;

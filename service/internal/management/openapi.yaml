@@ -134,7 +134,9 @@ paths:
         admitting routes disagree on stays undecided. This is the static
         answer to "which rules guard this API"; feed the resulting rule ids
         into the counters listing with `limited=true` to see which of them
-        hold refusals right now.
+        hold refusals right now. skippedBlocks reports excluded_route for
+        blocks that would have matched without an exclusion. Without method,
+        a block remains in the listing if any method can still reach it.
 
         The response names the ruleSetVersion of the snapshot it renders; the addressed DELETE accepts it as expectedRuleSetVersion to refuse acting on a set the operator has not seen.
 
@@ -2306,9 +2308,30 @@ components:
           items:
             $ref: '#/components/schemas/BlockView'
           description: The compiled blocks, in authored order.
+        skippedBlocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockSkip'
+          description: Blocks that would have matched without an exclusion. With a
+            path and no method, a block is skipped when exclusions remove every
+            method that would have matched.
       description: The compiled rule set of one domain - what the decision path
         actually enforces, which can be a last-good generation rather than the latest
         object.
+    BlockSkip:
+      type: object
+      required:
+      - block
+      - reason
+      properties:
+        block:
+          type: string
+          description: The skipped block name.
+        reason:
+          type: string
+          enum:
+          - excluded_route
+          description: An excluded route matched the request.
     BlockView:
       type: object
       required:
@@ -2333,8 +2356,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RouteView'
-          description: 'The target: a request entering any of these routes is subject
-            to the block.'
+          description: Inclusion routes in authored order. An empty list makes all
+            requests in the domain eligible before exclusions.
+        excludedRoutes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteView'
+          description: Routes that skip this block. These entries carry no cost
+            and their templates produce no captures.
         captures:
           type: array
           items:
@@ -2909,6 +2938,11 @@ components:
             $ref: '#/components/schemas/RuleOutcomeView'
           description: Every applied rule with its own verdict - shadow rules included,
             reporting what they would have done.
+        skippedBlocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockSkip'
+          description: Blocks that would have matched the request without an exclusion.
         skips:
           type: array
           items:
@@ -3359,6 +3393,11 @@ components:
             $ref: '#/components/schemas/RuleOutcomeView'
           description: Every applied rule with its own verdict - shadow rules included,
             reporting what they would have done.
+        skippedBlocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockSkip'
+          description: Blocks that would have matched the request without an exclusion.
         skips:
           type: array
           items:
@@ -3410,6 +3449,11 @@ components:
             $ref: '#/components/schemas/RuleOutcomeView'
           description: Every applied rule with its own verdict - shadow rules included,
             reporting what they would have done.
+        skippedBlocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockSkip'
+          description: Blocks that would have matched the request without an exclusion.
         skips:
           type: array
           items:

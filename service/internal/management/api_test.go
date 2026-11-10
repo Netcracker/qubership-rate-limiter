@@ -1059,3 +1059,60 @@ func TestSimulation_refusesAnExplicitFieldOutsideItsBounds(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recorder.Code, "body %q: %s", extra, recorder.Body.String())
 	}
 }
+
+func TestRules_reportsExcludedRoutesAndSkips(t *testing.T) {
+	blocks := itemBlocks()
+	blocks[0].Target.ExcludedRoutes = []model.ExcludedRoute{{
+		Path:    model.PathMatch{Type: model.PathTemplate, Value: "/api/items/{collection}"},
+		Methods: []string{"GET"},
+	}}
+	h := newTestAPI(t, blocks...)
+	path := BasePath + "/domains/" + testDomain + "/rules"
+
+	var unfiltered ruleview.RuleSetView
+	decode(t, h.call(t, http.MethodGet, path, listedCaller, nil), http.StatusOK, &unfiltered)
+	require.Len(t, unfiltered.Blocks, 1)
+	assert.Equal(t, []ruleview.RouteView{{
+		Type: "Template", Value: "/api/items/{collection}", Methods: []string{"GET"},
+	}}, unfiltered.Blocks[0].ExcludedRoutes)
+	assert.Empty(t, unfiltered.Blocks[0].Captures)
+
+	var skipped ruleview.RuleSetView
+	decode(t, h.call(t, http.MethodGet, path+"?path=/api/items/summary%3Flimit=20&method=GET&axis.sub=alice",
+		listedCaller, nil), http.StatusOK, &skipped)
+	assert.Empty(t, skipped.Blocks)
+	assert.Equal(t, []ruleview.BlockSkip{{Block: "items", Reason: "excluded_route"}}, skipped.SkippedBlocks)
+	assert.Equal(t, unfiltered.RuleSetVersion, skipped.RuleSetVersion)
+
+	var anyMethod ruleview.RuleSetView
+	decode(t, h.call(t, http.MethodGet, path+"?path=/api/items/summary&axis.sub=alice",
+		listedCaller, nil), http.StatusOK, &anyMethod)
+	assert.Equal(t, []string{"items"}, blockNames(anyMethod))
+	assert.Empty(t, anyMethod.SkippedBlocks)
+}
+
+func TestSimulation_reportsTheExcludedBlockWhileApplyingOtherBlocks(t *testing.T) {
+	block := itemBlocks()[0]
+	block.Target.ExcludedRoutes = []model.ExcludedRoute{{
+		Path: model.PathMatch{Type: model.PathExact, Value: "/api/items/summary"},
+	}}
+	other := block
+	other.Name = "other"
+	other.Target.ExcludedRoutes = nil
+	h := newTestAPI(t, block, other)
+
+	var response SimulationResponse
+	decode(t, h.call(t, http.MethodPost, BasePath+"/simulations", listedCaller, SimulationRequest{
+		Domain: testDomain,
+		Path:   "/api/items/summary?limit=1",
+		Method: http.MethodGet,
+		Keys:   map[string][]string{model.KeySub: {"alice"}},
+	}), http.StatusOK, &response)
+
+	assert.True(t, response.Allowed)
+	assert.Equal(t, []ruleview.BlockSkip{{Block: "items", Reason: "excluded_route"}}, response.SkippedBlocks)
+	require.Len(t, response.Rules, 1)
+	assert.Equal(t, "other/per-client", response.Rules[0].ID)
+	require.NotNil(t, response.Headers)
+	assert.Equal(t, "other", response.Headers.Block)
+}

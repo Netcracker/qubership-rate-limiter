@@ -174,6 +174,10 @@ type RuleOutcome struct {
 	Shadow  bool
 	Allowed bool
 
+	// Axes maps counter names to the refusing bucket's values. It is nil for
+	// admissions and for refusals by a bucket without axes.
+	Axes map[string]string
+
 	// Cost is the amount the rule's windows were judged at, and charged when
 	// the decision admitted the request.
 	Cost int64
@@ -215,6 +219,12 @@ type Decision struct {
 
 	Rules []RuleOutcome
 
+	// ExcludedBlocks lists the blocks skipped by excluded routes during Peek.
+	ExcludedBlocks []string
+
+	// Subject is the resolved sub key on a refusal, empty if absent or ambiguous.
+	Subject string
+
 	// Targeted reports that at least one block targets the request, which is
 	// when identity is resolved: a request outside every target reports no
 	// skips and no extracted keys, whatever its token carries.
@@ -237,7 +247,7 @@ type Decision struct {
 // the one exception is ErrTooManyBuckets, whose contract requires a denial —
 // see its documentation.
 func (e *Engine) Decide(ctx context.Context, req Request) (Decision, error) {
-	return e.evaluate(ctx, req, e.store.Decide)
+	return e.evaluate(ctx, req, e.store.Decide, false)
 }
 
 // Peek answers the same question as Decide and charges nothing.
@@ -246,28 +256,35 @@ func (e *Engine) Decide(ctx context.Context, req Request) (Decision, error) {
 // next and a simulation reports what a request would meet, and neither may move
 // the state it describes. The pipeline is the same one Decide runs: the same
 // matching, the same identity, the same bucket set, the same aggregation. An
-// answer here and a decision there differ only in whether the store committed.
+// answer here and a decision there differ in whether the store committed. Peek also reports excluded blocks.
 // ErrTooManyBuckets applies unchanged: a decision over the budget is a
 // configuration violation whether or not anything is charged for it.
 //
 // The verdict is best-effort by nature. Nothing is reserved, so live traffic can
 // change the answer between this call and the next request.
 func (e *Engine) Peek(ctx context.Context, req Request) (Decision, error) {
-	return e.evaluate(ctx, req, e.store.Peek)
+	return e.evaluate(ctx, req, e.store.Peek, true)
 }
 
 // commit is the store call a pass makes: Decide charges, Peek does not.
 type commit func(ctx context.Context, buckets []store.Bucket) ([]store.Verdict, error)
 
-func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decision, error) {
+func (e *Engine) evaluate(ctx context.Context, req Request, judge commit, reportExclusions bool) (Decision, error) {
 	cost := req.Cost
 	if cost == 0 {
 		cost = 1
 	}
 
-	cands := match.Match(e.snap, req.Path, req.Method)
+	var cands match.Candidates
+	var excluded []string
+	if reportExclusions {
+		cands, excluded = match.MatchWithExclusions(e.snap, req.Path, req.Method)
+	} else {
+		cands = match.Match(e.snap, req.Path, req.Method)
+	}
+	decision := Decision{Allowed: true, ExcludedBlocks: excluded, Targeted: !cands.Empty()}
 	if cands.Empty() {
-		return Decision{Allowed: true}, nil
+		return decision, nil
 	}
 
 	keys, skips := e.extractKeys(req)
@@ -275,7 +292,9 @@ func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decis
 
 	buckets := matched.Buckets()
 	if len(buckets) == 0 {
-		return Decision{Allowed: true, Targeted: true, Skips: skips, ExtractedKeys: e.keyNames(keys)}, nil
+		decision.Skips = skips
+		decision.ExtractedKeys = e.keyNames(keys)
+		return decision, nil
 	}
 	if len(buckets) > MaxDecisionBuckets {
 		return Decision{}, fmt.Errorf("%w: the request matched %d buckets", ErrTooManyBuckets, len(buckets))
@@ -286,15 +305,29 @@ func (e *Engine) evaluate(ctx context.Context, req Request, judge commit) (Decis
 		return Decision{}, err
 	}
 
-	decision := Decision{
-		Allowed:       store.Admitted(buckets, verdicts),
-		Targeted:      true,
-		Rules:         ruleOutcomes(matched, buckets, verdicts),
-		Skips:         skips,
-		ExtractedKeys: e.keyNames(keys),
+	decision.Allowed = store.Admitted(buckets, verdicts)
+	decision.Rules = ruleOutcomes(matched, buckets, verdicts)
+	decision.Skips = skips
+	decision.ExtractedKeys = e.keyNames(keys)
+	if !decision.Allowed {
+		decision.Subject = singleSubject(keys)
 	}
 	decision.Headers, decision.CostExceedsCapacity = aggregate(matched, buckets, verdicts, decision.Allowed)
 	return decision, nil
+}
+
+// Subject resolves the request's sub key without matching rules or charging counters.
+// It returns an empty string when sub is absent or ambiguous.
+func (e *Engine) Subject(req Request) string {
+	keys, _ := e.extractKeys(req)
+	return singleSubject(keys)
+}
+
+func singleSubject(keys map[string][]string) string {
+	if sub := keys[model.KeySub]; len(sub) == 1 {
+		return sub[0]
+	}
+	return ""
 }
 
 // algorithmName renders an algorithm the way the counter key and the API do:
@@ -357,14 +390,10 @@ func ruleOutcomes(matched match.Result, buckets []store.Bucket, verdicts []store
 		i = to
 
 		outcome := RuleOutcome{Block: m.Block, Rule: m.Rule, Shadow: m.Shadow, Cost: m.Cost, Allowed: true}
-		for j := from; j < to; j++ {
-			if !verdicts[j].Allowed {
+		for _, verdict := range verdicts[from:to] {
+			if !verdict.Allowed {
 				outcome.Allowed = false
-			}
-		}
-		for j := from; j < to; j++ {
-			if !verdicts[j].Allowed && verdicts[j].CostExceedsCapacity {
-				outcome.CostExceedsCapacity = true
+				outcome.CostExceedsCapacity = outcome.CostExceedsCapacity || verdict.CostExceedsCapacity
 			}
 		}
 		if best := strictestIndex(buckets, verdicts, from, to, outcome.Allowed, false); best >= 0 {
@@ -374,6 +403,12 @@ func ruleOutcomes(matched match.Result, buckets []store.Bucket, verdicts []store
 			outcome.RetryAfter = verdicts[best].RetryAfter
 			outcome.Algorithm = algorithmName(buckets[best].Algorithm)
 			outcome.PeriodSeconds = int64(buckets[best].Window.Period / time.Second)
+		}
+		if !outcome.Allowed && len(m.Axes) > 0 {
+			outcome.Axes = make(map[string]string, len(m.Axes))
+			for j, axis := range m.Axes {
+				outcome.Axes[axis] = m.AxisValues[j]
+			}
 		}
 		out = append(out, outcome)
 	}
