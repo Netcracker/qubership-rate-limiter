@@ -810,8 +810,9 @@ At least one blocking entry makes the whole generation invalid. Printer columns:
 The split is simple: the **schema** holds the shape of values, and the **operator's compiler** holds everything that
 relates fields to each other. The operator runs the compiler on every generation before it writes the ConfigMap. The
 service replicas run the same engine module on the validated spec to enforce it; a replica refuses only a manifest
-whose format version it does not read. CEL on the CRD is one rule, `metadata.name == spec.domain`. The numbers and
-their origin are in [limits](limits.md).
+whose format version it does not read. The CRD carries two CEL rules: `metadata.name == spec.domain` and
+`has(self.routes) || has(self.excludedRoutes)` on the `target` of a block. The numbers and their origin are in
+[limits](limits.md).
 
 Schema (OpenAPI):
 
@@ -831,8 +832,9 @@ Schema (OpenAPI):
   `ruleProblems` ≤ 64 entries, both cut by the operator before the write; `status.problems` counts every problem,
   past 64 too, so a `PROBLEMS` column of 70 beside 64 entries is expected; required fields are marked in the field
   reference;
-- apart from the status's `ruleProblems`, there is no `maxItems` on the lists: the only CEL rule walks no lists, and
-  the bounds that mean something to the engine are held by the compiler.
+- apart from the status's `ruleProblems`, there is no `maxItems` on the lists: neither CEL rule iterates a list, the
+  [cost of the target rule](limits.md#why-content-is-not-checked-by-cel-at-admission) fits the estimator's limits with
+  `limits` unbounded, and the bounds that mean something to the engine are held by the compiler.
 
 The operator's compiler, on every generation, with the result in `status.ruleProblems`, `Accepted`/`Ready`, and
 last-good:

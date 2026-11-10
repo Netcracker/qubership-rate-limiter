@@ -4,8 +4,10 @@ All numbers that constrain a policy, in one place, with a note on where each one
 are three sources: **engine constants** (the decision budget, window math), which the operator's compiler holds and
 reflects in the status; **the physical walls of Kubernetes** (the client-side apply annotation, the etcd object), which
 the API server holds; and **value formats** (patterns, ranges, uniqueness), which the CRD schema holds. There are no
-bounds for the validator's sake: the only CEL rule on the CRD is `metadata.name == spec.domain`, it walks no lists, and
-no list needs `maxItems`.
+bounds for the validator's sake. The CRD carries two CEL rules, `metadata.name == spec.domain` on the object and
+`has(self.routes) || has(self.excludedRoutes)` on the `target` of a block, and neither iterates a list. The cost
+estimator charges the target rule once for every target it assumes a 3 MiB request can hold, and that total fits the
+API server's limits per expression and per CRD, so no list needs `maxItems`.
 
 ## Summary table
 
@@ -142,6 +144,10 @@ another language, and would give one thing in return: a message on `apply` inste
 the same things on every generation, identically on all replicas, and answers `Accepted: False` with the address of
 the rule; last-good holds the traffic.
 
+The target rule registers with `limits` unbounded because one evaluation costs 2. Without a bound, the estimator
+assumes a target in every 3 bytes of a 3 MiB request (an empty `{}` and a comma), 1048576 targets in all. On envtest
+(k8s 1.37) it charges the rule about 2.1 M (2097152), a fifth of the 10 M per expression and 2 % of the 100 M per CRD.
+
 ## Store and key capacity
 
 - **Redis** does not bound the keys: their number is determined by the axes (`counters: [sub]` gives one counter
@@ -180,7 +186,7 @@ the rule; last-good holds the traffic.
 | Mechanism | What it holds |
 | --- | --- |
 | CRD OpenAPI schema | patterns and lengths of names and values, enums, `minimum`/`maximum`, uniqueness through `listType: map`/`set` |
-| CEL on the CRD | only `metadata.name == spec.domain` |
+| CEL on the CRD | `metadata.name == spec.domain`; a block's `target`, when present, sets `routes`, `excludedRoutes`, or both |
 | API server | object size: the 256 KiB annotation, 1.5 MiB in etcd |
 | the operator's compiler (`status.ruleProblems`, last-good) | references to keys, groups, and rules; types against operators and axes; predicate arity and other structure; window math; 128 buckets; schema version skew |
 | the operator before the ConfigMap write (`ConfigMapTooLarge`, last-good) | the compressed total of the namespace's domains against the 1 MiB of a ConfigMap |
