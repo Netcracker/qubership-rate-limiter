@@ -16,6 +16,10 @@ ARG VERSION=dev
 # older than the minimum declared in go.mod (e.g. 1.26.5).
 ENV GOTOOLCHAIN=auto
 
+# Allow restricted CI environments to supply a module proxy and checksum policy.
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+
 WORKDIR /app
 COPY go.mod go.mod
 COPY go.sum go.sum
