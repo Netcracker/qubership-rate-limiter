@@ -161,21 +161,21 @@ jobs:
 
       - name: Install the rate limit charts
         run: |
-          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds \
+          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds/rate-limiter-crds \
             --namespace "${LOAD_NAMESPACE}" --wait --timeout 2m
-          helm upgrade --install rate-limiter-operator helm-templates/rate-limiter-operator \
+          helm upgrade --install rate-limiter-operator helm-templates/rate-limiter-operator/rate-limiter-operator \
             --namespace "${LOAD_NAMESPACE}" \
             --set NAMESPACE="${LOAD_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/rate-limiter-operator/resource-profiles/dev.yaml \
             --set IMAGE_REPOSITORY=ratelimit-operator \
             --set TAG=kind \
             --wait --timeout 5m
-          helm upgrade --install rate-limiter helm-templates/rate-limiter \
+          helm upgrade --install rate-limiter helm-templates/rate-limiter/rate-limiter \
             --namespace "${LOAD_NAMESPACE}" \
             --set NAMESPACE="${LOAD_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter/rate-limiter/resource-profiles/dev.yaml \
             --set IMAGE_REPOSITORY=ratelimit-service \
             --set TAG=kind \
             --set redis.dbaas.enabled=false

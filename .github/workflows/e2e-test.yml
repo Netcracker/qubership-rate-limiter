@@ -176,7 +176,7 @@ jobs:
           # The CRD first, once for the cluster, by the one release that owns
           # it: the namespace charts carry no copy of it, and the baseline and
           # the satellite below both rely on this install.
-          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds \
+          helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds/rate-limiter-crds \
             --namespace "${E2E_NAMESPACE}" --wait --timeout 2m
 
           # A profile is mandatory: values.yaml carries no resource keys, so a
@@ -189,11 +189,11 @@ jobs:
           # their RLS address from, and with the release named rate-limiter the
           # two coincide and nothing in the suite can tell a fixed name from a
           # derived one.
-          helm upgrade --install ratelimit-operator-baseline helm-templates/rate-limiter-operator \
+          helm upgrade --install ratelimit-operator-baseline helm-templates/rate-limiter-operator/rate-limiter-operator \
             --namespace "${E2E_NAMESPACE}" \
             --set NAMESPACE="${E2E_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/rate-limiter-operator/resource-profiles/dev.yaml \
             --set LOG_LEVEL=debug \
             --set IMAGE_REPOSITORY=ratelimit-operator \
             --set TAG=e2e \
@@ -206,11 +206,11 @@ jobs:
           # value would refuse every token the suite sends. The suite reaches
           # the API through the private gateway, so the policy admits the
           # gateway's workload rather than the caller's.
-          helm upgrade --install ratelimit-service-baseline helm-templates/rate-limiter \
+          helm upgrade --install ratelimit-service-baseline helm-templates/rate-limiter/rate-limiter \
             --namespace "${E2E_NAMESPACE}" \
             --set NAMESPACE="${E2E_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
-            -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter/rate-limiter/resource-profiles/dev.yaml \
             --set LOG_LEVEL=debug \
             --set IMAGE_REPOSITORY=ratelimit-service \
             --set TAG=e2e \
@@ -295,20 +295,20 @@ jobs:
           # the gateway filters and the operator chart's into nothing. No
           # store, no image: there is no Deployment for either to matter to,
           # and TAG is set only because both schemas require it.
-          helm upgrade --install ratelimit-operator-satellite helm-templates/rate-limiter-operator \
+          helm upgrade --install ratelimit-operator-satellite helm-templates/rate-limiter-operator/rate-limiter-operator \
             --namespace "${E2E_SATELLITE_NAMESPACE}" \
             --set NAMESPACE="${E2E_SATELLITE_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
             --set TAG=e2e \
-            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/rate-limiter-operator/resource-profiles/dev.yaml \
             --set BASELINE_ORIGIN="${E2E_NAMESPACE}" \
             --wait --timeout 2m
-          helm upgrade --install ratelimit-service-satellite helm-templates/rate-limiter \
+          helm upgrade --install ratelimit-service-satellite helm-templates/rate-limiter/rate-limiter \
             --namespace "${E2E_SATELLITE_NAMESPACE}" \
             --set NAMESPACE="${E2E_SATELLITE_NAMESPACE}" \
             --set-string DEPLOYMENT_SESSION_ID="${GITHUB_RUN_ID}" \
             --set TAG=e2e \
-            -f helm-templates/rate-limiter/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter/rate-limiter/resource-profiles/dev.yaml \
             --set BASELINE_ORIGIN="${E2E_NAMESPACE}" \
             --wait --timeout 2m
 

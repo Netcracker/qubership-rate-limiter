@@ -425,7 +425,7 @@ func helmScale(release string, replicas int32) {
 // older chart lacks the values that chart has grown since, and reusing them
 // fails the render on the first new required value.
 func helmSet(chart, release string, values ...string) {
-	dir, err := filepath.Abs(filepath.Join("..", "..", "helm-templates", chart))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "helm-templates", chart, chart))
 	Expect(err).NotTo(HaveOccurred())
 	args := []string{"upgrade", release, dir, "-n", namespace, "--reset-then-reuse-values"}
 	for _, value := range values {

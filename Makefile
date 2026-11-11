@@ -5,9 +5,9 @@ SERVICE_IMG ?= ratelimit-service:latest
 
 # The chart that ships the CRD; the lint runs it once, since it has no
 # profiles and no mode.
-CRD_CHART ?= helm-templates/rate-limiter-crds
+CRD_CHART ?= helm-templates/rate-limiter-crds/rate-limiter-crds
 # The namespace charts, linted with every profile in every mode.
-CHART_DIRS ?= helm-templates/rate-limiter-operator helm-templates/rate-limiter
+CHART_DIRS ?= helm-templates/rate-limiter-operator/rate-limiter-operator helm-templates/rate-limiter/rate-limiter
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))

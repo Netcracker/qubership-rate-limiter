@@ -77,7 +77,7 @@ Install the CRD release; the operator starts on its next restart, see
 [the CRD chart](helm-chart.md#the-crd-chart):
 
 ```bash
-helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds --namespace <platform-namespace>
+helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds/rate-limiter-crds --namespace <platform-namespace>
 ```
 
 The one command to start with:

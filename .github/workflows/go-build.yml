@@ -317,9 +317,9 @@ jobs:
         run: |
           set -o pipefail
           for chart in rate-limiter; do
-            rendered=$(helm template t helm-templates/$chart -n satellite \
+            rendered=$(helm template t helm-templates/$chart/$chart -n satellite \
               --set NAMESPACE=satellite --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
-              -f helm-templates/$chart/resource-profiles/dev.yaml \
+              -f helm-templates/$chart/$chart/resource-profiles/dev.yaml \
               --set MONITORING_ENABLED=true --set management.enabled=true \
               --set 'management.callers={ui-backend}' \
               --set BASELINE_ORIGIN=baseline)
@@ -330,16 +330,16 @@ jobs:
               echo "::error::the satellite filters of $chart do not point at the baseline's rate-limiter Service"; exit 1; }
             # A blue-green baseline runs its shared components in the controller
             # namespace, and that is where the filters must point.
-            helm template t helm-templates/$chart -n satellite \
+            helm template t helm-templates/$chart/$chart -n satellite \
               --set NAMESPACE=satellite --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
-              -f helm-templates/$chart/resource-profiles/dev.yaml \
+              -f helm-templates/$chart/$chart/resource-profiles/dev.yaml \
               --set BASELINE_ORIGIN=baseline --set BASELINE_CONTROLLER=baseline-ctl \
               | grep -q 'rate-limiter\.baseline-ctl\.svc\.cluster\.local' || {
               echo "::error::the satellite filters of $chart ignore BASELINE_CONTROLLER"; exit 1; }
           done
-          rendered=$(helm template t helm-templates/rate-limiter-operator -n satellite \
+          rendered=$(helm template t helm-templates/rate-limiter-operator/rate-limiter-operator -n satellite \
             --set NAMESPACE=satellite --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
-            -f helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
+            -f helm-templates/rate-limiter-operator/rate-limiter-operator/resource-profiles/dev.yaml \
             --set MONITORING_ENABLED=true \
             --set BASELINE_ORIGIN=baseline)
           if echo "$rendered" | grep -q '^kind:'; then
@@ -353,8 +353,8 @@ jobs:
         run: |
           set -o pipefail
           for chart in rate-limiter; do
-            manifests=$(helm template t helm-templates/$chart \
-              -f helm-templates/$chart/resource-profiles/dev.yaml \
+            manifests=$(helm template t helm-templates/$chart/$chart \
+              -f helm-templates/$chart/$chart/resource-profiles/dev.yaml \
               --set NAMESPACE=ci --set TAG=ci --set DEPLOYMENT_SESSION_ID=ci \
               --set management.enabled=true --set 'management.callers={ui-backend}')
             echo "$manifests" | grep -q 'management-bind-address' || {
@@ -378,8 +378,8 @@ jobs:
             --set management.m2m.audience=ci-audience)
           for chart in rate-limiter; do
             render() {
-              helm template t helm-templates/$chart \
-                -f helm-templates/$chart/resource-profiles/dev.yaml --set NAMESPACE=ci --set TAG=ci \
+              helm template t helm-templates/$chart/$chart \
+                -f helm-templates/$chart/$chart/resource-profiles/dev.yaml --set NAMESPACE=ci --set TAG=ci \
                 --set DEPLOYMENT_SESSION_ID=ci \
                 "${identity[@]}" "$@"
             }
@@ -408,7 +408,7 @@ jobs:
         run: make generate sync-helm-crds
       - name: Fail on drift between the generated files and the commit
         run: |
-          paths=(api config/rbac config/crd/bases helm-templates/rate-limiter-crds/templates)
+          paths=(api config/rbac config/crd/bases helm-templates/rate-limiter-crds/rate-limiter-crds/templates)
           if ! git diff --exit-code -- "${paths[@]}" || [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
             echo "::error::generated files drifted: run 'make generate sync-helm-crds' and commit the result"
             exit 1

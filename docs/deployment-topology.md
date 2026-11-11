@@ -237,8 +237,8 @@ age past 5 minutes and a probe cycle means that no operator is writing. Details 
 
 The code lives in a monorepo; the delivery is **one application**, `rate-limiter`, made of **three charts** and **two
 images**, `qubership-rate-limiter-operator` and `qubership-rate-limiter`: one cluster chart, `rate-limiter-crds`, for
-the CRD (see below), and two namespace charts. The namespace charts live under `helm-templates/rate-limiter-operator`
-and `helm-templates/rate-limiter`, the platform installs the same pair in every namespace, and both derive their
+the CRD (see below), and two namespace charts. The namespace charts live under `helm-templates/rate-limiter-operator/rate-limiter-operator`
+and `helm-templates/rate-limiter/rate-limiter`, the platform installs the same pair in every namespace, and both derive their
 contents from `BASELINE_ORIGIN`:
 
 | Scheme | `rate-limiter-operator` renders | `rate-limiter` renders |
