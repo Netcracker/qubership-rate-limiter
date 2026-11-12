@@ -399,6 +399,9 @@ namespace's policies with it.
 
 ## Develop
 
+When working from a Git submodule checkout, switch to a development branch before editing. Commit and push changes
+from this repository; the consuming repository records the selected source commit separately.
+
 `make help` lists every target; these are the ones the daily loop uses:
 
 ```bash
