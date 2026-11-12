@@ -12,10 +12,10 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.16
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.8.3
-	github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.5
-	github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.4
-	github.com/netcracker/qubership-core-lib-go/v3 v3.15.3
+	github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3 v3.8.4
+	github.com/netcracker/qubership-core-lib-go-error-handling/v3 v3.7.6
+	github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2 v2.11.5
+	github.com/netcracker/qubership-core-lib-go/v3 v3.15.4
 	github.com/netcracker/qubership-rate-limiter/engine v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
@@ -94,7 +94,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/molecule-man/go-brrr v1.3.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/netcracker/qubership-core-lib-go-actuator-common/v2 v2.12.4 // indirect
+	github.com/netcracker/qubership-core-lib-go-actuator-common/v2 v2.12.5 // indirect
 	github.com/openzipkin/zipkin-go v0.4.3 // indirect
 	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
