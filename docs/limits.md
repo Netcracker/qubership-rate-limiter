@@ -5,9 +5,10 @@ are three sources: **engine constants** (the decision budget, window math), whic
 reflects in the status; **the physical walls of Kubernetes** (the client-side apply annotation, the etcd object), which
 the API server holds; and **value formats** (patterns, ranges, uniqueness), which the CRD schema holds. There are no
 bounds for the validator's sake. The CRD carries two CEL rules, `metadata.name == spec.domain` on the object and
-`has(self.routes) || has(self.excludedRoutes)` on the `target` of a block, and neither iterates a list. The cost
-estimator charges the target rule once for every target it assumes a 3 MiB request can hold, and that total fits the
-API server's limits per expression and per CRD, so no list needs `maxItems`.
+`has(self.routes) || has(self.excludedRoutes)` on the `target` of a block and of a block preset, and neither iterates
+a list. Under each of the two lists, the cost estimator charges the target rule once for every target it assumes a
+3 MiB request can hold, and that total fits the API server's limits per expression and per CRD, so no list needs
+`maxItems`.
 
 ## Summary table
 
@@ -15,6 +16,7 @@ API server's limits per expression and per CRD, so no list needs `maxItems`.
 | --- | --- | --- | --- | --- |
 | **Policy** | buckets of one decision, the decision of one descriptor (worst case) | ≤ 128 | depth of one atomic Lua call, `MaxDomainDecisionBuckets` | the compiler, `DomainBudgetExceeded`; runtime backstop |
 | | object size | ~256 KiB under client-side `apply`, 1.5 MiB in etcd | the `last-applied-configuration` annotation, `--max-request-bytes` | the API server |
+| | the resolved policy, presets written into the blocks and rules that take them | ≤ 1.5 MiB (1572864 bytes) serialized, estimated from the sizes of the spec as written and of the presets before any preset is written into a block or a rule | the same wall as an authored object | the compiler, `ResolvedPolicyTooLarge`; last-good stays enforced |
 | | blocks, rules, groups, group values, mapping keys | unbounded | object size only; the number of blocks is an observed metric | — |
 | **Namespace** | the compressed configuration of all domains, the ConfigMap `rate-limiter-config` | ≤ 1 MiB compressed total | the Kubernetes object size limit of a ConfigMap | the operator before the write, `ConfigMapTooLarge`; last-good stays enforced |
 | **Call** | descriptors of one gRPC check | ≤ 16 | every descriptor is its own decision and its own store trip; a gateway sends one | the adapter, `too_many_descriptors` → `OVER_LIMIT` |
@@ -64,6 +66,17 @@ Rule weight was measured on the real types in JSON: **283 bytes** typical (a pre
 A policy that covers one API with a handful of rules and a couple of groups weighs a few kilobytes, so these
 walls are reached only by a domain that collects many APIs behind one gateway.
 
+A preset ([the resource specification](ratelimitpolicy-cr-spec.md), "Presets") is written into every block and rule
+that takes it before the policy compiles, so the resolved policy can be larger than the object. The operator bounds
+it at the same 1.5 MiB (1572864 bytes), estimated from the serialized size of the spec as written, with the defaults
+written in, plus the size of each preset once per block or rule that takes it, less the preset rules the blocks drop,
+before any preset is written into a block or a rule; a generation above that is `ResolvedPolicyTooLarge`, and the
+last-good generation stays enforced. The estimate counts a field a layer replaces in both layers, so it never falls
+below the resolved size and can refuse a policy whose resolved size is below the wall. Neither the decision budget
+nor a count of rules bounds this case: the `Bypass` rules of a preset cost no bucket, a preset of a thousand
+predicates weighs as much as a thousand rules, and the service refuses a payload above 8 MiB only after the operator
+has resolved and compiled it. The wall keeps that payload bound above any spec the operator writes.
+
 ### The compressed configuration of a namespace
 
 The operator writes the validated spec of every domain of the namespace into one ConfigMap, `rate-limiter-config`, as a
@@ -97,7 +110,8 @@ the decision's real buckets and is unreachable in normal operation.
 
 The consequence for a domain built out of `All` blocks is that it hits 128 long before the object size. With eight
 counting rules per API, that is roughly 16 APIs behind one gateway with minute windows, and 8 once every rule also
-carries an hour window.
+carries an hour window. A block preset is charged once per block that uses it, so a cascade stamped on five APIs
+costs five times its own worst case.
 
 ## Blocks, axes, windows: why no bounds
 
@@ -144,9 +158,11 @@ another language, and would give one thing in return: a message on `apply` inste
 the same things on every generation, identically on all replicas, and answers `Accepted: False` with the address of
 the rule; last-good holds the traffic.
 
-The target rule registers with `limits` unbounded because one evaluation costs 2. Without a bound, the estimator
-assumes a target in every 3 bytes of a 3 MiB request (an empty `{}` and a comma), 1048576 targets in all. On envtest
-(k8s 1.37) it charges the rule about 2.1 M (2097152), a fifth of the 10 M per expression and 2 % of the 100 M per CRD.
+The target rule registers with `limits` and `presets.blocks` unbounded because one evaluation costs 2. Without a
+bound, the estimator assumes a target in every 3 bytes of a 3 MiB request (an empty `{}` and a comma), 1048576 targets
+in all, and it makes that assumption for each of the two lists separately. On k8s 1.37 it charges each copy of the rule
+about 2.1 M (2097152), a fifth of the 10 M per expression. The two copies together cost 4.2 M (4194304), 4 % of the
+100 M per CRD.
 
 ## Store and key capacity
 
@@ -188,7 +204,7 @@ assumes a target in every 3 bytes of a 3 MiB request (an empty `{}` and a comma)
 | CRD OpenAPI schema | patterns and lengths of names and values, enums, `minimum`/`maximum`, uniqueness through `listType: map`/`set` |
 | CEL on the CRD | `metadata.name == spec.domain`; a block's `target`, when present, sets `routes`, `excludedRoutes`, or both |
 | API server | object size: the 256 KiB annotation, 1.5 MiB in etcd |
-| the operator's compiler (`status.ruleProblems`, last-good) | references to keys, groups, and rules; types against operators and axes; predicate arity and other structure; window math; 128 buckets; schema version skew |
+| the operator's compiler (`status.ruleProblems`, last-good) | references to keys, groups, rules, and presets; the estimated size of the resolved policy against 1.5 MiB; types against operators and axes; predicate arity and other structure; window math; 128 buckets; schema version skew |
 | the operator before the ConfigMap write (`ConfigMapTooLarge`, last-good) | the compressed total of the namespace's domains against the 1 MiB of a ConfigMap |
 | the service before the JSON decode (a refusal on `/debug/applied`, the snapshot stays) | the decompressed size of a payload against 8 MiB |
 | the engine on the decision | the 128-bucket backstop per decision, token sanity limits, the token cache's 8 MiB |

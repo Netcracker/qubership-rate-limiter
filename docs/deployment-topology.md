@@ -155,9 +155,9 @@ plane:
 
 The API server rejects on `kubectl apply` only the shape: patterns, enums, ranges, duplicate names, and the two CEL
 rules on the CRD, `metadata.name == spec.domain` and `has(self.routes) || has(self.excludedRoutes)` on the `target` of a
-block. Everything that relates fields to each other is judged by the operator's compiler on every generation, before
-the write. The service compiles the same spec with the same engine module to enforce it, so the operator validates
-exactly what the service enforces:
+block and of a block preset. Everything that relates fields to each other is judged by the operator's compiler on every
+generation, before the write. The service compiles the same spec with the same engine module to enforce it, so the
+operator validates exactly what the service enforces:
 
 - predicate and axis references to keys, group references to `groups`, `replacedRules` references to rules of its own
   block; key types against operators and axes;
