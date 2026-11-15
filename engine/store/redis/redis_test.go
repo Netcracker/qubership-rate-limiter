@@ -34,6 +34,9 @@ const tolerance = 2 * time.Second
 // explicit address that stays unreachable is a failure, never a silent skip.
 func client(t testing.TB) goredis.UniversalClient {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("Redis integration tests are excluded in -short mode")
+	}
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
 		var reason string

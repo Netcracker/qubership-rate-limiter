@@ -469,6 +469,15 @@ cluster of your own, and check their own results; [Load testing](docs/load-testi
 workflow runs the kit on kind for every pull request that changes it, and uploads the summary and the JMeter report as
 the `load-results` artifact.
 
+Both `service/Dockerfile` and `operator/Dockerfile` run mandatory unit tests before compiling and packaging.
+The service image tests `service/`, shared `api/` and `internal/` packages, and the separate `engine/` module.
+The operator image tests `operator/` and the shared packages, excluding packages that import envtest.
+Tests run natively on the build platform with `go test -short -count=1`; Redis integration and load tests are
+excluded in short mode. The final image depends on the `unit-tests` stage, so a failing test prevents packaging.
+To run only this stage, use `docker build --target unit-tests -f service/Dockerfile .` (or `operator/Dockerfile`).
+Docker may reuse a successful test layer; use `--no-cache-filter unit-tests` with `docker buildx build` when a fresh
+execution is required. Redis and envtest suites remain available through the existing integration checks below.
+
 `make test` runs the envtest suites of `operator/internal` against a real API server, which is where the CRD schema
 and the status subresource actually exist — the fake client the other tests use validates nothing. The first run
 downloads the envtest binaries into `bin/`, so it needs internet. Both derive their Kubernetes version from `go.mod`,

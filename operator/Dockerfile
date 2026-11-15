@@ -5,13 +5,7 @@
 #
 #   docker build -f operator/Dockerfile .
 
-FROM --platform=$BUILDPLATFORM golang:1.27@sha256:01aa404fa56b604b6f48e90c1d6e2c79fe5cd78f9592f78d80303fbe171cdcc0 AS builder
-ARG TARGETOS
-ARG TARGETARCH
-# The build's own version stamp, and the fallback only: the pipeline passes
-# no build arguments, so the manifest's operatorVersion comes from
-# OPERATOR_VERSION in the container's environment, which the chart sets.
-ARG VERSION=dev
+FROM --platform=$BUILDPLATFORM golang:1.27@sha256:01aa404fa56b604b6f48e90c1d6e2c79fe5cd78f9592f78d80303fbe171cdcc0 AS source
 # Allow Go toolchain auto-download when the image patch (e.g. 1.26.1) is
 # older than the minimum declared in go.mod (e.g. 1.26.5).
 ENV GOTOOLCHAIN=auto
@@ -29,6 +23,24 @@ COPY engine/go.mod engine/go.mod
 RUN go mod download
 
 COPY . .
+
+# Tests execute on BUILDPLATFORM before cross-compilation. Packages that
+# start an envtest control plane remain in the separate integration checks.
+FROM source AS unit-tests
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    set -eu; \
+    packages="$(go list -f '{{ $envtest := false }}{{ range .TestImports }}{{ if eq . "sigs.k8s.io/controller-runtime/pkg/envtest" }}{{ $envtest = true }}{{ end }}{{ end }}{{ if not $envtest }}{{ .ImportPath }}{{ end }}' ./api/... ./internal/... ./operator/...)"; \
+    test -n "$packages"; \
+    go test -short -count=1 $packages
+
+# Inheriting the test stage makes successful unit tests mandatory for the image.
+FROM unit-tests AS builder
+ARG TARGETOS
+ARG TARGETARCH
+# The build's own version stamp, and the fallback only: the pipeline passes
+# no build arguments, so the manifest's operatorVersion comes from
+# OPERATOR_VERSION in the container's environment, which the chart sets.
+ARG VERSION=dev
 
 # The builder stage always runs on the build host platform (BUILDPLATFORM) to
 # avoid QEMU emulation; Go cross-compiles through TARGETOS/TARGETARCH.

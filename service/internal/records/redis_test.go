@@ -41,6 +41,9 @@ func redisFactory(t *testing.T) (records.Store, store.Store) {
 // stays unreachable is a failure, never a silent skip.
 func redisClient(t *testing.T) goredis.UniversalClient {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("Redis integration tests are excluded in -short mode")
+	}
 
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {

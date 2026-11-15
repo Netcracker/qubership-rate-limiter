@@ -5,13 +5,7 @@
 #
 #   docker build -f service/Dockerfile .
 
-FROM --platform=$BUILDPLATFORM golang:1.27@sha256:01aa404fa56b604b6f48e90c1d6e2c79fe5cd78f9592f78d80303fbe171cdcc0 AS builder
-ARG TARGETOS
-ARG TARGETARCH
-# The build's own version stamp, and the fallback only: the pipeline passes
-# no build arguments, so ratelimit_build_info reports SERVICE_VERSION from
-# the container's environment, which the chart sets.
-ARG VERSION=dev
+FROM --platform=$BUILDPLATFORM golang:1.27@sha256:01aa404fa56b604b6f48e90c1d6e2c79fe5cd78f9592f78d80303fbe171cdcc0 AS source
 # Allow Go toolchain auto-download when the image patch (e.g. 1.26.1) is
 # older than the minimum declared in go.mod (e.g. 1.26.5).
 ENV GOTOOLCHAIN=auto
@@ -29,6 +23,22 @@ COPY engine/go.mod engine/go.mod
 RUN go mod download
 
 COPY . .
+
+# Tests execute on BUILDPLATFORM before cross-compilation. Short mode keeps
+# Redis integration and load tests separate; in-memory tests still run.
+FROM source AS unit-tests
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    go test -short -count=1 ./api/... ./internal/... ./service/... \
+    && cd engine && go test -short -count=1 ./...
+
+# Inheriting the test stage makes successful unit tests mandatory for the image.
+FROM unit-tests AS builder
+ARG TARGETOS
+ARG TARGETARCH
+# The build's own version stamp, and the fallback only: the pipeline passes
+# no build arguments, so ratelimit_build_info reports SERVICE_VERSION from
+# the container's environment, which the chart sets.
+ARG VERSION=dev
 
 # The builder stage always runs on the build host platform (BUILDPLATFORM) to
 # avoid QEMU emulation; Go cross-compiles through TARGETOS/TARGETARCH.

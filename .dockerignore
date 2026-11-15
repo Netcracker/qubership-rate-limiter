@@ -2,9 +2,11 @@
 # Ignore everything by default and re-include only needed files
 **
 
-# Re-include Go source files (but not *_test.go)
+# Re-include Go source and unit tests for the mandatory Dockerfile test stages.
 !**/*.go
-**/*_test.go
+
+# Manifest unit tests compare their results against these golden files.
+!api/manifest/testdata/**
 
 # Re-include Go module files, the nested engine module included
 !**/go.mod
