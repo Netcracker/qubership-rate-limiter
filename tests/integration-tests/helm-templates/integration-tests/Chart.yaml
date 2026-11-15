@@ -1,0 +1,6 @@
+apiVersion: v2
+name: integration-tests
+description: >-
+  Integration tests of rate-limiter. test-runner runs the image against a deployed environment, so the chart deploys
+  nothing; the descriptor generator only requires one to exist.
+version: 1.0.0

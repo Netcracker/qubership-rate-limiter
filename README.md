@@ -211,16 +211,17 @@ tag.
 The pages under [`docs/`](docs/README.md) carry the detail behind this section: the chart reference, the resource
 specification, the runbook, and the management API.
 
-The delivery is three charts under `helm-templates/<chart>/<chart>/`. The outer directory is a per-chart input for
-NextGenCI; Helm commands use the inner directory containing `Chart.yaml`. This lets application packaging select
-each chart directly without a preparation step.
+The delivery is three charts under `charts/<chart>/helm-templates/<chart>/`.
+NextGenCI's descriptor builder takes `charts/<chart>` and appends `helm-templates`.
+Application packaging selects `charts/<chart>/helm-templates`, and Helm commands
+use its chart directory containing `Chart.yaml`. This layout needs no chart symlinks.
 
 `rate-limiter-crds` holds the `RateLimitPolicy` CRD; the platform
 installs it once per cluster, before any namespace, and application pipelines do not. The other two are installed into
 each namespace, the operator chart before the service chart:
 
 ```bash
-helm upgrade --install rate-limiter-crds helm-templates/rate-limiter-crds/rate-limiter-crds --namespace <platform-namespace>
+helm upgrade --install rate-limiter-crds charts/rate-limiter-crds/helm-templates/rate-limiter-crds --namespace <platform-namespace>
 ```
 
 The order is a requirement: an operator installed before the CRD exits at start with
@@ -229,15 +230,15 @@ of its install times out. The release's name and namespace stay fixed for the cl
 [the CRD chart](docs/helm-chart.md#the-crd-chart).
 
 ```bash
-helm upgrade --install rate-limiter-operator helm-templates/rate-limiter-operator/rate-limiter-operator \
+helm upgrade --install rate-limiter-operator charts/rate-limiter-operator/helm-templates/rate-limiter-operator \
   --namespace <business-namespace> \
-  -f helm-templates/rate-limiter-operator/rate-limiter-operator/resource-profiles/dev.yaml \
+  -f charts/rate-limiter-operator/helm-templates/rate-limiter-operator/resource-profiles/dev.yaml \
   --set NAMESPACE=<business-namespace> \
   --set-string DEPLOYMENT_SESSION_ID=<session> \
   --set TAG=<tag>
-helm upgrade --install rate-limiter helm-templates/rate-limiter/rate-limiter \
+helm upgrade --install rate-limiter charts/rate-limiter/helm-templates/rate-limiter \
   --namespace <business-namespace> \
-  -f helm-templates/rate-limiter/rate-limiter/resource-profiles/dev.yaml \
+  -f charts/rate-limiter/helm-templates/rate-limiter/resource-profiles/dev.yaml \
   --set NAMESPACE=<business-namespace> \
   --set-string DEPLOYMENT_SESSION_ID=<session> \
   --set TAG=<tag>
@@ -487,7 +488,7 @@ at an existing cluster; `make test` sets `REQUIRE_ENVTEST=1`, and any non-empty 
 run. `make test-unit` includes the engine's Redis suites, which run against `REDIS_ADDR` when it is set, otherwise
 against a `redis:8-alpine` container they start through Docker, and skip when neither is available.
 
-`helm-templates/rate-limiter-crds/rate-limiter-crds/templates/crd-*.yaml` is generated. Edit the Go types and run `make sync-helm-crds`
+`charts/rate-limiter-crds/helm-templates/rate-limiter-crds/templates/crd-*.yaml` is generated. Edit the Go types and run `make sync-helm-crds`
 instead of editing them.
 
 The CRD carries CEL rules, and the cost estimator budgets each one against the declared `MaxLength` and `MaxItems`. Two

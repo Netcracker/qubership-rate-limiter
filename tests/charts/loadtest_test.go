@@ -10,7 +10,7 @@ import (
 )
 
 // loadtestChart is the chart of the load test kit, which lives beside the
-// kit rather than under helm-templates.
+// kit rather than under charts/.
 var loadtestChart = filepath.Join("..", "load", "chart")
 
 // renderLoadtest renders the load test chart with self-signed tokens, which

@@ -1,0 +1,9 @@
+<settings>
+    <mirrors>
+        <mirror>
+            <id>central</id>
+            <mirrorOf>*</mirrorOf>
+            <url>https://artifactorycn.netcracker.com/pd.saas-release.mvn.group</url>
+        </mirror>
+    </mirrors>
+</settings>

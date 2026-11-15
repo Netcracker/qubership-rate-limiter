@@ -1,0 +1,3 @@
+# Empty on purpose: the application descriptor merges the parameters of all services into one schema and fails on a
+# key that two charts define differently.
+{}

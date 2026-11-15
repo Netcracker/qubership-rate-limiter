@@ -35,3 +35,7 @@ apm_modules/
 
 # e2e reports
 artifacts/
+
+# Java integration-test build output and results
+tests/integration-tests/target/
+tests/integration-tests/allure-results/

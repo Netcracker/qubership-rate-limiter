@@ -168,10 +168,10 @@ func helmTemplateArgs(chart, namespace string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// chartFile is the path of a chart under helm-templates, or of a file in it
+// chartFile is the path of a chart under charts/<chart>/helm-templates, or of a file in it
 // when path names one.
 func chartFile(chart string, path ...string) string {
-	return filepath.Join(append([]string{"..", "..", "helm-templates", chart, chart}, path...)...)
+	return filepath.Join(append([]string{"..", "..", "charts", chart, "helm-templates", chart}, path...)...)
 }
 
 // profileFile is the path of one of a chart's resource profiles.
