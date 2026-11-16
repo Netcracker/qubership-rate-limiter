@@ -1,5 +1,10 @@
 # Agent instructions
 
+## Docker builds
+
+- Each component has a multistage Dockerfile that must include source, unit-test, and build stages.
+- Make image packaging depend on successful unit tests. Keep Redis, envtest, and end-to-end tests separate from Dockerfile unit-test stages.
+
 ## Tests
 
 Tests in `*_test.go` files use three stacks. Unit tests of the root module run on the Go `testing` engine with testify
