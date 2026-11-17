@@ -81,6 +81,7 @@ func TestApp_answersProtocolErrorsWithoutAMiddlewareFailure(t *testing.T) {
 			status, header, raw := sendRawRequest(t, listener.Addr().String(), tt.request)
 
 			require.Equal(t, tt.wantStatus, status, "status, body: %s", raw)
+			assert.Equal(t, "application/json", header.Get("Content-Type"), "Content-Type")
 			var body errorBody
 			require.NoError(t, json.Unmarshal(raw, &body), "body: %s", raw)
 			assert.Equal(t, "NC.TMFErrorResponse.v1.0", body.Type, "body: %s", raw)
