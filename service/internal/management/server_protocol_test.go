@@ -78,6 +78,8 @@ func TestApp_answersProtocolErrorsWithoutAMiddlewareFailure(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			logged := len(frameworkLog.String())
+
 			status, header, raw := sendRawRequest(t, listener.Addr().String(), tt.request)
 
 			require.Equal(t, tt.wantStatus, status, "status, body: %s", raw)
@@ -87,7 +89,7 @@ func TestApp_answersProtocolErrorsWithoutAMiddlewareFailure(t *testing.T) {
 			assert.Equal(t, "NC.TMFErrorResponse.v1.0", body.Type, "body: %s", raw)
 			assert.Equal(t, strconv.Itoa(tt.wantStatus), body.Status, "body: %s", raw)
 			assert.NotEmpty(t, header.Get(RequestIDHeader), "the %s header", RequestIDHeader)
-			assert.NotContains(t, frameworkLog.String(), "middleware traversal failed", "framework log")
+			assert.NotContains(t, frameworkLog.String()[logged:], "middleware traversal failed", "framework log")
 		})
 	}
 }
