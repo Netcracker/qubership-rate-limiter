@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	fiberlog "github.com/gofiber/fiber/v2/log"
+	"github.com/gofiber/fiber/v3"
+	fiberlog "github.com/gofiber/fiber/v3/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func TestApp_answersHeadOnAGetRoute(t *testing.T) {
 	request := httptest.NewRequest(http.MethodHead, BasePath+"/domains", nil)
 	request.Header.Set(fiber.HeaderAuthorization, "Bearer "+testToken(listedCaller))
 
-	response, err := h.app.Test(request, -1)
+	response, err := h.app.Test(request, fiber.TestConfig{Timeout: 0})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, response.Body.Close()) }()
 

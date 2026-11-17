@@ -44,13 +44,6 @@
       "automerge": false
     },
     {
-      "description": "fiber stays on v2 until qubership-core-lib-go-fiber-server-utils publishes its /v3 module. The management server is built by that library: fiberserver.New takes a fiber v2 Config and its builder returns a fiber v2 App, so the service cannot move to fiber v3 alone. Remove this rule in the change that moves the library and fiber to v3 together.",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": ["github.com/gofiber/fiber/v2"],
-      "matchUpdateTypes": ["major"],
-      "enabled": false
-    },
-    {
       "description": "The load test chart deploys the image that tests/load/Dockerfile builds. The install sets image.tag, so values.yaml leaves the tag empty. Renovate treats the empty tag as latest and opens a pull request that pins it to the digest of the current latest image.",
       "matchManagers": ["helm-values"],
       "matchPackageNames": ["ghcr.io/netcracker/qubership-rate-limiter-loadtest"],

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,9 +97,9 @@ func TestApp_boundsTheRequestBodyAtItsOwnLimit(t *testing.T) {
 
 func TestErrorHandler_answersAnOversizedBodyAsABadRequest(t *testing.T) {
 	app := fiber.New(fiber.Config{ErrorHandler: managementErrorHandler()})
-	app.Get("/", func(*fiber.Ctx) error { return fiber.ErrRequestEntityTooLarge })
+	app.Get("/", func(fiber.Ctx) error { return fiber.ErrRequestEntityTooLarge })
 
-	response, err := app.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+	response, err := app.Test(httptest.NewRequest(http.MethodGet, "/", nil), fiber.TestConfig{Timeout: 0})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, response.Body.Close()) }()
 
