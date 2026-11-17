@@ -94,7 +94,7 @@ jobs:
       # the runner has preinstalled.
       # Publishes nothing: the images come from generic-go-build.yaml's
       # Docker build, so the cache-poisoning audit does not apply.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # Whole-module runs with the Makefile's pinned golangci-lint. This is
@@ -153,7 +153,7 @@ jobs:
           persist-credentials: false
       # Publishes nothing: the images come from generic-go-build.yaml's
       # Docker build, so the cache-poisoning audit does not apply.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # The depguard rule keeps client-go and controller-runtime out of the
@@ -289,7 +289,7 @@ jobs:
       # PATH and the skip is a failure.
       # Publishes nothing: the images come from generic-go-build.yaml's
       # Docker build, so the cache-poisoning audit does not apply.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0 # zizmor: ignore[cache-poisoning]
         with:
           go-version-file: go.mod
       # The alert rules each chart ships go through promtool check rules in
