@@ -167,9 +167,9 @@ func (r *Runner) Start(ctx context.Context) error {
 func managementErrorHandler() fiber.ErrorHandler {
 	fallback := fibererrors.DefaultErrorHandler(CodeInternal)
 	return func(c fiber.Ctx, err error) error {
-		// A request refused for a method the router does not know reaches
-		// here without running the middleware chain, so without the id every
-		// answer of this API carries.
+		// A request with a method the router does not know, refused while
+		// fasthttp read it, reaches here without the middleware chain having
+		// run, so without the id every answer of this API carries.
 		if requestIDOf(c) == "" {
 			adoptRequestID(c)
 		}
