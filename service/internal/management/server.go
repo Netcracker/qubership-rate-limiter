@@ -80,12 +80,6 @@ func NewApp(api *API) (*fiber.App, error) {
 	// than with the router's plain-text default. It is registered last, after
 	// every route, which is what makes it the fallback.
 	app.Use(withRequestID, func(c fiber.Ctx) error {
-		// Fiber also runs this chain for a request it refused while reading it,
-		// with the refusal's status already set, and logs an error returned here
-		// as a failed middleware. The error handler answers that request.
-		if c.Response().StatusCode() >= fiber.StatusBadRequest {
-			return nil
-		}
 		return notFound("no endpoint serves " + c.Method() + " on this path")
 	})
 	return app, nil
