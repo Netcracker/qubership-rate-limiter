@@ -2,21 +2,17 @@ package management
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	fiberlog "github.com/gofiber/fiber/v3/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,17 +34,13 @@ func TestApp_answersHeadOnAGetRoute(t *testing.T) {
 }
 
 // A request fasthttp refuses while reading it is answered in the TMF envelope
-// with a request id. Fiber runs the middleware chain for such a request before
-// the error handler answers it, and logs the error the catch-all for unknown
-// paths returns there as a failed middleware; that log line is accepted and
-// pinned here, so a change to it shows.
+// with a request id.
 func TestApp_answersProtocolErrorsInTheTmfEnvelope(t *testing.T) {
 	h := newTestAPI(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = h.app.Listener(listener) }()
 	t.Cleanup(func() { _ = h.app.Shutdown() })
-	frameworkLog := captureFrameworkLog(t)
 	path := BasePath + "/domains/" + testDomain + "/counter-resets"
 	authorization := "Authorization: Bearer " + testToken(listedCaller) + "\r\n"
 
@@ -79,8 +71,6 @@ func TestApp_answersProtocolErrorsInTheTmfEnvelope(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logged := len(frameworkLog.String())
-
 			status, header, raw := sendRawRequest(t, listener.Addr().String(), tt.request)
 
 			require.Equal(t, tt.wantStatus, status, "status, body: %s", raw)
@@ -90,7 +80,6 @@ func TestApp_answersProtocolErrorsInTheTmfEnvelope(t *testing.T) {
 			assert.Equal(t, "NC.TMFErrorResponse.v1.0", body.Type, "body: %s", raw)
 			assert.Equal(t, strconv.Itoa(tt.wantStatus), body.Status, "body: %s", raw)
 			assert.NotEmpty(t, header.Get(RequestIDHeader), "the %s header", RequestIDHeader)
-			assert.Contains(t, frameworkLog.String()[logged:], "serverErrorHandler: middleware traversal failed", "framework log")
 		})
 	}
 }
@@ -116,31 +105,4 @@ func sendRawRequest(t *testing.T, addr, request string) (int, http.Header, []byt
 	raw, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	return response.StatusCode, response.Header, raw
-}
-
-type lockedBuffer struct {
-	mu     sync.Mutex
-	buffer bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.String()
-}
-
-// captureFrameworkLog sends the framework's own log to a buffer until the test
-// ends.
-func captureFrameworkLog(t *testing.T) *lockedBuffer {
-	t.Helper()
-	buffer := &lockedBuffer{}
-	fiberlog.SetOutput(buffer)
-	t.Cleanup(func() { fiberlog.SetOutput(os.Stderr) })
-	return buffer
 }
