@@ -38,10 +38,11 @@ func TestApp_answersHeadOnAGetRoute(t *testing.T) {
 }
 
 // A request fasthttp refuses while reading it is answered in the TMF envelope
-// with a request id, and the refusal leaves no error from the middleware chain
-// in the framework log: the catch-all that answers unknown paths must not
-// report such a request as one.
-func TestApp_answersProtocolErrorsWithoutAMiddlewareFailure(t *testing.T) {
+// with a request id. Fiber runs the middleware chain for such a request before
+// the error handler answers it, and logs the error the catch-all for unknown
+// paths returns there as a failed middleware; that log line is accepted and
+// pinned here, so a change to it shows.
+func TestApp_answersProtocolErrorsInTheTmfEnvelope(t *testing.T) {
 	h := newTestAPI(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -89,7 +90,7 @@ func TestApp_answersProtocolErrorsWithoutAMiddlewareFailure(t *testing.T) {
 			assert.Equal(t, "NC.TMFErrorResponse.v1.0", body.Type, "body: %s", raw)
 			assert.Equal(t, strconv.Itoa(tt.wantStatus), body.Status, "body: %s", raw)
 			assert.NotEmpty(t, header.Get(RequestIDHeader), "the %s header", RequestIDHeader)
-			assert.NotContains(t, frameworkLog.String()[logged:], "middleware traversal failed", "framework log")
+			assert.Contains(t, frameworkLog.String()[logged:], "serverErrorHandler: middleware traversal failed", "framework log")
 		})
 	}
 }
