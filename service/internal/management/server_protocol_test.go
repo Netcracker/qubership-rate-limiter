@@ -50,13 +50,6 @@ func TestApp_answersProtocolErrorsInTheTmfEnvelope(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			// The headers alone: fasthttp refuses on the declared length.
-			name: "body over the limit",
-			request: "POST " + path + " HTTP/1.1\r\nHost: management\r\nContent-Type: application/json\r\n" + authorization +
-				"Content-Length: " + strconv.Itoa(maxRequestBody+1) + "\r\n\r\n",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
 			// Exactly the read buffer and no end of the headers, so the server
 			// reads all of it before it answers and the client sees no reset.
 			name:       "headers over the read buffer",

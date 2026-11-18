@@ -114,9 +114,8 @@ func TestErrorHandler_answersAnOversizedBodyAsABadRequest(t *testing.T) {
 // The refusal of an oversized body carries a request id like every other
 // answer, in the header and in meta.requestId: the caller's own when it sent
 // one, a fresh one otherwise. fasthttp refuses such a body while it reads it,
-// before the middleware that sets the id runs, and the refusal used to carry
-// none. The app serves a real listener here, since app.Test fails on such a
-// request in the client half.
+// and the refusal used to carry no id. The app serves a real listener here,
+// since app.Test fails on such a request in the client half.
 func TestApp_answersAnOversizedBodyWithARequestID(t *testing.T) {
 	h := newTestAPI(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -150,8 +149,10 @@ func TestApp_answersAnOversizedBodyWithARequestID(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, http.StatusBadRequest, response.StatusCode, "body: %s", raw)
+			assert.Equal(t, "application/json", response.Header.Get("Content-Type"), "Content-Type")
 			var body errorBody
 			require.NoError(t, json.Unmarshal(raw, &body), "body: %s", raw)
+			assert.Equal(t, "NC.TMFErrorResponse.v1.0", body.Type, "body: %s", raw)
 			id := response.Header.Get(RequestIDHeader)
 			assert.NotEmpty(t, id, "the %s header", RequestIDHeader)
 			assert.Equal(t, id, body.Meta.RequestID, "meta.requestId")
