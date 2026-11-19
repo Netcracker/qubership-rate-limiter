@@ -153,6 +153,7 @@ func TestApp_answersAnOversizedBodyWithARequestID(t *testing.T) {
 			var body errorBody
 			require.NoError(t, json.Unmarshal(raw, &body), "body: %s", raw)
 			assert.Equal(t, "NC.TMFErrorResponse.v1.0", body.Type, "body: %s", raw)
+			assert.Equal(t, strconv.Itoa(http.StatusBadRequest), body.Status, "body: %s", raw)
 			id := response.Header.Get(RequestIDHeader)
 			assert.NotEmpty(t, id, "the %s header", RequestIDHeader)
 			assert.Equal(t, id, body.Meta.RequestID, "meta.requestId")
