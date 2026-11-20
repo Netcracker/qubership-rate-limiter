@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	errs "github.com/netcracker/qubership-core-lib-go-error-handling/v3/errors"
 	"github.com/stretchr/testify/require"
@@ -417,7 +417,7 @@ func (h *testAPI) send(t *testing.T, request *http.Request) *testResponse {
 
 	// A negative timeout disables the test client's own deadline: these calls
 	// talk to an in-process store, and a deadline here would only add flakes.
-	response, err := h.app.Test(request, -1)
+	response, err := h.app.Test(request, fiber.TestConfig{Timeout: 0})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, response.Body.Close()) }()
 

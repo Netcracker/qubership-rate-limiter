@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 
 	"github.com/netcracker/qubership-rate-limiter/engine/compile"
@@ -29,7 +29,7 @@ const headerIdempotencyKey = "Idempotency-Key"
 // the token it consumed itself. Everything that can still refuse runs next,
 // while nothing is bound. Acceptance comes last, as one write, and after it the
 // command has an outcome no matter how it ends.
-func (a *API) handleBulkReset(c *fiber.Ctx) error {
+func (a *API) handleBulkReset(c fiber.Ctx) error {
 	snapshot, version, apiErr := a.snapshot(c)
 	if apiErr != nil {
 		return apiErr
@@ -52,7 +52,7 @@ func (a *API) handleBulkReset(c *fiber.Ctx) error {
 		return apiErr
 	}
 
-	ctx := c.UserContext()
+	ctx := c.Context()
 	subject := subjectOf(c)
 	keys := commandKeys(a.Namespace, snapshot.Domain,
 		recordKey(a.Namespace, snapshot.Domain, endpointResets, subject.Name, idempotencyKey), command)
@@ -120,7 +120,7 @@ func (a *API) checkToken(
 
 // accept binds the command and runs it.
 func (a *API) accept(
-	c *fiber.Ctx,
+	c fiber.Ctx,
 	snapshot *compile.Snapshot,
 	version string,
 	subject Subject,
@@ -128,7 +128,7 @@ func (a *API) accept(
 	keys records.Keys,
 	idempotencyKey string,
 ) error {
-	ctx := c.UserContext()
+	ctx := c.Context()
 	fencing := newFencing()
 
 	// Acceptance is the point of no return, and one write: it consumes the
@@ -171,7 +171,7 @@ func (a *API) accept(
 
 // sweep walks the selection to its end and records what it did.
 func (a *API) sweep(
-	c *fiber.Ctx,
+	c fiber.Ctx,
 	snapshot *compile.Snapshot,
 	version string,
 	subject Subject,
@@ -184,7 +184,7 @@ func (a *API) sweep(
 	// outcome either way. Its context drops the request's cancellation and
 	// deadline and keeps the request's values, so every line the walk logs
 	// carries the request id; shutdown and the lease end it.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.UserContext()), leaseTTL)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Context()), leaseTTL)
 	defer cancel()
 	a.cancelOnShutdown(ctx, cancel)
 
@@ -255,7 +255,7 @@ func outcomeContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // command that may have deleted keys.
 func (a *API) recordFailure(
 	ctx context.Context,
-	c *fiber.Ctx,
+	c fiber.Ctx,
 	keys records.Keys,
 	fencing string,
 	walker *sweeper,
@@ -313,7 +313,7 @@ func (a *API) recordFailure(
 // died, a retry is what finalizes it; once it ended, a retry replays the
 // outcome. None of those re-runs the command.
 func (a *API) standing(
-	c *fiber.Ctx,
+	c fiber.Ctx,
 	keys records.Keys,
 	record records.Record,
 	command bulkCommand,
@@ -341,7 +341,7 @@ func (a *API) standing(
 
 	// Accepted, and its lease is gone: the walker died. The first retry to see
 	// this finalizes the record, atomically, against the still-empty outcome.
-	finalized, err := a.Records.Finalize(c.UserContext(), records.Finalize{
+	finalized, err := a.Records.Finalize(c.Context(), records.Finalize{
 		Keys: keys,
 		Outcome: records.Outcome{
 			Failed:  true,
@@ -351,7 +351,7 @@ func (a *API) standing(
 		},
 	})
 	if err != nil {
-		a.Log.ErrorC(c.UserContext(), "failed to finalize an interrupted bulk reset error=%v", err)
+		a.Log.ErrorC(c.Context(), "failed to finalize an interrupted bulk reset error=%v", err)
 		return storeDown("the command record store did not answer")
 	}
 	if !finalized.Found {
@@ -369,7 +369,7 @@ func (a *API) standing(
 // call lost its lease and another hand recorded the outcome. ctx is the
 // context the outcome was recorded under: a sweep can outlive the request's
 // own deadline.
-func (a *API) replayFrom(ctx context.Context, c *fiber.Ctx, keys records.Keys, command bulkCommand) error {
+func (a *API) replayFrom(ctx context.Context, c fiber.Ctx, keys records.Keys, command bulkCommand) error {
 	record, err := a.Records.Lookup(ctx, keys)
 	if err != nil || !record.Found || !record.Terminal {
 		return storeDown("the outcome of this command could not be read back")
@@ -379,7 +379,7 @@ func (a *API) replayFrom(ctx context.Context, c *fiber.Ctx, keys records.Keys, c
 
 // replay answers from a recorded outcome: the same body, or the same error
 // instance, with only the request id taken from the current call.
-func (a *API) replay(c *fiber.Ctx, record records.Record, command bulkCommand) error {
+func (a *API) replay(c fiber.Ctx, record records.Record, command bulkCommand) error {
 	outcome := record.Outcome
 	if !outcome.Failed {
 		return writeJSON(c, resultOf(outcome, domainOf(c), command))
@@ -452,7 +452,7 @@ func (a *API) mintToken(
 }
 
 // idempotencyKeyOf reads the mandatory key of a mutation.
-func idempotencyKeyOf(c *fiber.Ctx) (string, *apiError) {
+func idempotencyKeyOf(c fiber.Ctx) (string, *apiError) {
 	key := c.Get(headerIdempotencyKey)
 	if key == "" {
 		return "", invalid("this mutation needs an Idempotency-Key header", headerIdempotencyKey)
@@ -467,7 +467,7 @@ func idempotencyKeyOf(c *fiber.Ctx) (string, *apiError) {
 }
 
 // domainOf is the domain of the path.
-func domainOf(c *fiber.Ctx) string { return c.Params("domain") }
+func domainOf(c fiber.Ctx) string { return c.Params("domain") }
 
 // retryAfterSeconds renders a wait as whole seconds, never below one: a
 // Retry-After of zero invites the hot loop it exists to prevent.
@@ -485,7 +485,7 @@ func newErrorID() string { return uuid.NewString() }
 // the moment the deletions became inevitable. The request id is not a field
 // here: the logger takes it from the context this call carries.
 func (a *API) auditBulk(
-	c *fiber.Ctx,
+	c fiber.Ctx,
 	subject Subject,
 	idempotencyKey, domain string,
 	command bulkCommand,
@@ -495,7 +495,7 @@ func (a *API) auditBulk(
 		selector = string(command.Selector.canonical())
 	}
 
-	a.Log.InfoC(c.UserContext(),
+	a.Log.InfoC(c.Context(),
 		"management mutation accepted subject=%v idempotencyKey=%v domain=%v endpoint=%v "+
 			"command=%v selection=%v dryRun=%v selector=%v",
 		logSafe(subject.Name), idempotencyKey, domain, endpointResets,

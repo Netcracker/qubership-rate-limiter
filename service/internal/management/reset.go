@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/netcracker/qubership-rate-limiter/engine/compile"
 	"github.com/netcracker/qubership-rate-limiter/engine/key"
 	"github.com/netcracker/qubership-rate-limiter/engine/model"
@@ -364,7 +364,7 @@ func splitFullID(id string) (block, rule string, ok bool) {
 // A record without a stored answer predates this field. It falls through to the
 // ordinary path, which still replays the count from the store; only the body is
 // rebuilt.
-func (a *API) replayReset(c *fiber.Ctx, query url.Values, name string) (bool, *apiError) {
+func (a *API) replayReset(c fiber.Ctx, query url.Values, name string) (bool, *apiError) {
 	binding, apiErr := resetBinding(query)
 	if apiErr != nil {
 		// A query this malformed cannot name a command, so it cannot be a
@@ -372,9 +372,9 @@ func (a *API) replayReset(c *fiber.Ctx, query url.Values, name string) (bool, *a
 		return false, nil
 	}
 
-	record, err := a.Records.Lookup(c.UserContext(), records.Keys{Record: name})
+	record, err := a.Records.Lookup(c.Context(), records.Keys{Record: name})
 	if err != nil {
-		a.Log.ErrorC(c.UserContext(), "failed to read a reset record error=%v", err)
+		a.Log.ErrorC(c.Context(), "failed to read a reset record error=%v", err)
 		return false, storeDown("the counter store did not answer the idempotency lookup")
 	}
 	if !record.Found || !record.Terminal || len(record.Answer) == 0 {
@@ -389,7 +389,7 @@ func (a *API) replayReset(c *fiber.Ctx, query url.Values, name string) (bool, *a
 	// the store's own number, recorded beside it.
 	var response ResetResponse
 	if err := json.Unmarshal(record.Answer, &response); err != nil {
-		a.Log.ErrorC(c.UserContext(), "failed to read a recorded reset answer error=%v", err)
+		a.Log.ErrorC(c.Context(), "failed to read a recorded reset answer error=%v", err)
 		return false, errorf(CodeInternal, "the recorded answer of this command cannot be read")
 	}
 	count := record.Progress.Reset

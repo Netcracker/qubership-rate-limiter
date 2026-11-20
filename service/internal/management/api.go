@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/recover"
 
 	"github.com/netcracker/qubership-rate-limiter/engine/compile"
 	"github.com/netcracker/qubership-rate-limiter/engine/match"
@@ -136,13 +136,13 @@ func (a *API) Register(router fiber.Router) {
 
 	// A route under this prefix that nothing serves gets the same error shape
 	// as everything else, so a client only ever parses one.
-	group.Use(func(c *fiber.Ctx) error {
+	group.Use(func(c fiber.Ctx) error {
 		return notFound("no endpoint serves " + c.Method() + " on this path")
 	})
 }
 
 // handleDomains reports every domain the enforced set carries.
-func (a *API) handleDomains(c *fiber.Ctx) error {
+func (a *API) handleDomains(c fiber.Ctx) error {
 	ruleSet := a.Rules.Load()
 	items := make([]ruleview.DomainSummary, 0, ruleSet.Len())
 	for _, domain := range ruleSet.Domains() {
@@ -158,7 +158,7 @@ func (a *API) handleDomains(c *fiber.Ctx) error {
 // handleRules reports the rule set the domain's engine is deciding with,
 // filtered to a request and annotated for a partial identity when the caller
 // asks for either.
-func (a *API) handleRules(c *fiber.Ctx) error {
+func (a *API) handleRules(c fiber.Ctx) error {
 	snapshot, version, apiErr := a.snapshot(c)
 	if apiErr != nil {
 		return apiErr
@@ -243,7 +243,7 @@ func excludedBlockSkips(names []string) []ruleview.BlockSkip {
 }
 
 // handleCounters lists live counters without charging them.
-func (a *API) handleCounters(c *fiber.Ctx) error {
+func (a *API) handleCounters(c fiber.Ctx) error {
 	snapshot, _, apiErr := a.snapshot(c)
 	if apiErr != nil {
 		return apiErr
@@ -274,7 +274,7 @@ func (a *API) handleCounters(c *fiber.Ctx) error {
 		}
 	}
 
-	list, apiErr := a.listCounters(c.UserContext(), snapshot, sel, pageSize, start, now)
+	list, apiErr := a.listCounters(c.Context(), snapshot, sel, pageSize, start, now)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -282,7 +282,7 @@ func (a *API) handleCounters(c *fiber.Ctx) error {
 }
 
 // handleReset drops the counter state of one addressed rule.
-func (a *API) handleReset(c *fiber.Ctx) error {
+func (a *API) handleReset(c fiber.Ctx) error {
 	snapshot, version, apiErr := a.snapshot(c)
 	if apiErr != nil {
 		return apiErr
@@ -335,7 +335,7 @@ func (a *API) handleReset(c *fiber.Ctx) error {
 	// Everything above can refuse without binding anything: a corrected repeat
 	// re-evaluates cleanly, with the same key if the client wants.
 
-	response, apiErr := a.runReset(c.UserContext(), snapshot, version, command, name)
+	response, apiErr := a.runReset(c.Context(), snapshot, version, command, name)
 	if apiErr != nil {
 		a.auditReset(c, subject, idempotencyKey, snapshot.Domain, command, nil, apiErr)
 		return apiErr
@@ -345,7 +345,7 @@ func (a *API) handleReset(c *fiber.Ctx) error {
 }
 
 // handleSimulation judges one request without charging anything.
-func (a *API) handleSimulation(c *fiber.Ctx) error {
+func (a *API) handleSimulation(c fiber.Ctx) error {
 	var request SimulationRequest
 	if apiErr := decodeJSON(c, &request); apiErr != nil {
 		return apiErr
@@ -354,7 +354,7 @@ func (a *API) handleSimulation(c *fiber.Ctx) error {
 		return apiErr
 	}
 
-	response, apiErr := a.simulate(c.UserContext(), request)
+	response, apiErr := a.simulate(c.Context(), request)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -373,7 +373,7 @@ func (a *API) handleSimulation(c *fiber.Ctx) error {
 // counter unaddressable, so they are recorded as JSON instead, which escapes
 // every control character and keeps the value exact.
 func (a *API) auditReset(
-	c *fiber.Ctx,
+	c fiber.Ctx,
 	subject Subject,
 	idempotencyKey, domain string,
 	command resetCommand,
@@ -390,7 +390,7 @@ func (a *API) auditReset(
 		outcome, count = "previewed", *response.MatchedCount
 	}
 
-	a.Log.InfoC(c.UserContext(),
+	a.Log.InfoC(c.Context(),
 		"management mutation subject=%v idempotencyKey=%v domain=%v endpoint=%v ruleId=%v axes=%v dryRun=%v outcome=%v count=%v",
 		logSafe(subject.Name), idempotencyKey, domain, endpointCounters,
 		command.Selector.RuleIDs[0], auditAxes(command.AxesByName), command.DryRun, outcome, count)
@@ -407,7 +407,7 @@ func auditAxes(axes map[string]string) string {
 }
 
 // snapshot resolves the domain of the path to the set being enforced.
-func (a *API) snapshot(c *fiber.Ctx) (*compile.Snapshot, string, *apiError) {
+func (a *API) snapshot(c fiber.Ctx) (*compile.Snapshot, string, *apiError) {
 	domain := c.Params("domain")
 	ruleSet := a.Rules.Load()
 	snapshot := ruleSet.Snapshot(domain)
@@ -435,7 +435,7 @@ func parsePageSize(raw string) (int, *apiError) {
 }
 
 // handleSpecification serves the embedded document.
-func (a *API) handleSpecification(c *fiber.Ctx) error {
+func (a *API) handleSpecification(c fiber.Ctx) error {
 	c.Set(fiber.HeaderContentType, "application/yaml")
 	c.Set(fiber.HeaderXContentTypeOptions, "nosniff")
 	return c.Status(fiber.StatusOK).Send(specification)
