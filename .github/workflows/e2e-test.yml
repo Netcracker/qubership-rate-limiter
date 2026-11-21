@@ -345,7 +345,7 @@ jobs:
       - name: Email the e2e report
         if: failure() && vars.EMAIL_TO != ''
         continue-on-error: true
-        uses: netcracker/qubership-workflow-hub/actions/email-action@cf536587a99a23b3614aa4db4bdbf13cf36059b6 # v2.8.3
+        uses: netcracker/qubership-workflow-hub/actions/email-action@b72b7f047fdb44ac85035f87b4d15d1cbdf2cb15 # v3.0.0
         env:
           EMAIL_SMTP_HOST: ${{ vars.EMAIL_SMTP_HOST }}
           EMAIL_SMTP_PORT: ${{ vars.EMAIL_SMTP_PORT }}
