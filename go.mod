@@ -22,7 +22,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.74.0
-	github.com/redis/go-redis/v9 v9.23.0
+	github.com/redis/go-redis/v9 v9.24.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.25.0
 	golang.org/x/time v0.16.0
