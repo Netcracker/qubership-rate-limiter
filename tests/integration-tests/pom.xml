@@ -13,7 +13,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
         <junit.version>6.1.3</junit.version>
-        <allure.version>2.35.5</allure.version>
+        <allure.version>2.35.6</allure.version>
         <!-- The tests need a deployed environment: the CI build compiles them and test-runner runs them. -->
         <skipIT>true</skipIT>
         <testFailureIgnore>true</testFailureIgnore>
