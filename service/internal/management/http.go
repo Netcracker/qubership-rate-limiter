@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/baseproviders/xrequestid"
 )
 
@@ -59,7 +59,7 @@ const localSubject = "ratelimit.subject"
 // value in the context before this ran and will put one on the response. Only
 // the refusal path touches either, and it replaces both, so the caller's value
 // never reaches a log line or a response header.
-func withRequestID(c *fiber.Ctx) error {
+func withRequestID(c fiber.Ctx) error {
 	if id := c.Get(RequestIDHeader); id != "" && !requestIDPattern.MatchString(id) {
 		replaceRequestID(c)
 		return invalid("the "+RequestIDHeader+" header does not match "+requestIDPattern.String(),
@@ -75,21 +75,21 @@ var requestTimeout = 10 * time.Second
 
 // withDeadline gives the request's context a deadline of requestTimeout, so a
 // store that does not answer fails the call with RLS-0503 at that bound.
-func withDeadline(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(c.UserContext(), requestTimeout)
+func withDeadline(c fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), requestTimeout)
 	defer cancel()
-	c.SetUserContext(ctx)
+	c.SetContext(ctx)
 	return c.Next()
 }
 
 // replaceRequestID swaps a refused id for a fresh one, in the context the
 // platform logger reads and in the response header it already wrote.
-func replaceRequestID(c *fiber.Ctx) {
+func replaceRequestID(c fiber.Ctx) {
 	provider := xrequestid.XRequestIdProvider{}
 	// An empty value asks the platform to generate one.
-	ctx, err := provider.Set(c.UserContext(), xrequestid.NewXRequestIdContextObject(""))
+	ctx, err := provider.Set(c.Context(), xrequestid.NewXRequestIdContextObject(""))
 	if err == nil {
-		c.SetUserContext(ctx)
+		c.SetContext(ctx)
 	}
 	c.Set(RequestIDHeader, requestIDOf(c))
 }
@@ -97,32 +97,32 @@ func replaceRequestID(c *fiber.Ctx) {
 // adoptRequestID gives a request the middleware never saw its id: the one the
 // caller sent when it matches requestIDPattern, a fresh one otherwise, in the
 // context the platform logger reads and in the response header.
-func adoptRequestID(c *fiber.Ctx) {
+func adoptRequestID(c fiber.Ctx) {
 	id := c.Get(RequestIDHeader)
 	if !requestIDPattern.MatchString(id) {
 		// An empty value asks the platform to generate one.
 		id = ""
 	}
 	provider := xrequestid.XRequestIdProvider{}
-	ctx, err := provider.Set(c.UserContext(), xrequestid.NewXRequestIdContextObject(id))
+	ctx, err := provider.Set(c.Context(), xrequestid.NewXRequestIdContextObject(id))
 	if err == nil {
-		c.SetUserContext(ctx)
+		c.SetContext(ctx)
 	}
 	c.Set(RequestIDHeader, requestIDOf(c))
 }
 
 // writeJSON sends a success body. Every endpoint here answers 200 on success,
 // so the status is not a parameter that could be got wrong.
-func writeJSON(c *fiber.Ctx, body any) error {
+func writeJSON(c fiber.Ctx, body any) error {
 	c.Set(fiber.HeaderXContentTypeOptions, "nosniff")
-	return c.Status(fiber.StatusOK).JSON(body)
+	return c.Status(fiber.StatusOK).JSON(body, fiber.MIMEApplicationJSON)
 }
 
 // decodeJSON reads a request body, rejecting the shapes a client should hear
 // about rather than have silently ignored: a wrong content type, a compressed
 // body, an unknown field (usually a typo or a version mismatch), and trailing
 // data.
-func decodeJSON(c *fiber.Ctx, v any) *apiError {
+func decodeJSON(c fiber.Ctx, v any) *apiError {
 	if contentType := c.Get(fiber.HeaderContentType); contentType != "" {
 		// A media type is case-insensitive (RFC 9110, section 8.3.1).
 		media, _, _ := strings.Cut(contentType, ";")
@@ -166,7 +166,7 @@ func decodeJSON(c *fiber.Ctx, v any) *apiError {
 // The selection grammar repeats parameters: one axis name ORs its values, and
 // ruleId is repeatable. The last-one-wins map a router hands out would quietly
 // narrow a listing and, worse, quietly widen a reset.
-func queryValues(c *fiber.Ctx) url.Values {
+func queryValues(c fiber.Ctx) url.Values {
 	values := url.Values{}
 	for key, value := range c.Request().URI().QueryArgs().All() {
 		values.Add(string(key), string(value))
@@ -212,11 +212,11 @@ func checkQueryNames(query url.Values, allowed ...string) *apiError {
 
 // requestIDOf returns the correlation id the platform resolved for this
 // request: the same value its logger prints and its propagation returns.
-func requestIDOf(c *fiber.Ctx) string {
+func requestIDOf(c fiber.Ctx) string {
 	if c == nil {
 		return ""
 	}
-	id, err := xrequestid.Of(c.UserContext())
+	id, err := xrequestid.Of(c.Context())
 	if err != nil {
 		return ""
 	}

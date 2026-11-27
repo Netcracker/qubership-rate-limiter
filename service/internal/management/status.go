@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // StatusView is one replica's serving state.
@@ -35,7 +35,7 @@ type CounterStoreView struct {
 }
 
 // handleStatus reports what this replica is serving right now.
-func (a *API) handleStatus(c *fiber.Ctx) error {
+func (a *API) handleStatus(c fiber.Ctx) error {
 	ruleSet := a.Rules.Load()
 
 	view := StatusView{

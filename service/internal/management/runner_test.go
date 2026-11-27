@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +71,7 @@ func TestRunner_stopsWhenTheContextEndsBeforeTheServerAccepts(t *testing.T) {
 	h := newTestAPI(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	shutDown := make(chan struct{})
-	h.app.Hooks().OnShutdown(func() error {
+	h.app.Hooks().OnPostShutdown(func(error) error {
 		close(shutDown)
 		return nil
 	})

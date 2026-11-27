@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/MicahParks/jwkset"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/netcracker/qubership-core-lib-go/v3/security/token"
 	"github.com/netcracker/qubership-core-lib-go/v3/security/tokenverifier"
@@ -97,7 +97,7 @@ func (a *API) withIdentity() fiber.Handler {
 	for _, caller := range a.Callers {
 		listed[caller] = true
 	}
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		verifier := a.verifier.Load()
 		if verifier == nil {
 			return verifierUnavailable()
@@ -107,7 +107,7 @@ func (a *API) withIdentity() fiber.Handler {
 			return errorf(CodeUnauthorized,
 				"no bearer token on the request; send a Kubernetes ServiceAccount token")
 		}
-		verified, err := (*verifier).Verify(c.UserContext(), raw)
+		verified, err := (*verifier).Verify(c.Context(), raw)
 		if err != nil {
 			// The key id tells a key of another issuer from a key set the
 			// service never fetched; the token itself is a live credential
@@ -116,7 +116,7 @@ func (a *API) withIdentity() fiber.Handler {
 			if verified != nil {
 				kid = verified.Header["kid"]
 			}
-			a.Log.DebugC(c.UserContext(), "management API refused a bearer token kid=%v error=%v",
+			a.Log.DebugC(c.Context(), "management API refused a bearer token kid=%v error=%v",
 				logSafe(fmt.Sprint(kid)), oneLine(err))
 			return errorf(CodeUnauthorized, refusal(err))
 		}
@@ -171,7 +171,7 @@ func oneLine(err error) string {
 // every GET and the one simulation POST need viewer, every mutation needs
 // operator.
 func requireRole(role string, next fiber.Handler) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		subject := subjectOf(c)
 		if len(subject.Roles) == 0 {
 			// A role is held only through management.callers, so the list is
@@ -190,7 +190,7 @@ func requireRole(role string, next fiber.Handler) fiber.Handler {
 }
 
 // bearerToken pulls the credential out of the Authorization header.
-func bearerToken(c *fiber.Ctx) (string, bool) {
+func bearerToken(c fiber.Ctx) (string, bool) {
 	header := c.Get(fiber.HeaderAuthorization)
 	if header == "" {
 		return "", false
@@ -206,7 +206,7 @@ func bearerToken(c *fiber.Ctx) (string, bool) {
 // subjectOf returns the caller. Handlers run behind withIdentity, so the value
 // is always present; the zero Subject is what a test bypassing the middleware
 // sees, and it holds no role.
-func subjectOf(c *fiber.Ctx) Subject {
+func subjectOf(c fiber.Ctx) Subject {
 	subject, _ := c.Locals(localSubject).(Subject)
 	return subject
 }

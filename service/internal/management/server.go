@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
-	fiberserver "github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2"
-	fibererrors "github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2/errors"
-	"github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v2/security"
+	fiberserver "github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v3"
+	fibererrors "github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v3/errors"
+	"github.com/netcracker/qubership-core-lib-go-fiber-server-utils/v3/security"
 	"github.com/netcracker/qubership-core-lib-go/v3/serviceloader"
 	"github.com/netcracker/qubership-core-lib-go/v3/utils"
 )
@@ -55,11 +55,10 @@ func NewApp(api *API) (*fiber.App, error) {
 	}
 
 	app, err := fiberserver.New(fiber.Config{
-		AppName:               "ratelimit-management",
-		ReadTimeout:           DefaultReadTimeout,
-		WriteTimeout:          DefaultWriteTimeout,
-		IdleTimeout:           DefaultIdleTimeout,
-		DisableStartupMessage: true,
+		AppName:      "ratelimit-management",
+		ReadTimeout:  DefaultReadTimeout,
+		WriteTimeout: DefaultWriteTimeout,
+		IdleTimeout:  DefaultIdleTimeout,
 		// The guard in decodeJSON runs after the body is already in memory, so
 		// it cannot be the limit; fiber's own default is 4 MiB, which would
 		// make the check decorative and answer an oversized body as RLS-0500,
@@ -80,7 +79,7 @@ func NewApp(api *API) (*fiber.App, error) {
 	// mistake worth answering in the same envelope as everything else rather
 	// than with the router's plain-text default. It is registered last, after
 	// every route, which is what makes it the fallback.
-	app.Use(withRequestID, func(c *fiber.Ctx) error {
+	app.Use(withRequestID, func(c fiber.Ctx) error {
 		return notFound("no endpoint serves " + c.Method() + " on this path")
 	})
 	return app, nil
@@ -129,7 +128,7 @@ func (r *Runner) Start(ctx context.Context) error {
 	r.bound.Store(&addr)
 
 	served := make(chan error, 1)
-	go func() { served <- r.App.Listener(listener) }()
+	go func() { served <- r.App.Listener(listener, fiber.ListenConfig{DisableStartupMessage: true}) }()
 
 	r.Log.InfoC(ctx, "management API listening address=%v basePath=%v", addr, BasePath)
 
@@ -167,10 +166,10 @@ func (r *Runner) Start(ctx context.Context) error {
 // happened is that its request was too large.
 func managementErrorHandler() fiber.ErrorHandler {
 	fallback := fibererrors.DefaultErrorHandler(CodeInternal)
-	return func(c *fiber.Ctx, err error) error {
-		// An error raised before any middleware ran, an oversized body that
-		// fasthttp cuts while reading it among them, finds the request
-		// without the id every answer of this API carries.
+	return func(c fiber.Ctx, err error) error {
+		// A request with a method the router does not know, refused while
+		// fasthttp read it, reaches here without the middleware chain having
+		// run, so without the id every answer of this API carries.
 		if requestIDOf(c) == "" {
 			adoptRequestID(c)
 		}

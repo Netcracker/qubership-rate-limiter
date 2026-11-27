@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	errs "github.com/netcracker/qubership-core-lib-go-error-handling/v3/errors"
 	"github.com/netcracker/qubership-core-lib-go-error-handling/v3/tmf"
 )
@@ -226,7 +226,7 @@ func (e *apiError) status() int {
 // person quotes is the value in the log. Returning nil tells the platform's
 // error handler the error is answered, which also keeps it from logging a
 // detail that came from the caller.
-func (e *apiError) Handle(c *fiber.Ctx) error {
+func (e *apiError) Handle(c fiber.Ctx) error {
 	status := e.status()
 	if e.GetErrorCode() == CodeUnauthorized {
 		// The challenge tells a client what credential to present, which is the
@@ -239,5 +239,5 @@ func (e *apiError) Handle(c *fiber.Ctx) error {
 	}
 	c.Set(fiber.HeaderXContentTypeOptions, "nosniff")
 
-	return c.Status(status).JSON(e.tmfResponse(requestIDOf(c)))
+	return c.Status(status).JSON(e.tmfResponse(requestIDOf(c)), fiber.MIMEApplicationJSON)
 }
