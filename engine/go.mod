@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/go-redis/redis_rate/v10 v10.0.1
-	github.com/redis/go-redis/v9 v9.24.0
+	github.com/redis/go-redis/v9 v9.24.1
 )
 
 require (
